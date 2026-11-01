@@ -40,8 +40,8 @@ import re
 import unicodedata
 
 from narration.words import (MAX_SUBSTITUTIONS, Substitution, audit, declaration_problems,
-                             is_override_respelling, looks_like_link, max_prepared_length,
-                             overrides, words)
+                             is_override_respelling, is_respelling, looks_like_link,
+                             max_prepared_length, overrides, respellings_limit, words)
 
 MAX_RECORDS = 4
 MAX_CHECKS = 8
@@ -179,8 +179,11 @@ def _matches(text: str, old: str) -> int:
 
 def _unproven_overrides(state: dict, prepared: str, declared: list[tuple], limit: int):
     """Check each override in `prepared` against the recorded lookups. Returns
-    messages for the ones not proven (stopping at `limit`), and the indices of the
-    `declared` substitutions (as words() pairs) that declare an override's respelling.
+    messages for the ones not proven (stopping at `limit`), the indices of the
+    `declared` substitutions (as words() pairs) that declare an override's respelling,
+    and how many overrides in `prepared` (every place, not each once) a declared
+    respelling proves: they count toward the respellings cap, as respellings written
+    in the text do.
 
     Proven: a lookup of the displayed word itself returned these phonemes, or a
     lookup of a respelling of it did and that respelling is declared. Each lookup
@@ -192,8 +195,9 @@ def _unproven_overrides(state: dict, prepared: str, declared: list[tuple], limit
     for lookup in state.get("phoneme_lookups", []):
         looked_up.setdefault(lookup["phonemes"], {}).setdefault(
             tuple(words(lookup["word"])), lookup["word"])
-    problems, used, seen = [], set(), set()
-    for shown, phonemes in overrides(prepared):
+    problems, used, seen, by_respelling = [], set(), set(), set()
+    every = overrides(prepared)
+    for shown, phonemes in every:
         if (shown.casefold(), phonemes) in seen:
             continue
         seen.add((shown.casefold(), phonemes))
@@ -205,11 +209,13 @@ def _unproven_overrides(state: dict, prepared: str, declared: list[tuple], limit
                      and is_override_respelling(shown, found[spoken])]
         if respelled:
             used.update(respelled)
+            by_respelling.add((shown.casefold(), phonemes))
             continue
         problems.append(_unproven(shown, phonemes, found))
         if len(problems) >= limit:
             break
-    return problems, used
+    n_respelled = sum((s.casefold(), p) in by_respelling for s, p in every)
+    return problems, used, n_respelled
 
 
 def _near_miss(shown: str, word: str) -> bool:
@@ -520,10 +526,19 @@ def validate_substitutions(state: dict, source: str, prepared: str, subs_in: lis
             raise ToolError("; ".join(refused) + ". Fix or remove these substitutions.")
         raise ToolError("the prepared text differs from the article: " + "; ".join(problems)
                         + ". Declare each word change in substitutions, or undo it.")
-    unproven, respellings = _unproven_overrides(state, prepared, declared, MAX_SHOWN + 1)
+    unproven, respellings, n_respelled = _unproven_overrides(state, prepared, declared,
+                                                             MAX_SHOWN + 1)
     if unproven:
         raise ToolError("; ".join(unproven[:MAX_SHOWN])
                         + ("; and more overrides like these" if len(unproven) > MAX_SHOWN else ""))
+    if n_respelled:  # audit capped the text's respellings; these share the cap with them
+        in_text = sum(applied.get(sub, 0) for sub in subs if is_respelling(sub.original, sub.spoken))
+        n_words, total = len(words(source)), in_text + n_respelled
+        cap = respellings_limit(n_words)
+        if total > cap:
+            raise ToolError(f"respellings are applied {total} times in all, {n_respelled} of them "
+                            f"through overrides, in an article of {n_words} words; the limit is "
+                            f"{cap}. Respell fewer places")
     unused = [s for k, (s, sub) in enumerate(zip(subs_in, subs))
               if not applied.get(sub) and k not in respellings]
     if unused:

@@ -960,6 +960,35 @@ def test_the_name_rule_still_refuses_other_words(names, old, shown, spoken):
     assert store.load_state(item)["status"] == "open"
 
 
+def _respell_everywhere(n_over_cap):
+    """An article of one sentence repeated, every 'positive' overridden with the
+    phonemes of 'Punitive' (a respelling by the strict rule) under one declaration."""
+    from narration.words import MAX_RESPELLINGS
+    n = MAX_RESPELLINGS + n_over_cap
+    article = "The test was positive. " * n
+    return n, article
+
+
+@pytest.mark.parametrize("n_over_cap, refused", [(0, False), (1, True)])
+def test_override_respellings_count_toward_the_respellings_cap(tmp_path, n_over_cap, refused):
+    # Review F1: applied 0 times by audit, an override respelling escaped every budget,
+    # so one declaration could change a word at every place it appears.
+    store = WorkItemStore(tmp_path)
+    tools = AgentTools(store, FakeTTS(), FakeVerifier(), SpellingG2P())
+    n, article = _respell_everywhere(n_over_cap)
+    item, _ = store.open(article, {})
+    ph = tools.phonemes(item, "Punitive")["phonemes"]
+    store.write_text(item, "prepared.md", article.replace("positive", f"[positive](/{ph}/)"))
+    _record_and_check(tools, item)
+    sub = {"original": "positive", "spoken": "Punitive", "why": "pronunciation"}
+    if not refused:
+        assert tools.finish(item, "clean", [], [sub])["ok"]
+        return
+    with pytest.raises(ToolError, match=re.escape(
+            f"respellings are applied {n} times in all, {n} of them through overrides")):
+        tools.finish(item, "clean", [], [sub])
+
+
 def test_a_lookup_too_far_from_the_word_is_named_in_the_refusal(names):
     # The real session was told its phonemes were "not produced by the phonemes tool"
     # when they were: the lookup was only too far from the word to count as a respelling.

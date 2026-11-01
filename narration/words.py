@@ -831,8 +831,9 @@ def _changed_words(original: tuple, spoken: tuple) -> int:
     return max(len(original), len(spoken)) - head - tail
 
 
-def _respellings_limit(source_words: int) -> int:
-    """How many times, in all, respellings may be applied."""
+def respellings_limit(source_words: int) -> int:
+    """How many times, in all, respellings may be applied: in the text, and (counted
+    by agent_tools) through the overrides a declared respelling proves."""
     return max(MAX_RESPELLINGS, math.ceil(RESPELLINGS_FRACTION * source_words))
 
 
@@ -854,7 +855,7 @@ def _check_budgets(src, subs, pairs, applied):
         problems.append(_over_budget(headline, limit, subs, applied, changed,
                                      "and changes {} words"))
     respelled = [n if r else 0 for r, n in zip(respelling, applied)]
-    cap = _respellings_limit(len(src))
+    cap = respellings_limit(len(src))
     if sum(respelled) > cap:
         headline = (f"respellings are applied {sum(respelled)} times in all, "
                     f"in an article of {len(src)} words")
