@@ -109,6 +109,17 @@ class TestVerifyAudio:
     """Test the verify_audio function."""
 
     @patch("verify_audio.genai")
+    def test_the_gemini_client_has_a_request_timeout(self, mock_genai, tmp_path):
+        """Review F3: with no HTTP timeout, a request on a dead connection never
+        returned, and the narration server's item lock was held for good."""
+        import verify_audio as va
+        mock_gemini_client(mock_genai, "No issues found.")
+        verify_audio(make_wav(tmp_path / "audio.wav"), "Some source text.")
+        options = mock_genai.Client.call_args.kwargs["http_options"]
+        assert options.timeout == va.GEMINI_TIMEOUT_MS
+        assert 0 < va.GEMINI_TIMEOUT_MS <= 30 * 60 * 1000
+
+    @patch("verify_audio.genai")
     def test_returns_model_response_text(self, mock_genai, tmp_path):
         """Test that verify_audio returns the model's response as a string."""
         mock_gemini_client(mock_genai, "No issues found.")

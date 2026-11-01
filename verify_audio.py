@@ -13,6 +13,7 @@ import tempfile
 import time
 from pathlib import Path
 from google import genai
+from google.genai import types as genai_types
 from dotenv import load_dotenv
 from pydub import AudioSegment
 from pydub.silence import detect_silence
@@ -22,6 +23,10 @@ from text_to_speech import split_sections
 load_dotenv()
 
 DEFAULT_MODEL = "gemini-flash-latest"
+
+# Longest one Gemini request (an upload, a status poll or a generate_content call)
+# may take. With none, a request on a dead connection never returned (review F3).
+GEMINI_TIMEOUT_MS = 10 * 60 * 1000
 
 # Longest stretch of audio one generate_content call can be trusted with.
 # Calibrated empirically on known audio (issue #4): at 11.4 minutes,
@@ -186,7 +191,8 @@ def verify_audio(audio_path: str, source_text: str, model: str = DEFAULT_MODEL,
         audio = AudioSegment.from_wav(audio_path)
     precheck = precheck_report(audio, source_text)
 
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"),
+                          http_options=genai_types.HttpOptions(timeout=GEMINI_TIMEOUT_MS))
 
     sections = split_sections(source_text)
     gaps = find_section_gaps(audio)
