@@ -87,6 +87,8 @@ The session is `claude -p` with only the six tools, as `tests/narration/smoke_cl
 
 Without it, Claude Code gave up on a `check` after about 60 seconds while the server went on with it (2026-11-01: a check of a 12-minute recording took 70–89 seconds). The session then saw "The operation timed out.", never got the report, and spent a check each time it asked again. A long article's `record` and `check` take longer still.
 
+Run it with `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` and `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` in its environment. `--setting-sources ""` leaves Claude Code's auto-memory on: on 2026-11-01 a session on the Mac had a memory directory in its `init` event (`memory_paths`) and tried to write a file there (refused: it has no Write tool). A session that reads an untrusted article shouldn't carry the operator's memory or `CLAUDE.md` instructions. With both set, `memory_paths` is absent from the `init` event.
+
 ## Calling the agent tools from a Python MCP client
 
 Claude Code lists a server's tools when the session starts. The MCP Python SDK (2.3.0) lists them lazily instead: after a tool call, a client that hasn't listed them yet calls `list_tools` to validate the result. After `finish` that request carries the token `finish` has just revoked, gets 401, and the client raises (`MCPError: Server returned an error response`), although `finish` has already been recorded. This was seen on 2026-11-01 with a hand-written test driver. A Python client that calls the agent tools should call `list_tools()` once, before `finish`. The runner's tools are unaffected: the runner token isn't revoked.
