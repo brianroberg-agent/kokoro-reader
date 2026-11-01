@@ -58,9 +58,16 @@ class RunnerTools:
         # Wait for a running record, check or finish, but not forever: a call stuck in
         # an engine would otherwise keep even finalize(force=True) from abandoning it.
         if not lock.acquire(timeout=FINALIZE_WAIT_SECONDS):
-            raise ToolError(f"a tool call is still running on this work item after "
-                            f"{FINALIZE_WAIT_SECONDS:g} seconds; nothing was decided. "
-                            "Call finalize again later.")
+            busy = (f"a tool call is still running on this work item after "
+                    f"{FINALIZE_WAIT_SECONDS:g} seconds")
+            if not force:
+                raise ToolError(f"{busy}; nothing was decided. Call finalize again later.")
+            # The stuck call owns the item's state, so leave that alone; revoking the
+            # token (under the store's own lock) is enough to end the session's part.
+            self.store.revoke(item_id)
+            return {"action": "retry", "outcome": None, "notes": "", "mp3": False,
+                    "reasons": [f"{busy}; the session's token is revoked and the item is "
+                                "left as it was. Record the article again as a new item."]}
         try:
             state = self.store.load_state(item_id)
             if state["status"] == "open":

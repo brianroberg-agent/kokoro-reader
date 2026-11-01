@@ -221,7 +221,9 @@ def build_app(store, agent_tools, runner_tools, runner_token, allowed_hosts: lis
         force=True only once your own session timeout has passed; that revokes the
         agent's token, marks the item abandoned, and returns action retry. An error
         here (say the G2P failed) decides nothing: the item stays as it was; retry. So
-        does a tool call still running on the item when finalize has waited 10 minutes."""
+        does a tool call still running on the item when finalize has waited 10 minutes;
+        with force=True it then revokes the agent's token and returns action retry,
+        leaving the item as it was."""
         return run(runner_tools.finalize, item_id, force)
 
     @runner.tool()

@@ -65,9 +65,8 @@ def test_finalize_waits_for_a_running_record(env):
     assert store.load_state(item)["recorded_round"] == 1  # the record's state write landed
 
 
-def test_finalize_gives_up_waiting_for_a_stuck_call_and_decides_nothing(env, monkeypatch):
-    # Review F3: a call stuck in an engine held the item lock, and finalize(force=True)
-    # waited for it forever.
+def _stuck_record(env, monkeypatch):
+    """A record call held inside the engine, and a short finalize wait."""
     from narration import runner_tools
     monkeypatch.setattr(runner_tools, "FINALIZE_WAIT_SECONDS", 0.2)
     store, runner, tools, _, item, token = env
@@ -75,25 +74,56 @@ def test_finalize_gives_up_waiting_for_a_stuck_call_and_decides_nothing(env, mon
     tools.tts.hold = (started, release)
     recorder = threading.Thread(target=tools.record, args=(item,))
     recorder.start()
+    assert started.wait(5)
+    return release, recorder
+
+
+def _finalize_in_thread(runner, item, **kw):
     out = []
 
-    def finalize():
+    def run():
         try:
-            out.append(runner.finalize(item, force=True))
+            out.append(runner.finalize(item, **kw))
         except ToolError as e:
             out.append(e)
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(3)
+    assert not t.is_alive(), "finalize is still waiting for the stuck call"
+    return out[0]
+
+
+def test_finalize_gives_up_waiting_for_a_stuck_call_and_decides_nothing(env, monkeypatch):
+    # Review F3: a call stuck in an engine held the item lock, and finalize waited
+    # for it forever. Without force, it now refuses after the wait.
+    store, runner, _, _, item, token = env
+    release, recorder = _stuck_record(env, monkeypatch)
     try:
-        assert started.wait(5)
-        finalizer = threading.Thread(target=finalize, daemon=True)
-        finalizer.start()
-        finalizer.join(3)
-        assert not finalizer.is_alive(), "finalize is still waiting for the stuck call"
-        assert isinstance(out[0], ToolError) and "still running" in str(out[0])
+        out = _finalize_in_thread(runner, item)
+        assert isinstance(out, ToolError) and "still running" in str(out)
         assert runner.status(item)["status"] == "open"  # nothing was decided
         assert store.item_for_token(token) == item
     finally:
         release.set()
         recorder.join(5)
+
+
+def test_finalize_forced_past_a_stuck_call_revokes_the_token_and_retries(env, monkeypatch):
+    # Review round 2, G3: forced, it still raised, so a call stuck for good (a
+    # record has no timeout) kept the runner from ever moving on.
+    store, runner, _, _, item, token = env
+    release, recorder = _stuck_record(env, monkeypatch)
+    try:
+        out = _finalize_in_thread(runner, item, force=True)
+        assert not isinstance(out, ToolError), out
+        assert out["action"] == "retry" and not out["mp3"]
+        assert "still running" in out["reasons"][0]
+        assert store.item_for_token(token) is None  # the session can do nothing more
+        assert runner.status(item)["status"] == "open"  # its state is not touched
+    finally:
+        release.set()
+        recorder.join(5)
+    assert store.load_state(item)["recorded_round"] == 1  # the stuck call's write landed
 
 
 def test_clean_publishes_with_tags_and_notes(env):
