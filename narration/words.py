@@ -747,11 +747,8 @@ def _check_substitutions(src: list[str], subs: list[Substitution]) -> list[str]:
         if not o or not sp:
             problems.append(f"{label} has no words on one side")
             continue
-        if o == sp:
-            capitals = s.original != s.spoken and s.original.casefold() == s.spoken.casefold()
-            problems.append(f"{label} changes nothing" + (
-                ": a change of capitals alone is not a word change, so it needs no "
-                "declaration; remove it" if capitals else ""))
+        if o == sp:  # a change of capitals alone never gets here (agent_tools.capitals_only)
+            problems.append(f"{label} changes nothing")
             continue
         head, tail = _shared_ends(o, sp)
         if head + tail >= len(o) and not _range_at(s.original, head):

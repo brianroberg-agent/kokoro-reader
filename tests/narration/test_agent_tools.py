@@ -889,13 +889,39 @@ def test_a_declared_respelling_must_match_the_lookup_it_names(spelled):
         tools.finish(item, "clean", [], [other])
 
 
+def test_a_lookup_in_other_capitals_needs_the_change_declared(spelled):
+    # Review F9: misaki reads capitals differently (US/us, IT/it, Polish/polish), so a
+    # lookup in other capitals proves an override only when that change is declared.
+    store, tools, item = spelled
+    ph = tools.phonemes(item, "REJECTED")["phonemes"]
+    tools.replace_text(item, "rejected", f"[rejected](/{ph}/)")
+    _record_and_check(tools, item)
+    with pytest.raises(ToolError, match=re.escape(
+            "declare the respelling in substitutions (original 'rejected', spoken 'REJECTED')")):
+        tools.finish(item, "clean", [], [])
+    sub = {"original": "rejected", "spoken": "REJECTED", "why": "pronunciation"}
+    assert tools.finish(item, "clean", [], [sub])["ok"]
+    assert store.load_state(item)["finish"]["substitutions"] == [sub]  # published
+
+
 def test_a_lookup_of_the_displayed_word_needs_no_declaration(spelled):
     store, tools, item = spelled
-    ph = tools.phonemes(item, "REJECTED")["phonemes"]  # case is folded
-    assert ph == "ˈrejected"
+    ph = tools.phonemes(item, "rejected")["phonemes"]
     tools.replace_text(item, "rejected", f"[rejected](/{ph}/)")
     _record_and_check(tools, item)
     assert tools.finish(item, "clean", [], [])["ok"]
+
+
+def test_a_second_override_in_other_capitals_is_checked_too(tmp_path):
+    # The proven [us] override must not vouch for [US] with the same phonemes.
+    store = WorkItemStore(tmp_path)
+    tools = AgentTools(store, FakeTTS(), FakeVerifier(), SpellingG2P())
+    item, _ = store.open("Let us go. They told US so.", {})
+    ph = tools.phonemes(item, "us")["phonemes"]
+    store.write_text(item, "prepared.md", f"Let [us](/{ph}/) go. They told [US](/{ph}/) so.")
+    _record_and_check(tools, item)
+    with pytest.raises(ToolError, match=re.escape("override [US]")):
+        tools.finish(item, "clean", [], [])
 
 
 # The first real session (2026-11-01) respelled three surnames as the instructions say
@@ -1021,20 +1047,28 @@ def test_a_lookup_too_far_from_the_word_is_named_in_the_refusal(names):
         tools.finish(item, "clean", [], [sub])
 
 
-def test_a_declared_change_of_capitals_alone_is_told_it_needs_no_declaration(tmp_path):
+def test_a_declared_change_of_capitals_proves_its_override(tmp_path):
     # The real session overrode an all-capitals name with the phonemes of its ordinary
-    # capitalisation, declared that as a substitution, and was told only that it
-    # "changes nothing".
+    # capitalisation and declared it, which finish refused as "changes nothing". With
+    # F9 that declaration is what proves the override, and it is published.
     store = WorkItemStore(tmp_path)
     tools = AgentTools(store, FakeTTS(), FakeVerifier(), SpellingG2P())
     item, _ = store.open("The firm ZORVA grew.", {})
     sub = _respell(tools, item, "ZORVA", "ZORVA", "Zorva")
     _record_and_check(tools, item)
+    assert tools.finish(item, "clean", [], [sub])["ok"]
+    assert store.load_state(item)["finish"]["substitutions"] == [sub]
+
+
+def test_a_change_of_capitals_no_override_uses_is_refused(tmp_path):
+    store = WorkItemStore(tmp_path)
+    tools = AgentTools(store, FakeTTS(), FakeVerifier(), SpellingG2P())
+    item, _ = store.open("The firm ZORVA grew.", {})
+    _record_and_check(tools, item)
+    sub = {"original": "ZORVA", "spoken": "Zorva", "why": "pronunciation"}
     with pytest.raises(ToolError, match=re.escape(
-            "substitution 'ZORVA' -> 'Zorva' changes nothing: a change of capitals alone "
-            "is not a word change, so it needs no declaration; remove it")):
+            "substitution 'ZORVA' -> 'Zorva' is declared but the prepared text does not use it")):
         tools.finish(item, "clean", [], [sub])
-    assert tools.finish(item, "clean", [], [])["ok"]  # the override stands on its own
 
 
 def test_an_unrelated_lookup_gets_no_hint_to_write_it_into_the_text(names):
@@ -1076,10 +1110,11 @@ def test_a_substitution_declared_twice_is_refused(env):
 def test_proven_overrides_need_no_respelling_comparisons(tmp_path, monkeypatch):
     store = WorkItemStore(tmp_path)
     tools = AgentTools(store, FakeTTS(), FakeVerifier(), FakeG2P())
-    names = [f"Name{chr(97 + k // 26)}{chr(97 + k % 26)}" for k in range(150)]
+    names = [f"Name{chr(97 + k // 26)}{chr(97 + k % 26)}" for k in range(100)]
     item, _ = store.open(" ".join(names) + ".", {})
-    for name in names:  # 150 lookups, all with the same phonemes (the worst case)
-        tools.phonemes(item, name)
+    for name in names:  # 200 lookups (each capitalisation proves only itself, F9),
+        tools.phonemes(item, name)  # all with the same phonemes (the worst case)
+        tools.phonemes(item, name.upper())
     prepared = " ".join(f"[{n}](/{FAKE}/) [{n.upper()}](/{FAKE}/)" for n in names) + "."
     store.write_text(item, "source.md", " ".join(f"{n} {n}" for n in names) + ".")
     store.write_text(item, "prepared.md", prepared)
@@ -1091,7 +1126,7 @@ def test_proven_overrides_need_no_respelling_comparisons(tmp_path, monkeypatch):
     monkeypatch.setattr(agent_tools, "words", lambda t: word_calls.append(t) or real_words(t))
     assert tools.finish(item, "clean", [], [])["ok"]
     assert respellings == []
-    assert len(word_calls) <= 2 * len(names)  # once per lookup, once per case-folded display
+    assert len(word_calls) <= 3 * len(names)  # once per lookup, once per case-folded display
 
 
 

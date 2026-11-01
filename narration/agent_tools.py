@@ -187,37 +187,49 @@ def _unproven_overrides(state: dict, prepared: str, declared: list[tuple], limit
     respelling proves: they count toward the respellings cap, as respellings written
     in the text do.
 
-    Proven: a lookup of the displayed word itself returned these phonemes, or a
-    lookup of a respelling of it did and that respelling is declared. Each lookup
-    word and each case-folded display goes through words() once, so a proven
-    override costs a dictionary lookup; respellings are compared only against the
-    (at most MAX_SUBSTITUTIONS) declarations, or, for a refusal's message, against
+    Proven: a lookup of the displayed word itself, in the same capitals, returned
+    these phonemes, or a lookup of a respelling of it did and that respelling is
+    declared. A lookup in other capitals is a respelling (misaki reads "US" and "us",
+    "Polish" and "polish" differently), so it needs the declaration (capitals_only).
+    Each lookup word and each case-folded display goes through words() once, so a
+    proven override costs a dictionary lookup; respellings are compared only against
+    the (at most MAX_SUBSTITUTIONS) declarations, or, for a refusal's message, against
     the lookups of an unproven override."""
-    looked_up: dict[str, dict[tuple, str]] = {}  # phonemes -> words() of a lookup -> its word
+    # phonemes -> words() of a lookup -> the words looked up (one per capitalisation)
+    looked_up: dict[str, dict[tuple, list[str]]] = {}
     for lookup in state.get("phoneme_lookups", []):
         looked_up.setdefault(lookup["phonemes"], {}).setdefault(
-            tuple(words(lookup["word"])), lookup["word"])
-    problems, used, seen, by_respelling = [], set(), set(), set()
+            tuple(words(lookup["word"])), []).append(lookup["word"])
+    problems, used, seen, by_respelling, displays = [], set(), set(), set(), {}
     every = overrides(prepared)
     for shown, phonemes in every:
-        if (shown.casefold(), phonemes) in seen:
+        if (shown, phonemes) in seen:  # capitals kept: [US] is checked apart from [us]
             continue
-        seen.add((shown.casefold(), phonemes))
-        found, display = looked_up.get(phonemes, {}), tuple(words(shown))
-        if display and display in found:
+        seen.add((shown, phonemes))
+        found = looked_up.get(phonemes, {})
+        display = displays.get(shown.casefold())
+        if display is None:
+            display = displays[shown.casefold()] = tuple(words(shown))
+        if display and any(_same_letters(w, shown) for w in found.get(display, ())):
             continue
         respelled = [k for k, (original, spoken) in enumerate(declared)
                      if original == display and spoken in found
-                     and is_override_respelling(shown, found[spoken], names)]
+                     and any(is_override_respelling(shown, w, names) for w in found[spoken])]
         if respelled:
             used.update(respelled)
-            by_respelling.add((shown.casefold(), phonemes))
+            by_respelling.add((shown, phonemes))
             continue
         problems.append(_unproven(shown, phonemes, found, names))
         if len(problems) >= limit:
             break
-    n_respelled = sum((s.casefold(), p) in by_respelling for s, p in every)
+    n_respelled = sum((s, p) in by_respelling for s, p in every)
     return problems, used, n_respelled
+
+
+def _same_letters(a: str, b: str) -> bool:
+    """Whether two spellings have the same letters in the same capitals (marks such
+    as a curly or straight apostrophe aside)."""
+    return [c for c in a if c.isalpha()] == [c for c in b if c.isalpha()]
 
 
 def _near_miss(shown: str, word: str) -> bool:
@@ -233,14 +245,14 @@ def _near_miss(shown: str, word: str) -> bool:
 def _unproven(shown: str, phonemes: str, found: dict, names: frozenset[str]) -> str:
     """Why an override isn't proven, and what to do about it."""
     override = f"[{shown}](/{phonemes}/)"
-    respellings = sorted(word for word in found.values()
-                         if is_override_respelling(shown, word, names))
+    looked = [word for spellings in found.values() for word in spellings]
+    respellings = sorted(word for word in looked if is_override_respelling(shown, word, names))
     if respellings:
         return (f"override {override} uses the phonemes the phonemes tool gave for "
                 f"{respellings[0]!r}, a respelling of {shown!r}: declare the respelling in "
                 f"substitutions (original {shown!r}, spoken {respellings[0]!r}) so the notes "
                 f"list it, or call phonemes({shown!r}) and use its result")
-    near = sorted(word for word in found.values() if _near_miss(shown, word))
+    near = sorted(word for word in looked if _near_miss(shown, word))
     if near:  # a lookup that tried to respell this word, but too loosely
         near = near[0]
         return (f"override {override} uses the phonemes the phonemes tool gave for {near!r}, "
@@ -432,7 +444,7 @@ class AgentTools:
         validate_substitutions(state, source, prepared, subs_in)
         # Imported here: the gate imports this module.
         from narration.gate import speech_matches
-        subs = [Substitution(s["original"], s["spoken"]) for s in subs_in]
+        subs = text_substitutions(subs_in)
         problems = speech_matches(self.g2p, source, prepared, subs)
         if problems:
             # Not "declare it": the words agree, so a substitution can't (case is folded).
@@ -500,6 +512,19 @@ def validate_finish(outcome, remaining_issues, substitutions) -> tuple[list[dict
     return issues, subs_in
 
 
+def capitals_only(s: dict) -> bool:
+    """Whether a declaration changes capitals alone ("NOX" -> "Nox"). The word check
+    compares words case-folded, so such a declaration can't change the text's words:
+    it declares the lookup an override's phonemes came from, and is published."""
+    return s["original"] != s["spoken"] and s["original"].casefold() == s["spoken"].casefold()
+
+
+def text_substitutions(subs_in: list[dict]) -> list[Substitution]:
+    """The declarations the word check and the speech check apply to the text, as
+    Substitutions: all but the capitals-only ones (capitals_only)."""
+    return [Substitution(s["original"], s["spoken"]) for s in subs_in if not capitals_only(s)]
+
+
 def validate_substitutions(state: dict, source: str, prepared: str, subs_in: list[dict]) -> None:
     """The one check of a finish call's substitutions, which finish and the gate both
     run, so the gate can't refuse what finish accepted or the other way round. Raises
@@ -520,11 +545,12 @@ def validate_substitutions(state: dict, source: str, prepared: str, subs_in: lis
         raise ToolError("; ".join(f"substitution {s['original']!r} -> {s['spoken']!r} is "
                                   "declared twice" for s in twice) + ". Declare each once.")
     subs = [Substitution(s["original"], s["spoken"]) for s in subs_in]
-    problems, applied = audit(source, prepared, subs)
+    in_words = text_substitutions(subs_in)  # capitals-only ones go to provenance alone
+    problems, applied = audit(source, prepared, in_words)
     if problems:
         # audit reports refused declarations alone; say so, rather than that the text
         # differs. Looked for only on this path, so a passing finish pays nothing.
-        refused = declaration_problems(source, subs)
+        refused = declaration_problems(source, in_words)
         if refused:
             raise ToolError("; ".join(refused) + ". Fix or remove these substitutions.")
         raise ToolError("the prepared text differs from the article: " + "; ".join(problems)
@@ -536,7 +562,8 @@ def validate_substitutions(state: dict, source: str, prepared: str, subs_in: lis
         raise ToolError("; ".join(unproven[:MAX_SHOWN])
                         + ("; and more overrides like these" if len(unproven) > MAX_SHOWN else ""))
     if n_respelled:  # audit capped the text's respellings; these share the cap with them
-        in_text = sum(applied.get(sub, 0) for sub in subs if is_respelling(sub.original, sub.spoken))
+        in_text = sum(applied.get(sub, 0) for sub in in_words
+                      if is_respelling(sub.original, sub.spoken))
         n_words, total = len(words(source)), in_text + n_respelled
         cap = respellings_limit(n_words)
         if total > cap:

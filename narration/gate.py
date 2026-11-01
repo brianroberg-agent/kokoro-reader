@@ -30,7 +30,7 @@ import re
 from dataclasses import dataclass, field
 
 from narration.agent_tools import (ToolError, _issue, _substitution, recording_claims,
-                                   validate_finish, validate_substitutions)
+                                   text_substitutions, validate_finish, validate_substitutions)
 from narration.words import _PHONETIC, Substitution, apply_with_reason, check, engine_text
 
 # misaki's stress and length marks: kept in the comparison with the letters. Its
@@ -232,6 +232,5 @@ def evaluate(state: dict, source: str, prepared: str, metadata: dict, g2p) -> Ga
     if not reasons:  # the slow check last: its answer can't change a hold
         # A G2P failure (RuntimeError) propagates: finalize then leaves the item
         # finished, for the runner to retry, rather than holding a good recording.
-        reasons += speech_matches(g2p, source, prepared,
-                                  [Substitution(s["original"], s["spoken"]) for s in subs])
+        reasons += speech_matches(g2p, source, prepared, text_substitutions(subs))
     return GateResult("hold" if reasons else "publish", outcome, reasons, notes)

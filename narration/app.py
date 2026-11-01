@@ -176,7 +176,8 @@ def build_app(store, agent_tools, runner_tools, runner_token, allowed_hosts: lis
         this returns; never write phonemes by hand: finish refuses an override whose
         phonemes no lookup returned. You may look up a respelling (Pengelly for Pengelley) and use
         its phonemes in the word's override, but then declare it in finish as a
-        substitution, original the word and spoken the respelling."""
+        substitution, original the word and spoken the respelling. The same word in
+        other capitals (Nox for NOX) counts as a respelling."""
         return run(agent_tools.phonemes, item(ctx), word)
 
     @agent.tool()
