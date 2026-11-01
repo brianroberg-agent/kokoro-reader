@@ -30,3 +30,8 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.uv]
+# curated-tokenizers (misaki[en] -> spacy-curated-transformers) ships only an sdist,
+# and Cython 3.1+ crashes compiling it (OptimizeBuiltinCalls in _bbpe.pyx).
+build-constraint-dependencies = ["cython<3.1"]
