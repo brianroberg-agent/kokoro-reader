@@ -76,6 +76,17 @@ The server's instructions and tool descriptions say all of this to the agent. A 
 - **A pause after some words changes how the engine reads them.** The engine reads "to", "in", "the" (before a vowel) and "am" differently when a pause follows them. So a pacing edit (a comma, a dash or a pause mark) right after one of these words can change the sound, and may be flagged in `speech_warnings` and then refused at `finish`. A skill should tell the agent to put pauses elsewhere, or to take the pause out again.
 - **`finish` ends the session** and revokes its token. `clean` needs the latest round recorded from the prepared text as it is now and checked with no pre-check warnings. `minor` and `hold` list at least one remaining issue. `hold` needs no claims about the recording, and nothing held is published.
 
+## Running the agent session
+
+The session is `claude -p` with only the six tools, as `tests/narration/smoke_claude.sh` runs it (the flag set from spike S1). Its `--mcp-config` gives the narration server a `timeout` in milliseconds, Claude Code's per-call limit for that server:
+
+```json
+{"mcpServers": {"narration": {"type": "http", "url": "http://127.0.0.1:8770/agent/mcp",
+  "timeout": 900000, "headers": {"Authorization": "Bearer <the item's agent token>"}}}}
+```
+
+Without it, Claude Code gave up on a `check` after about 60 seconds while the server went on with it (2026-11-01: a check of a 12-minute recording took 70–89 seconds). The session then saw "The operation timed out.", never got the report, and spent a check each time it asked again. A long article's `record` and `check` take longer still.
+
 ## Calling the agent tools from a Python MCP client
 
 Claude Code lists a server's tools when the session starts. The MCP Python SDK (2.3.0) lists them lazily instead: after a tool call, a client that hasn't listed them yet calls `list_tools` to validate the result. After `finish` that request carries the token `finish` has just revoked, gets 401, and the client raises (`MCPError: Server returned an error response`), although `finish` has already been recorded. This was seen on 2026-11-01 with a hand-written test driver. A Python client that calls the agent tools should call `list_tools()` once, before `finish`. The runner's tools are unaffected: the runner token isn't revoked.

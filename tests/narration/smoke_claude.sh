@@ -55,8 +55,10 @@ OPEN=$(uv run --no-project --with "mcp==2.3.0" python tests/narration/smoke_open
 TOKEN=$(echo "$OPEN" | python3 -c 'import json,sys; print(json.load(sys.stdin)["agent_token"])')
 ITEM=$(echo "$OPEN" | python3 -c 'import json,sys; print(json.load(sys.stdin)["item_id"])')
 
+# timeout: Claude Code's per-call limit for this server, in ms. A real check of a
+# 12-minute recording took about 70 s, past the ~60 s Claude Code allows otherwise.
 cat > "$W/mcp.json" <<EOF
-{"mcpServers": {"narration": {"type": "http", "url": "$BASE/agent/mcp",
+{"mcpServers": {"narration": {"type": "http", "url": "$BASE/agent/mcp", "timeout": 900000,
   "headers": {"Authorization": "Bearer $TOKEN"}}}}
 EOF
 
