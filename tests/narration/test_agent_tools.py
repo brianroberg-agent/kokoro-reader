@@ -1143,7 +1143,7 @@ def test_proven_overrides_need_no_respelling_comparisons(tmp_path, monkeypatch):
     monkeypatch.setattr(agent_tools, "words", lambda t: word_calls.append(t) or real_words(t))
     assert tools.finish(item, "clean", [], [])["ok"]
     assert respellings == []
-    assert len(word_calls) <= 3 * len(names)  # once per lookup, once per case-folded display
+    assert len(word_calls) <= 4 * len(names)  # once per lookup, once per display as written
 
 
 
@@ -1243,3 +1243,17 @@ def test_a_g2p_failure_in_finish_raises_and_the_item_stays_open(tmp_path):
     with pytest.raises(RuntimeError, match="espeak is missing"):
         tools.finish(item, "clean", [], [])
     assert store.load_state(item)["status"] == "open"
+
+
+def test_overrides_that_differ_only_in_capitals_are_each_read_as_written(tmp_path):
+    # Review round 2, G6: words() keeps "Mr." an abbreviation but not "MR.", and the
+    # display cache was keyed case-folded, so [MR.] was checked as if it were [Mr.].
+    store = WorkItemStore(tmp_path)
+    tools = AgentTools(store, FakeTTS(), FakeVerifier(), SpellingG2P())
+    article = "We met Mr. Zounk there. The old sign said MR. Zounk too."
+    item, _ = store.open(article, {})
+    mr, upper = tools.phonemes(item, "Mr.")["phonemes"], tools.phonemes(item, "MR.")["phonemes"]
+    store.write_text(item, "prepared.md", article.replace("Mr.", f"[Mr.](/{mr}/)")
+                     .replace("MR.", f"[MR.](/{upper}/)"))
+    _record_and_check(tools, item)
+    assert tools.finish(item, "clean", [], [])["ok"]

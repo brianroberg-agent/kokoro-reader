@@ -191,7 +191,7 @@ def _unproven_overrides(state: dict, prepared: str, declared: list[tuple], limit
     these phonemes, or a lookup of a respelling of it did and that respelling is
     declared. A lookup in other capitals is a respelling (misaki reads "US" and "us",
     "Polish" and "polish" differently), so it needs the declaration (capitals_only).
-    Each lookup word and each case-folded display goes through words() once, so a
+    Each lookup word and each display, as written, goes through words() once, so a
     proven override costs a dictionary lookup; respellings are compared only against
     the (at most MAX_SUBSTITUTIONS) declarations, or, for a refusal's message, against
     the lookups of an unproven override."""
@@ -207,9 +207,9 @@ def _unproven_overrides(state: dict, prepared: str, declared: list[tuple], limit
             continue
         seen.add((shown, phonemes))
         found = looked_up.get(phonemes, {})
-        display = displays.get(shown.casefold())
+        display = displays.get(shown)  # as written: words() keeps case ("Mr." / "MR.")
         if display is None:
-            display = displays[shown.casefold()] = tuple(words(shown))
+            display = displays[shown] = tuple(words(shown))
         if display and any(_same_letters(w, shown) for w in found.get(display, ())):
             continue
         respelled = [k for k, (original, spoken) in enumerate(declared)
