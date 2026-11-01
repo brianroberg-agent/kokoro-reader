@@ -31,6 +31,7 @@ speech comparison (gate.speech_matches) for outcome clean or minor, so a session
 learns before finalize that the engine would say something the article doesn't."""
 from __future__ import annotations
 
+import difflib
 import functools
 import hashlib
 import json
@@ -69,6 +70,7 @@ MAX_WORD = 64           # characters in a word given to phonemes()
 WORD_MARKS = "'’-."     # what a word given to phonemes() may have besides letters and marks
 MAX_LOOKUPS = 200       # phonemes() lookups an item keeps, the latest
 MAX_SHOWN = 5           # unproven overrides one refusal names
+NEAR_MISS_RATIO = 0.5   # a lookup this like an override's word is explained as a near miss
 
 
 class ToolError(Exception):
@@ -210,6 +212,16 @@ def _unproven_overrides(state: dict, prepared: str, declared: list[tuple], limit
     return problems, used
 
 
+def _near_miss(shown: str, word: str) -> bool:
+    """Whether a lookup of `word` looks like an attempt to respell `shown`: the same
+    first letter and at least NEAR_MISS_RATIO alike. Only such a lookup is explained
+    in a refusal, with the substitution route; an unrelated one gets the plain
+    refusal, so the server never suggests putting an unrelated word in the text."""
+    a, b = " ".join(words(shown)), " ".join(words(word))
+    return (bool(a and b) and a[0] == b[0]
+            and difflib.SequenceMatcher(None, a, b, autojunk=False).ratio() >= NEAR_MISS_RATIO)
+
+
 def _unproven(shown: str, phonemes: str, found: dict) -> str:
     """Why an override isn't proven, and what to do about it."""
     override = f"[{shown}](/{phonemes}/)"
@@ -219,6 +231,14 @@ def _unproven(shown: str, phonemes: str, found: dict) -> str:
                 f"{respellings[0]!r}, a respelling of {shown!r}: declare the respelling in "
                 f"substitutions (original {shown!r}, spoken {respellings[0]!r}) so the notes "
                 f"list it, or call phonemes({shown!r}) and use its result")
+    near = sorted(word for word in found.values() if _near_miss(shown, word))
+    if near:  # a lookup that tried to respell this word, but too loosely
+        near = near[0]
+        return (f"override {override} uses the phonemes the phonemes tool gave for {near!r}, "
+                f"which is too far from {shown!r} to count as a respelling of it; call "
+                f"phonemes({shown!r}) and use its result, or write {near!r} in the text with "
+                f"replace_text and declare it as a substitution (original {shown!r}, spoken "
+                f"{near!r})")
     # No IPA in it (or a slash): most likely a link to a path, which clean_markdown_text
     # keeps as an override. RunnerTools.open unwraps the article's own links.
     hint = (f"if it is a link, not an override, unwrap it: replace {override} with {shown}; "

@@ -960,6 +960,32 @@ def test_the_name_rule_still_refuses_other_words(names, old, shown, spoken):
     assert store.load_state(item)["status"] == "open"
 
 
+def test_a_lookup_too_far_from_the_word_is_named_in_the_refusal(names):
+    # The real session was told its phonemes were "not produced by the phonemes tool"
+    # when they were: the lookup was only too far from the word to count as a respelling.
+    store, tools, item = names
+    sub = _respell(tools, item, "the form", "form", "from")
+    _record_and_check(tools, item)
+    with pytest.raises(ToolError, match=re.escape(
+            "override [form](/ˈfrom/) uses the phonemes the phonemes tool gave for 'from', "
+            "which is too far from 'form' to count as a respelling of it; call "
+            "phonemes('form') and use its result, or write 'from' in the text with "
+            "replace_text and declare it as a substitution (original 'form', spoken 'from')")):
+        tools.finish(item, "clean", [], [sub])
+
+
+def test_an_unrelated_lookup_gets_no_hint_to_write_it_into_the_text(names):
+    # Only a near miss (a plausible respelling) is explained; an unrelated word with
+    # the same first letter still gets the plain refusal, never a suggestion to use it.
+    store, tools, item = names
+    _respell(tools, item, "Zounk spoke", "Zounk", "Zillionaire")
+    _record_and_check(tools, item)
+    with pytest.raises(ToolError) as refused:
+        tools.finish(item, "clean", [], [])
+    assert "was not produced by the phonemes tool for 'Zounk'" in str(refused.value)
+    assert "Zillionaire" not in str(refused.value)
+
+
 # I2: every declared substitution is used, and declared once
 def test_a_declared_substitution_the_text_does_not_use_is_refused(env):
     store, tools, _, _, item, _ = env
