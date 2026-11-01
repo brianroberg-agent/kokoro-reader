@@ -424,6 +424,21 @@ def test_splitting_digits_is_a_change_not_a_respelling(original, spoken):
     assert len(problems) == 1 and "changes 22 words" in problems[0]
 
 
+@pytest.mark.parametrize("original, spoken", [
+    ("nowhere", "now here"), ("therapist", "the rapist"), ("together", "to get her"),
+    ("therapist", "the-rapist"),   # split with a mark by the session, not the article's
+])
+def test_splitting_a_word_into_words_is_a_change_not_a_respelling(original, spoken):
+    # Review F4: the same letters once squashed, but other words. Spelled-out letters
+    # ("D O J") and the article's own marked word ("e-mail" as "email") stay respellings.
+    from narration.words import is_respelling
+    assert is_respelling(original, spoken) is False
+    article = _repeat(f"Help is {original} to be found.", 20)
+    prepared = _repeat(f"Help is {spoken} to be found.", 20)
+    problems = check(article, prepared, [Substitution(original, spoken)])
+    assert len(problems) == 1  # over a budget: the words it changes, or the words it adds
+
+
 @pytest.mark.parametrize("original, spoken, times", [
     ("Pengelley", "Pengelly", 30),   # one token each, same letters apart from a slip
     ("DOJ", "D O J", 10),            # identical once spaced letters are squashed

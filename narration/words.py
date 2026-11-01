@@ -401,7 +401,7 @@ def is_respelling(a: str, b: str) -> bool:
     substitution from the changed-words budget (_is_respelling), applied to their
     words(). Text with no words is not a respelling of anything."""
     wa, wb = tuple(words(a)), tuple(words(b))
-    return bool(wa and wb) and _is_respelling(wa, wb)
+    return bool(wa and wb) and _is_respelling(wa, wb, a)
 
 
 _NAME_WORD = re.compile(r"([^\W\d_]+)((?:'|’)s)?")  # letters, then a possessive ending
@@ -810,7 +810,7 @@ def _squash(tokens: tuple) -> str:
     return squashed
 
 
-def _is_respelling(original: tuple, spoken: tuple) -> bool:
+def _is_respelling(original: tuple, spoken: tuple, original_text: str) -> bool:
     """Whether `spoken` is `original` spelled differently, not another word.
 
     Either the two are identical once squashed (whitespace and silent characters
@@ -822,7 +822,13 @@ def _is_respelling(original: tuple, spoken: tuple) -> bool:
     words that are alike ("form" and "from", "not" and "now") differ in meaning
     too often to be exempt."""
     if _squash(original) == _squash(spoken):
-        return True
+        # Spelled-out letters ("D O J") are, and so is the article's own word written
+        # with a mark ("e-mail" as "email"); a word split into other words ("now here",
+        # "the rapist", "the-rapist") is not, though it squashes the same.
+        longer = max(original, spoken, key=len)
+        if len(original) == len(spoken) or all(len(t) == 1 for t in longer):
+            return True
+        return len(original) > len(spoken) and not any(c.isspace() for c in original_text)
     if len(original) != 1 or len(spoken) != 1:
         return False
     a, b = original[0], spoken[0]
@@ -868,7 +874,7 @@ def _check_budgets(src, subs, pairs, applied):
         headline = f"the substitutions add {sum(added)} words to the article's {len(src)}"
         return [_over_budget(headline, limit, subs, applied, added, "and adds {} words")]
     problems = []
-    respelling = [_is_respelling(o, sp) for o, sp in pairs]
+    respelling = [_is_respelling(o, sp, s.original) for s, (o, sp) in zip(subs, pairs)]
     changed = [0 if r else n * _changed_words(o, sp)
                for r, n, (o, sp) in zip(respelling, applied, pairs)]
     if sum(changed) > limit:
