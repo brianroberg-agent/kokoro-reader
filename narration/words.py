@@ -842,9 +842,11 @@ def _is_respelling(original: tuple, spoken: tuple, original_text: str) -> bool:
     if _squash(original) == _squash(spoken):
         # Spelled-out letters ("D O J") are, and so is the article's own word written
         # with a mark ("e-mail" as "email"); a word split into other words ("now here",
-        # "the rapist", "the-rapist") is not, though it squashes the same.
-        longer = max(original, spoken, key=len)
-        if len(original) == len(spoken) or all(len(t) == 1 for t in longer):
+        # "the rapist", "the-rapist") is not, though it squashes the same, and neither
+        # is a moved word boundary ("an ice" / "a nice"): word by word, they differ.
+        if len(original) == len(spoken):
+            return all(_squash((a,)) == _squash((b,)) for a, b in zip(original, spoken))
+        if all(len(t) == 1 for t in max(original, spoken, key=len)):
             return True
         return len(original) > len(spoken) and not any(c.isspace() for c in original_text)
     if len(original) != 1 or len(spoken) != 1:

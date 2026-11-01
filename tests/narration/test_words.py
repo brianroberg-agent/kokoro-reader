@@ -1424,3 +1424,16 @@ def test_a_name_after_a_title_abbreviation_is_mid_sentence(article):
     # name the article always writes after "Mr." was never seen mid-sentence.
     from narration.words import article_names
     assert "zounk" in article_names(article)
+
+
+@pytest.mark.parametrize("original, spoken", [("an ice", "a nice"), ("at one", "a tone")])
+def test_moving_a_word_boundary_is_a_change_not_a_respelling(original, spoken):
+    # Review round 2, G2: the same letters and the same number of words, but the
+    # boundary moved, so other words. "U.S." / "US" keep their boundaries and stay one.
+    from narration.words import is_respelling
+    assert is_respelling(original, spoken) is False
+    assert is_respelling("U.S.", "US") is True
+    article = _repeat(f"We saw {original} today.", 21)
+    prepared = _repeat(f"We saw {spoken} today.", 21)
+    problems = check(article, prepared, [Substitution(original, spoken)])
+    assert len(problems) == 1 and "changes" in problems[0]
