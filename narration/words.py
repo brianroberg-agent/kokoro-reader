@@ -414,10 +414,14 @@ def article_names(source: str) -> frozenset[str]:
     """The article's names, case-folded: the words it spells with a capital wherever
     they appear, at least once where no sentence or line starts. A word capitalised
     only as a sentence's first word or in a heading is not one, and neither is a word
-    the article also writes in lower case. Read from the article, never from the
-    prepared text, which the session writes."""
+    the article also writes in lower case. A line that doesn't end as a sentence does
+    (a heading, a title, a byline) counts as a heading, with or without its "#". Read
+    from the article, never from the prepared text, which the session writes."""
     text = _spoken_text(source)
     capital, lower, inside = set(), set(), set()
+    headings = [(m.start(), m.end()) for m in re.finditer(r"[^\n]+", text)
+                if m.group().rstrip("".join(_BETWEEN))[-1:] not in _SENTENCE_END]
+    starts = [a for a, _ in headings]  # sorted: a heading's span is found by bisection
     for m in _LETTER_RUN.finditer(text):
         word, k = m.group(), m.start()
         key = word.casefold()
@@ -425,6 +429,9 @@ def article_names(source: str) -> frozenset[str]:
             lower.add(key)
             continue
         capital.add(key)
+        h = bisect.bisect_right(starts, k) - 1
+        if h >= 0 and k < headings[h][1]:  # on a heading line
+            continue
         while k > 0 and text[k - 1] in _BETWEEN:
             k -= 1
         if k > 0 and text[k - 1] not in _SENTENCE_END:

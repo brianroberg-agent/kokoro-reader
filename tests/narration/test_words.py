@@ -1400,3 +1400,15 @@ def test_a_word_after_a_sentence_that_ends_in_a_quote_or_bracket_is_not_a_name(a
     # sentence end, so a sentence's first word counted as mid-sentence.
     from narration.words import article_names
     assert "three" not in article_names(article)
+
+
+@pytest.mark.parametrize("article, names", [
+    ("# The Quiet Harbor\n\nWe sailed at dawn.", set()),         # a heading
+    ("A Quiet Harbor at Dawn\n\nWe sailed at dawn.", set()),     # a title line, no #
+    ("A Quiet Harbor\n\nWe met Zounk there.", {"zounk"}),        # prose still counts
+])
+def test_words_on_a_heading_or_title_line_are_not_names(article, names):
+    # Review round 2, G4: a Title Case heading's words after the first sat after a
+    # space and a letter, so they counted as mid-sentence.
+    from narration.words import article_names
+    assert article_names(article) == names
