@@ -46,12 +46,12 @@ def test_kokoro_engine_makes_every_space_but_a_newline_plain(tmp_path, monkeypat
 
     monkeypatch.setattr(text_to_speech, "generate_audio", fake_generate_audio)
     text = (f"a{space}b\nc{space}d -- e\n\n"
-            f"We saw{space}Pengelley and{space}[Kevorkian](/kɛvˈɔɹkiən/) left.")
+            f"We saw{space}Pengelley and{space}[Kelmorian](/kɛvˈɔɹkiən/) left.")
     KokoroEngine().record(text, tmp_path / "recording.wav", "af_heart", 1.0)
     # Newlines stay, the override is intact, and "--" is left for generate_audio's
     # own prepare_for_tts.
     assert seen["text"] == ("a b\nc d -- e\n\n"
-                            "We saw Pengelley and [Kevorkian](/kɛvˈɔɹkiən/) left.")
+                            "We saw Pengelley and [Kelmorian](/kɛvˈɔɹkiən/) left.")
     assert text_to_speech.prepare_for_tts(seen["text"]) == words._spoken_text(text)
 
 

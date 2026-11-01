@@ -87,7 +87,7 @@ with a letter, no whitespace, limited length, no [BREAK] marker inside it, since
 the engine splits the text there) and must stand alone, a whole,
 separately spaced word with at most an opening bracket or quote before it and
 closing punctuation after it, or a hyphen joining it to a letter (a name such as
-"Ocasio-[Cortez](/…/)" or "[Pengelley](/…/)-Smith"), since misaki misplaces one
+"Obrano-[Corvan](/…/)" or "[Pengelley](/…/)-Smith"), since misaki misplaces one
 that shares a token with anything else. Its phonemes are not checked to say that word: an override
 can pronounce any single word. The server validates override provenance
 separately (Task 4).

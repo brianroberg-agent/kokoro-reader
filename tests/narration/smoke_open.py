@@ -15,7 +15,7 @@ DEFAULT_URL = "http://127.0.0.1:8771/runner/mcp"
 async def open_item(url: str, token: str) -> str:
     http = create_mcp_http_client(headers={"Authorization": f"Bearer {token}"})
     async with http, Client(streamable_http_client(url, http_client=http)) as client:
-        result = await client.call_tool("open", {"article_text": "Pope Leo XIV met the family.",
+        result = await client.call_tool("open", {"article_text": "King Ivo XIV met the family.",
                                                  "metadata": {"title": "Smoke"}})
         if result.is_error:
             sys.exit(f"open failed: {result.content[0].text}")

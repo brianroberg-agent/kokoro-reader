@@ -13,7 +13,7 @@ from narration.runner_tools import RunnerTools
 from narration.words import Substitution, check
 from narration.workitems import WorkItemStore
 
-META = {"title": "Zoning Alone", "authors": ["Joseph Lawler"], "publication": "The New Atlantis",
+META = {"title": "Zoning Alone", "authors": ["Mara Quillon"], "publication": "The New Atlantis",
         "issue_number": "86", "issue_season": "Fall 2026",
         "description": "Zoning made us lonely."}
 ARTICLE = "Zoning made us lonely.\n\nThe Court may end it."
@@ -101,7 +101,7 @@ def test_clean_publishes_with_tags_and_notes(env):
     tools.record(item); tools.check(item); tools.finish(item, "clean", [], [])
     out = runner.finalize(item)
     assert out["action"] == "publish" and out["mp3"]
-    assert conv.calls == [("Zoning Alone", "Joseph Lawler", "The New Atlantis, No. 86 (Fall 2026)")]
+    assert conv.calls == [("Zoning Alone", "Mara Quillon", "The New Atlantis, No. 86 (Fall 2026)")]
     assert out["notes"].startswith("Zoning made us lonely.")
     assert store.path(item, "episode.mp3").exists()
 
@@ -110,13 +110,13 @@ def test_minor_lists_issues_in_the_notes_but_never_their_free_text(env):
     store, runner, tools, conv, item, _ = env
     tools.record(item); tools.check(item)
     tools.finish(item, "minor", [{"kind": "mispronunciation", "where": "0:12",
-                                  "note": "Lawler; see example.com"}], [])
+                                  "note": "Quillon; see example.com"}], [])
     out = runner.finalize(item)
     assert out["action"] == "publish"
     assert "- 0:12 mispronunciation" in out["notes"]
     assert "example.com" not in out["notes"]  # the note is for Brian, not the feed ...
     result = json.loads(store.read_text(item, "result.json"))
-    assert result["remaining_issues"][0]["note"] == "Lawler; see example.com"  # ... so it's in result.json
+    assert result["remaining_issues"][0]["note"] == "Quillon; see example.com"  # ... so it's in result.json
 
 
 def test_agent_hold_is_a_hold(env):
@@ -482,8 +482,8 @@ def test_pacing_punctuation_passes():
 
 
 def test_a_declared_substitution_passes_and_an_undeclared_word_fails():
-    article = "Pope Leo XIV met the family."
-    prepared = "Pope Leo the Fourteenth met the family."
+    article = "King Ivo XIV met the family."
+    prepared = "King Ivo the Fourteenth met the family."
     assert speech_matches(G2P, article, prepared, [Substitution("XIV", "the Fourteenth")]) == []
     problems = speech_matches(G2P, article, prepared, [])
     assert problems == ["the prepared text does not align with the article (the word check "
@@ -505,12 +505,12 @@ def test_an_override_is_compared_by_its_phonemes_where_the_engine_puts_them():
     assert speech_matches(G2P, "The cat sat.", "The [cat](/kˈæt/) sat.", []) == []
     # The article's side has the override free-standing, around its word; the engine
     # would read the prepared text's on the word before: the phonemes moved.
-    article = "He said(Lawler) left."
-    prepared = "He said([Lawler](/lˈɔlɚ/)) left."
+    article = "He said(Quillon) left."
+    prepared = "He said([Quillon](/lˈɔlɚ/)) left."
     assert check(article, prepared, []) == []
     assert speech_matches(G2P, article, prepared, []) == []
     problems = speech_matches(MisplacingG2P(), article, prepared, [])
-    assert len(problems) == 1 and "'he lˈɔlɚ lawler left'" in problems[0]
+    assert len(problems) == 1 and "'he lˈɔlɚ quillon left'" in problems[0]
     assert "'he said lˈɔlɚ left'" in problems[0]
 
 
@@ -636,12 +636,12 @@ def test_misaki_hears_a_sign_the_word_check_misses():
         problems = speech_matches(g2p, source, hole, [])
         assert problems and "mˈInəs" in problems[0]  # ... the engine says "minus"
     # overrides read in place pass, free-standing on the article's side or not ...
-    named = "We met Pengelley, then Ocasio-Cortez and Jean-Luc."
-    prepared = "We met [Pengelley](/pɛnʤˈɛli/), then Ocasio-[Cortez](/kɔɹtˈɛz/) and Jean-[Luc](/lˈuk/)."
+    named = "We met Pengelley, then Obrano-Corvan and Jean-Luc."
+    prepared = "We met [Pengelley](/pɛnʤˈɛli/), then Obrano-[Corvan](/kɔɹtˈɛz/) and Jean-[Luc](/lˈuk/)."
     assert speech_matches(g2p, named, prepared, []) == []
     # ... and one misaki puts on the wrong word fails: here it loses "left"
-    article = "He said(Lawler) that Pengelley left."
-    prepared = "He said([Lawler](/lˈɔlɚ/)) that [Pengelley](/pɛnʤˈɛli/) left."
+    article = "He said(Quillon) that Pengelley left."
+    prepared = "He said([Quillon](/lˈɔlɚ/)) that [Pengelley](/pɛnʤˈɛli/) left."
     assert check(article, prepared, []) == []
     assert speech_matches(g2p, article, prepared, [])
     # markup that a second cleaning would change, unedited, matches
@@ -677,7 +677,7 @@ def test_a_substitution_string_needs_a_word_and_no_markup_or_control_characters(
         agent_tools.validate_finish("clean", [], [{"original": "Pengelley", "spoken": text}])
 
 
-@pytest.mark.parametrize("text", ["the Fourteenth", "U.S.", "Pengelley's", "Ocasio-Cortez",
+@pytest.mark.parametrize("text", ["the Fourteenth", "U.S.", "Pengelley's", "Obrano-Corvan",
                                   "$3.50", "5%", "No. 5, e.g.", "Saint-Saëns", '"quoted"',
                                   "#5", "(5%)", "Yahoo!", "a & b + c @ d / e: f; g?"])
 def test_plain_substitution_strings_pass(text):
@@ -715,7 +715,7 @@ EMPTY_META = {"title": "", "authors": [], "publication": "", "issue_number": "",
     ([], {}),  # not even an object
     ({"description": None, "authors": None, "title": None, "issue_number": None}, {}),
     ({"authors": []}, {}),
-    ({"authors": "Joseph Lawler"}, {"authors": ["Joseph Lawler"]}),
+    ({"authors": "Mara Quillon"}, {"authors": ["Mara Quillon"]}),
     ({"authors": ["A", None, "", "  ", 5, " B "]}, {"authors": ["A", "B"]}),
     ({"authors": {"name": "A"}}, {}),
     ({"issue_number": 86, "issue_season": "Fall 2026"},
@@ -730,15 +730,15 @@ def test_meta_reads_each_documented_shape(metadata, expected):
 @pytest.mark.parametrize("changes, artist, album, first_line", [
     ({"description": None, "authors": None}, "", "The New Atlantis, No. 86 (Fall 2026)",
      "Recorded automatically."),
-    ({"authors": ["Joseph Lawler", None]}, "Joseph Lawler", "The New Atlantis, No. 86 (Fall 2026)",
+    ({"authors": ["Mara Quillon", None]}, "Mara Quillon", "The New Atlantis, No. 86 (Fall 2026)",
      "Zoning made us lonely."),
-    ({"authors": "Joseph Lawler"}, "Joseph Lawler", "The New Atlantis, No. 86 (Fall 2026)",
+    ({"authors": "Mara Quillon"}, "Mara Quillon", "The New Atlantis, No. 86 (Fall 2026)",
      "Zoning made us lonely."),
     ({"authors": ["A", "B"], "issue_number": 86}, "A; B", "The New Atlantis, No. 86 (Fall 2026)",
      "Zoning made us lonely."),
-    ({"issue_number": None, "issue_season": None}, "Joseph Lawler", "The New Atlantis",
+    ({"issue_number": None, "issue_season": None}, "Mara Quillon", "The New Atlantis",
      "Zoning made us lonely."),
-    ({"publication": None, "title": None}, "Joseph Lawler", "No. 86 (Fall 2026)",
+    ({"publication": None, "title": None}, "Mara Quillon", "No. 86 (Fall 2026)",
      "Zoning made us lonely."),
 ])
 def test_finalize_publishes_whatever_shape_the_metadata_has(tmp_path, changes, artist, album,
@@ -797,8 +797,8 @@ def test_markup_that_cleaning_changes_twice_passes_unedited(article):
 def test_the_article_side_reaches_the_g2p_as_apply_returns_it():
     from narration.words import apply, engine_text
     recording = RecordingG2P()
-    article = "It was ***truly*** fine.\n\n[BREAK]\n\nPope Leo XIV spoke."
-    prepared = "It was ***truly*** fine.\n\nPope Leo the Fourteenth spoke."
+    article = "It was ***truly*** fine.\n\n[BREAK]\n\nKing Ivo XIV spoke."
+    prepared = "It was ***truly*** fine.\n\nKing Ivo the Fourteenth spoke."
     subs = [Substitution("XIV", "the Fourteenth")]
     assert speech_matches(recording, article, prepared, subs) == []
     assert recording.texts == [engine_text(prepared), apply(article, prepared, subs)]

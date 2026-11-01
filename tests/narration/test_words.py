@@ -6,11 +6,11 @@ from hypothesis import given, settings, strategies as st
 from narration.words import DOTTED_ABBREVIATIONS, Substitution, added_words_limit, check, words
 from narration.words import _spoken_text
 
-ARTICLE = "Pope Leo XIV met the Pengelley family in State College.\n\nIt went well -- mostly."
+ARTICLE = "King Ivo XIV met the Pengelley family in State College.\n\nIt went well -- mostly."
 
 
 def test_formatting_pauses_and_overrides_are_invisible():
-    prepared = ("Pope Leo XIV met the [Pengelley](/pɛnʤˈɛli/) family, in State College.\n\n"
+    prepared = ("King Ivo XIV met the [Pengelley](/pɛnʤˈɛli/) family, in State College.\n\n"
                 "[BREAK]\n\nIt went well... mostly.")
     assert check(ARTICLE, prepared, []) == []
 
@@ -27,8 +27,8 @@ def test_declared_substitution_passes():
 
 
 def test_substitution_sharing_a_prefix_still_aligns():
-    prepared = ARTICLE.replace("Pope Leo XIV", "Pope Leo the Fourteenth")
-    subs = [Substitution("Pope Leo XIV", "Pope Leo the Fourteenth")]
+    prepared = ARTICLE.replace("King Ivo XIV", "King Ivo the Fourteenth")
+    subs = [Substitution("King Ivo XIV", "King Ivo the Fourteenth")]
     assert check(ARTICLE, prepared, subs) == []
 
 
@@ -51,7 +51,7 @@ def test_a_short_substitution_applied_everywhere_cannot_inject_many_words():
 
 
 def test_respellings_and_a_few_expansions_stay_within_the_added_words_limit():
-    article = " ".join(["Pengelley met the Pope."] * 30 + ["Pope Leo XIV spoke."] * 5)
+    article = " ".join(["Pengelley met the King."] * 30 + ["King Ivo XIV spoke."] * 5)
     prepared = article.replace("Pengelley", "Pengelly").replace("XIV", "the Fourteenth")
     subs = [Substitution("Pengelley", "Pengelly"),   # applied 30 times, adds no words
             Substitution("XIV", "the Fourteenth")]   # applied 5 times, adds 5 words
@@ -78,7 +78,7 @@ def test_a_substitution_that_only_adds_words_is_refused(article, original, spoke
 
 @pytest.mark.parametrize("original, spoken", [
     ("XIV", "the Fourteenth"),                    # adds a word, and replaces one
-    ("Pope Leo XIV", "Pope Leo the Fourteenth"),  # shares a start, replaces "XIV"
+    ("King Ivo XIV", "King Ivo the Fourteenth"),  # shares a start, replaces "XIV"
     ("met the", "greeted the whole"),             # shares nothing at either end
 ])
 def test_a_substitution_that_replaces_something_may_add_words(original, spoken):
@@ -172,7 +172,7 @@ def test_substitution_original_must_be_in_the_article():
 
 
 def test_too_many_substitutions():
-    subs = [Substitution("Pope", f"Pope{i}") for i in range(26)]
+    subs = [Substitution("King", f"King{i}") for i in range(26)]
     assert any("limit" in p for p in check(ARTICLE, ARTICLE, subs))
 
 
@@ -233,7 +233,7 @@ def test_one_override_cannot_voice_several_words():
 
 @pytest.mark.parametrize("word, length, allowed", [
     ("the", 12, True), ("the", 13, False),              # at least 12 characters
-    ("Kevorkian", 27, True), ("Kevorkian", 28, False),  # or three per displayed character
+    ("Kelmorian", 27, True), ("Kelmorian", 28, False),  # or three per displayed character
 ])
 def test_override_phonemes_are_bounded_by_the_displayed_word(word, length, allowed):
     article = f"We met {word} today."
@@ -247,7 +247,7 @@ def test_an_override_displays_exactly_one_word():
 
 
 def test_a_real_respelling_override_passes():
-    assert check("Kevorkian spoke.", "[Kevorkian](/kɛvˈɔːɹkiən/) spoke.", []) == []
+    assert check("Kelmorian spoke.", "[Kelmorian](/kɛvˈɔːɹkiən/) spoke.", []) == []
 
 
 # ---- bounds on what a substitution may change ----
@@ -276,7 +276,7 @@ def test_spelling_out_an_abbreviation_is_not_counted_as_a_change():
 
 # ---- mismatch messages ----
 def test_mismatch_message_ignores_correctly_applied_substitutions():
-    article = " ".join(["Pengelley met the Pope."] * 10) + " It went well in State College today."
+    article = " ".join(["Pengelley met the King."] * 10) + " It went well in State College today."
     prepared = article.replace("Pengelley", "Pengelly").replace("well", "badly")
     problems = check(article, prepared, [Substitution("Pengelley", "Pengelly")])
     assert any("badly" in p for p in problems)
@@ -442,7 +442,7 @@ def test_splitting_a_word_into_words_is_a_change_not_a_respelling(original, spok
 @pytest.mark.parametrize("original, spoken, times", [
     ("Pengelley", "Pengelly", 30),   # one token each, same letters apart from a slip
     ("DOJ", "D O J", 10),            # identical once spaced letters are squashed
-    ("Kevorkian", "Kevorkean", 25),  # six letters or more, very alike
+    ("Kelmorian", "Kelmorean", 25),  # six letters or more, very alike
     ("e-mail", "email", 25),         # a hyphen is silent
     ("U.S.", "US", 25),
 ])
@@ -454,18 +454,18 @@ def test_respellings_are_not_changes(original, spoken, times):
 
 @pytest.mark.parametrize("times, passes", [(10, True), (11, False)])
 def test_words_a_substitution_shares_with_the_article_are_not_counted(times, passes):
-    # "Pope Leo XIV" -> "Pope Leo the Fourteenth" changes the same two words as
+    # "King Ivo XIV" -> "King Ivo the Fourteenth" changes the same two words as
     # "XIV" -> "the Fourteenth": 2 per application, against a limit of 20.
-    article = _repeat("Pope Leo XIV spoke.", times)
+    article = _repeat("King Ivo XIV spoke.", times)
     prepared = article.replace("XIV", "the Fourteenth")
-    subs = [Substitution("Pope Leo XIV", "Pope Leo the Fourteenth")]
+    subs = [Substitution("King Ivo XIV", "King Ivo the Fourteenth")]
     assert (check(article, prepared, subs) == []) is passes
 
 
 # ---- the unexplained span stops where a substitution applies again ----
 @pytest.mark.parametrize("tail", ["It went well.", "It went well today."])
 def test_the_unexplained_span_does_not_swallow_the_next_substitution(tail):
-    sentences = _repeat("Pengelley met the Pope.", 5)
+    sentences = _repeat("Pengelley met the King.", 5)
     article = f"{sentences} {tail} {sentences}"
     prepared = article.replace("Pengelley", "Pengelly").replace("well", "badly")
     problems = check(article, prepared, [Substitution("Pengelley", "Pengelly")])
@@ -790,11 +790,11 @@ def test_an_override_followed_by_closing_marks_is_fine(article, prepared):
 
 @pytest.mark.parametrize("article, prepared", [
     # misaki reads each with the override in place (e.g. "ʤinluk pɪkɑɹd", "pɛnʤɛlismɪθ")
-    ("Rep. Ocasio-Cortez spoke today.", "Rep. [Ocasio](/OkˈɑsiO/)-Cortez spoke today."),
-    ("Ocasio-Cortez spoke today.", "Ocasio-[Cortez](/kɔɹtˈɛz/) spoke today."),
+    ("Rep. Obrano-Corvan spoke today.", "Rep. [Obrano](/OkˈɑsiO/)-Corvan spoke today."),
+    ("Obrano-Corvan spoke today.", "Obrano-[Corvan](/kɔɹtˈɛz/) spoke today."),
     ("Jean-Luc Picard spoke today.", "Jean-[Luc](/lˈuk/) Picard spoke today."),
     ("Pengelley-Smith spoke today.", "[Pengelley](/pɛnʤˈɛli/)-Smith spoke today."),
-    ("The Kevorkian-era law passed.", "The [Kevorkian](/kɛvˈɔɹkiən/)-era law passed."),
+    ("The Kelmorian-era law passed.", "The [Kelmorian](/kɛvˈɔɹkiən/)-era law passed."),
 ])
 def test_an_override_in_a_hyphenated_name_is_fine(article, prepared):
     assert check(article, prepared, []) == []
@@ -819,11 +819,11 @@ def test_any_whitespace_but_a_newline_reads_as_one_space(space):
     # kɛvɔɹkiən"); the engine makes every one a plain space, and so does the check.
     assert _spoken_text(f"a{space}b\n\nc{space}d") == "a b\n\nc d"
     assert words(f"a{space}b") == words("a b") == ["a", "b"]
-    article = "We saw Pengelley and Kevorkian left."
-    assert check(article, f"We saw{space}Pengelley and [Kevorkian](/kɛvˈɔɹkiən/) left.", []) == []
-    assert check(article, f"We saw Pengelley and{space}[Kevorkian](/kɛvˈɔɹkiən/) left.", []) == []
-    problems = check(article, f"We saw Pengelley and{space}[Kevorkian](//) left.", [])
-    assert len(problems) == 1 and "[Kevorkian](//)" in problems[0]   # still found and checked
+    article = "We saw Pengelley and Kelmorian left."
+    assert check(article, f"We saw{space}Pengelley and [Kelmorian](/kɛvˈɔɹkiən/) left.", []) == []
+    assert check(article, f"We saw Pengelley and{space}[Kelmorian](/kɛvˈɔɹkiən/) left.", []) == []
+    problems = check(article, f"We saw Pengelley and{space}[Kelmorian](//) left.", [])
+    assert len(problems) == 1 and "[Kelmorian](//)" in problems[0]   # still found and checked
 
 
 # ---- bounds that keep the check fast ----
@@ -839,7 +839,7 @@ def test_more_words_than_substitutions_could_add_is_refused_before_aligning():
 
 
 def test_a_spoken_word_longer_than_64_characters_is_refused():
-    problems = check(ARTICLE, ARTICLE, [Substitution("Pope", "P" + "o" * 64)])
+    problems = check(ARTICLE, ARTICLE, [Substitution("King", "P" + "o" * 64)])
     assert any("longer than 64 characters" in p for p in problems)
 
 
@@ -906,7 +906,7 @@ def test_respellings_are_capped(times, passes):
 
 @pytest.mark.parametrize("times, passes", [(75, True), (76, False)])
 def test_the_respelling_cap_grows_with_the_article(times, passes):
-    article = _repeat("Pengelley met the Pope at the old city gate today.", 150)  # 1500 words
+    article = _repeat("Pengelley met the King at the old city gate today.", 150)  # 1500 words
     prepared = article.replace("Pengelley", "Pengelly", times)
     problems = check(article, prepared, [Substitution("Pengelley", "Pengelly")])
     assert (problems == []) is passes
@@ -914,13 +914,13 @@ def test_the_respelling_cap_grows_with_the_article(times, passes):
 
 
 def test_the_respelling_cap_counts_every_respelling_together():
-    article = _repeat("Ok Pengelley and Kevorkian fine.", 30)
-    prepared = article.replace("Pengelley", "Pengelly").replace("Kevorkian", "Kevorkean", 21)
-    subs = [Substitution("Pengelley", "Pengelly"), Substitution("Kevorkian", "Kevorkean")]
+    article = _repeat("Ok Pengelley and Kelmorian fine.", 30)
+    prepared = article.replace("Pengelley", "Pengelly").replace("Kelmorian", "Kelmorean", 21)
+    subs = [Substitution("Pengelley", "Pengelly"), Substitution("Kelmorian", "Kelmorean")]
     problems = check(article, prepared, subs)
     assert len(problems) == 1
     assert ("applied 51 times" in problems[0] and "'Pengelley' -> 'Pengelly'" in problems[0]
-            and "'Kevorkian' -> 'Kevorkean'" in problems[0] and "limit is 50" in problems[0])
+            and "'Kelmorian' -> 'Kelmorean'" in problems[0] and "limit is 50" in problems[0])
 
 
 # ---- properties ----
@@ -1152,11 +1152,11 @@ def test_normalize_spaces_keeps_newlines_and_makes_every_other_space_plain(space
 
 def test_overrides_reads_each_override_as_the_engine_does():
     from narration.words import overrides
-    text = ("# Head\n\nSaid **[Pengelley](/pɛnʤˈɛli/)**, then [Kevorkian](//kɛvˈɔɹkiən//) "
+    text = ("# Head\n\nSaid **[Pengelley](/pɛnʤˈɛli/)**, then [Kelmorian](//kɛvˈɔɹkiən//) "
             "and [the court](https://example.com) [x]**(/ɛks/)**.")
     # Emphasis and link URLs go first (so the last one becomes an override), and the
     # phonemes are read after strip('/'), as words.check and misaki read them.
-    assert overrides(text) == [("Pengelley", "pɛnʤˈɛli"), ("Kevorkian", "kɛvˈɔɹkiən"),
+    assert overrides(text) == [("Pengelley", "pɛnʤˈɛli"), ("Kelmorian", "kɛvˈɔɹkiən"),
                                ("x", "ɛks")]
     assert overrides("No overrides here.") == []
 
@@ -1182,9 +1182,9 @@ def test_is_respelling_applies_the_substitution_rule(a, b, expected):
 
 def test_audit_returns_the_problems_and_how_often_each_substitution_is_applied():
     from narration.words import audit
-    article = "Pope Leo XIV met Leo XIV and the family."
-    fourteenth, bishop = Substitution("XIV", "the Fourteenth"), Substitution("Pope", "Bishop")
-    prepared = "Pope Leo the Fourteenth met Leo the Fourteenth and the family."
+    article = "King Ivo XIV met Ivo XIV and the family."
+    fourteenth, bishop = Substitution("XIV", "the Fourteenth"), Substitution("King", "Bishop")
+    prepared = "King Ivo the Fourteenth met Ivo the Fourteenth and the family."
     assert audit(article, prepared, [fourteenth, bishop]) == ([], {fourteenth: 2, bishop: 0})
     assert check(article, prepared, [fourteenth, bishop]) == []
     problems, counts = audit(article, prepared, [])  # no alignment, so no counts
@@ -1218,22 +1218,22 @@ FOURTEENTH = Substitution("XIV", "the Fourteenth")
     # a substitution at the start, in the middle and at the end
     ("XIV met the family.", "The Fourteenth met the family.",
      [Substitution("XIV", "The Fourteenth")], "The Fourteenth met the family."),
-    ("Pope Leo XIV met the family.", "Pope Leo the Fourteenth met the family.",
-     [FOURTEENTH], "Pope Leo the Fourteenth met the family."),
-    ("They met Leo XIV.", "They met Leo the Fourteenth.", [FOURTEENTH],
-     "They met Leo the Fourteenth."),
+    ("King Ivo XIV met the family.", "King Ivo the Fourteenth met the family.",
+     [FOURTEENTH], "King Ivo the Fourteenth met the family."),
+    ("They met Ivo XIV.", "They met Ivo the Fourteenth.", [FOURTEENTH],
+     "They met Ivo the Fourteenth."),
     # applied where the alignment applied it, and only there
-    ("Leo XIV met Leo XIV.", "Leo XIV met Leo the Fourteenth.", [FOURTEENTH],
-     "Leo XIV met Leo the Fourteenth."),
+    ("Ivo XIV met Ivo XIV.", "Ivo XIV met Ivo the Fourteenth.", [FOURTEENTH],
+     "Ivo XIV met Ivo the Fourteenth."),
     # substitutions that share a prefix
-    ("Pope Leo XIV met Leo.", "Pope Leo the Fourteenth met Leon.",
-     [Substitution("Leo", "Leon"), Substitution("Leo XIV", "Leo the Fourteenth")],
-     "Pope Leo the Fourteenth met Leon."),
-    ("Pope Leo XIV met.", "Pope Leo the Fourteenth met.",
-     [Substitution("Pope Leo XIV", "Pope Leo the Fourteenth")], "Pope Leo the Fourteenth met."),
+    ("King Ivo XIV met Ivo.", "King Ivo the Fourteenth met Ivon.",
+     [Substitution("Ivo", "Ivon"), Substitution("Ivo XIV", "Ivo the Fourteenth")],
+     "King Ivo the Fourteenth met Ivon."),
+    ("King Ivo XIV met.", "King Ivo the Fourteenth met.",
+     [Substitution("King Ivo XIV", "King Ivo the Fourteenth")], "King Ivo the Fourteenth met."),
     # the article's own punctuation stays; the prepared text's pacing does not travel
-    ("Pope Leo XIV, then (XIV).", "Pope Leo the Fourteenth -- then (the Fourteenth)...",
-     [FOURTEENTH], "Pope Leo the Fourteenth, then (the Fourteenth)."),
+    ("King Ivo XIV, then (XIV).", "King Ivo the Fourteenth -- then (the Fourteenth)...",
+     [FOURTEENTH], "King Ivo the Fourteenth, then (the Fourteenth)."),
 ])
 def test_apply_puts_each_substitution_where_the_alignment_used_it(source, prepared, subs, expected):
     from narration.words import apply
@@ -1242,13 +1242,13 @@ def test_apply_puts_each_substitution_where_the_alignment_used_it(source, prepar
 
 @pytest.mark.parametrize("source, prepared, expected", [
     # each override free-standing, around the article's word: misaki then reads it in place
-    ("We met Pengelley, then (Lawler) left.",
-     "We met [Pengelley](/pɛnʤˈɛli/), then ([Lawler](/lˈɔlɚ/)) left.",
-     "We met [Pengelley](/pɛnʤˈɛli/) , then ( [Lawler](/lˈɔlɚ/) ) left."),
+    ("We met Pengelley, then (Quillon) left.",
+     "We met [Pengelley](/pɛnʤˈɛli/), then ([Quillon](/lˈɔlɚ/)) left.",
+     "We met [Pengelley](/pɛnʤˈɛli/) , then ( [Quillon](/lˈɔlɚ/) ) left."),
     ('"Pengelley" spoke.', '"[Pengelley](/pɛnʤˈɛli/)" spoke.',
      '" [Pengelley](/pɛnʤˈɛli/) " spoke.'),
-    ("Ocasio-Cortez spoke.", "Ocasio-[Cortez](/kɔɹtˈɛz/) spoke.",
-     "Ocasio- [Cortez](/kɔɹtˈɛz/) spoke."),
+    ("Obrano-Corvan spoke.", "Obrano-[Corvan](/kɔɹtˈɛz/) spoke.",
+     "Obrano- [Corvan](/kɔɹtˈɛz/) spoke."),
     ("Pengelley’s dog.", "[Pengelley’s](/pɛnʤˈɛliz/) dog.", "[Pengelley's](/pɛnʤˈɛliz/) dog."),
     # the prepared text's paragraphs and [BREAK]s don't travel either
     ("We met Pengelley today.", "We met\n\n[BREAK]\n\n[Pengelley](/pɛnʤˈɛli/) today.",
@@ -1261,19 +1261,19 @@ def test_apply_inserts_each_override_free_standing_around_its_word(source, prepa
 
 def test_apply_puts_an_override_on_a_substituted_word():
     from narration.words import apply
-    prepared = "Pope Leo the [Fourteenth](/fɔɹtˈinθ/) met."
-    assert apply("Pope Leo XIV met.", prepared, [FOURTEENTH]) == (
-        "Pope Leo the [Fourteenth](/fɔɹtˈinθ/) met.")
+    prepared = "King Ivo the [Fourteenth](/fɔɹtˈinθ/) met."
+    assert apply("King Ivo XIV met.", prepared, [FOURTEENTH]) == (
+        "King Ivo the [Fourteenth](/fɔɹtˈinθ/) met.")
 
 
 def test_apply_reads_the_article_as_the_engine_does():
     from narration.words import apply
     # markup goes, "--" is a pause, curly apostrophes stay, and an override the article
     # itself has (a relative link) is read as its displayed text, as words() reads it
-    source = "# Zoning\n\nIt’s **here** -- see [Home](/home/) today.\n\nPope Leo XIV spoke."
-    prepared = "Zoning\n\nIt’s here -- see Home today.\n\nPope Leo the Fourteenth spoke."
+    source = "# Zoning\n\nIt’s **here** -- see [Home](/home/) today.\n\nKing Ivo XIV spoke."
+    prepared = "Zoning\n\nIt’s here -- see Home today.\n\nKing Ivo the Fourteenth spoke."
     assert apply(source, prepared, [FOURTEENTH]) == (
-        "Zoning\n\nIt’s here... see Home today.\n\nPope Leo the Fourteenth spoke.")
+        "Zoning\n\nIt’s here... see Home today.\n\nKing Ivo the Fourteenth spoke.")
 
 
 @pytest.mark.parametrize("source, prepared, subs", [
@@ -1345,7 +1345,7 @@ def test_unlinked_unwraps_every_link_and_drops_images(article, stored):
     assert overrides(unlinked(article)) == []
 
 
-_LINK_WORDS = st.sampled_from(["the", "report", "Home", "Leo", "court", "x"])
+_LINK_WORDS = st.sampled_from(["the", "report", "Home", "Ivo", "court", "x"])
 _TARGETS = st.sampled_from(["/a/", "/publications/the-report/", "https://example.com/a",
                             "/x", "page.html", "/ɛks/"])
 

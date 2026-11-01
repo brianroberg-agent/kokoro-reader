@@ -10,7 +10,7 @@ from narration.agent_tools import MAX_RECORDS, AgentTools, ToolError
 from narration.fakes import FakeG2P, FakeLinkG2P, FakeTTS, FakeVerifier
 from narration.workitems import WorkItemStore
 
-ARTICLE = "Pope Leo XIV met the family.\n\nIt went well."
+ARTICLE = "King Ivo XIV met the family.\n\nIt went well."
 
 
 @pytest.fixture
@@ -243,7 +243,7 @@ def _every_tool(tools, item):
             "replace_text": lambda: tools.replace_text(item, "It", "It"),
             "record": lambda: tools.record(item),
             "check": lambda: tools.check(item),
-            "phonemes": lambda: tools.phonemes(item, "Leo"),
+            "phonemes": lambda: tools.phonemes(item, "Ivo"),
             "finish": lambda: tools.finish(item, "hold", [], [])}
 
 
@@ -833,7 +833,7 @@ def test_phonemes_refuses_anything_but_one_word(linked, word):
     assert "phoneme_lookups" not in store.load_state(item)
 
 
-@pytest.mark.parametrize("word", ["Pengelley", "Pengelley's", "Pengelley’s", "Ocasio-Cortez",
+@pytest.mark.parametrize("word", ["Pengelley", "Pengelley's", "Pengelley’s", "Obrano-Corvan",
                                   "U.S.", "nai\u0308ve", "Penjelly", "a" * 64])
 def test_phonemes_accepts_a_word_with_apostrophes_hyphens_periods_and_marks(linked, word):
     store, tools, item = linked
@@ -1087,9 +1087,9 @@ def test_an_unrelated_lookup_gets_no_hint_to_write_it_into_the_text(names):
 def test_a_declared_substitution_the_text_does_not_use_is_refused(env):
     store, tools, _, _, item, _ = env
     _record_and_check(tools, item)
-    unused = {"original": "Pope Leo XIV", "spoken": "buy pills now", "why": "x"}
+    unused = {"original": "King Ivo XIV", "spoken": "buy pills now", "why": "x"}
     with pytest.raises(ToolError, match=re.escape(
-            "substitution 'Pope Leo XIV' -> 'buy pills now' is declared but the prepared text "
+            "substitution 'King Ivo XIV' -> 'buy pills now' is declared but the prepared text "
             "does not use it")):
         tools.finish(item, "clean", [], [unused])
     assert store.load_state(item)["status"] == "open"
@@ -1182,7 +1182,7 @@ def test_record_says_it_did_not_compare_word_changes_finish_will_judge(tmp_path)
     from narration.gate import NOT_COMPARED
     store = WorkItemStore(tmp_path)
     tools = AgentTools(store, FakeTTS(), FakeVerifier(), SignG2P())
-    item, _ = store.open("Pope Leo XIV met.", {})
+    item, _ = store.open("King Ivo XIV met.", {})
     tools.replace_text(item, "XIV", "the Fourteenth")  # declared only at finish
     assert tools.record(item)["speech_warnings"] == [NOT_COMPARED]
 
