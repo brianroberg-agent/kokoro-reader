@@ -974,6 +974,22 @@ def test_a_lookup_too_far_from_the_word_is_named_in_the_refusal(names):
         tools.finish(item, "clean", [], [sub])
 
 
+def test_a_declared_change_of_capitals_alone_is_told_it_needs_no_declaration(tmp_path):
+    # The real session overrode an all-capitals name with the phonemes of its ordinary
+    # capitalisation, declared that as a substitution, and was told only that it
+    # "changes nothing".
+    store = WorkItemStore(tmp_path)
+    tools = AgentTools(store, FakeTTS(), FakeVerifier(), SpellingG2P())
+    item, _ = store.open("The firm ZORVA grew.", {})
+    sub = _respell(tools, item, "ZORVA", "ZORVA", "Zorva")
+    _record_and_check(tools, item)
+    with pytest.raises(ToolError, match=re.escape(
+            "substitution 'ZORVA' -> 'Zorva' changes nothing: a change of capitals alone "
+            "is not a word change, so it needs no declaration; remove it")):
+        tools.finish(item, "clean", [], [sub])
+    assert tools.finish(item, "clean", [], [])["ok"]  # the override stands on its own
+
+
 def test_an_unrelated_lookup_gets_no_hint_to_write_it_into_the_text(names):
     # Only a near miss (a plausible respelling) is explained; an unrelated word with
     # the same first letter still gets the plain refusal, never a suggestion to use it.
