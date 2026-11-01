@@ -1386,3 +1386,17 @@ def test_a_link_refused_as_an_override_says_to_unwrap_it():
     assert any("glued" in p and "replace [Home](/home/) with Home" in p for p in glued)
     ipa = check("We saw the cat.", "We saw [the cat](/ðəkæt/).", [])  # IPA: an override
     assert len(ipa) == 1 and "unwrap" not in ipa[0]
+
+
+# ---- which words are the article's names (article_names) ----
+@pytest.mark.parametrize("article", [
+    "“We left early.” Three stayed late.",     # after a closing curly quote
+    '"We left early." Three stayed late.',     # after a closing straight quote
+    "(He left.) Three stayed late.",           # after a closing bracket
+    "We waited… Three stayed late.",           # after an ellipsis character
+])
+def test_a_word_after_a_sentence_that_ends_in_a_quote_or_bracket_is_not_a_name(article):
+    # Review round 2, G1: the walk back stopped at the closing mark, which is not a
+    # sentence end, so a sentence's first word counted as mid-sentence.
+    from narration.words import article_names
+    assert "three" not in article_names(article)

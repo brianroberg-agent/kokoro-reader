@@ -406,8 +406,8 @@ def is_respelling(a: str, b: str) -> bool:
 
 _NAME_WORD = re.compile(r"([^\W\d_]+)((?:'|’)s)?")  # letters, then a possessive ending
 _LETTER_RUN = re.compile(r"[^\W\d_]+")
-_SENTENCE_END = frozenset(".!?:;\n")  # before a word (past spaces, quotes, brackets)
-_OPENERS = frozenset("\"'“‘([ \t")
+_SENTENCE_END = frozenset(".!?:;…\n")  # before a word (past spaces, quotes, brackets)
+_BETWEEN = frozenset("\"'“”‘’()[]{} \t")  # quotes and brackets, open or closed, and spaces
 
 
 def article_names(source: str) -> frozenset[str]:
@@ -425,7 +425,7 @@ def article_names(source: str) -> frozenset[str]:
             lower.add(key)
             continue
         capital.add(key)
-        while k > 0 and text[k - 1] in _OPENERS:
+        while k > 0 and text[k - 1] in _BETWEEN:
             k -= 1
         if k > 0 and text[k - 1] not in _SENTENCE_END:
             inside.add(key)
