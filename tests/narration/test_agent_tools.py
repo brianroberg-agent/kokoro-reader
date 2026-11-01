@@ -1071,6 +1071,23 @@ def test_a_change_of_capitals_no_override_uses_is_refused(tmp_path):
         tools.finish(item, "clean", [], [sub])
 
 
+@pytest.mark.parametrize("original, spoken", [
+    ("Zorva", "ZORVA"),    # reversed
+    ("zorva", "zOrva"),    # neither side's capitals
+    ("ZORVA", "zorva"),    # the lookup's capitals wrong
+])
+def test_a_change_of_capitals_must_name_the_capitals_used(tmp_path, original, spoken):
+    # Review round 2, G5: the declaration was matched case-folded, so the published
+    # notes could name a capitalisation that was never written or looked up.
+    store = WorkItemStore(tmp_path)
+    tools = AgentTools(store, FakeTTS(), FakeVerifier(), SpellingG2P())
+    item, _ = store.open("The firm ZORVA grew.", {})
+    _respell(tools, item, "ZORVA", "ZORVA", "Zorva")  # [ZORVA] with the phonemes of Zorva
+    _record_and_check(tools, item)
+    with pytest.raises(ToolError, match=re.escape("override [ZORVA]")):
+        tools.finish(item, "clean", [], [{"original": original, "spoken": spoken, "why": "x"}])
+
+
 def test_an_unrelated_lookup_gets_no_hint_to_write_it_into_the_text(names):
     # Only a near miss (a plausible respelling) is explained; an unrelated word with
     # the same first letter still gets the plain refusal, never a suggestion to use it.

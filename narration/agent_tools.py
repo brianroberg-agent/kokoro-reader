@@ -179,7 +179,7 @@ def _matches(text: str, old: str) -> int:
 
 
 def _unproven_overrides(state: dict, prepared: str, declared: list[tuple], limit: int,
-                        names: frozenset[str]):
+                        names: frozenset[str], subs_in: list[dict]):
     """Check each override in `prepared` against the recorded lookups. Returns
     messages for the ones not proven (stopping at `limit`), the indices of the
     `declared` substitutions (as words() pairs) that declare an override's respelling,
@@ -214,7 +214,8 @@ def _unproven_overrides(state: dict, prepared: str, declared: list[tuple], limit
             continue
         respelled = [k for k, (original, spoken) in enumerate(declared)
                      if original == display and spoken in found
-                     and any(is_override_respelling(shown, w, names) for w in found[spoken])]
+                     and any(is_override_respelling(shown, w, names) for w in found[spoken])
+                     and _names_the_capitals(subs_in[k], shown, found[spoken])]
         if respelled:
             used.update(respelled)
             by_respelling.add((shown, phonemes))
@@ -224,6 +225,16 @@ def _unproven_overrides(state: dict, prepared: str, declared: list[tuple], limit
             break
     n_respelled = sum((s, p) in by_respelling for s, p in every)
     return problems, used, n_respelled
+
+
+def _names_the_capitals(sub: dict, shown: str, looked_up: list[str]) -> bool:
+    """A capitals-only declaration (capitals_only) proves an override only as
+    written: its original in the override's capitals, its spoken in a lookup's, so the
+    published notes name what was read. Any other declaration passes here."""
+    if not capitals_only(sub):
+        return True
+    return (_same_letters(sub["original"], shown)
+            and any(_same_letters(sub["spoken"], w) for w in looked_up))
 
 
 def _same_letters(a: str, b: str) -> bool:
@@ -557,7 +568,7 @@ def validate_substitutions(state: dict, source: str, prepared: str, subs_in: lis
                         + ". Declare each word change in substitutions, or undo it.")
     unproven, respellings, n_respelled = _unproven_overrides(state, prepared, declared,
                                                              MAX_SHOWN + 1,
-                                                             article_names(source))
+                                                             article_names(source), subs_in)
     if unproven:
         raise ToolError("; ".join(unproven[:MAX_SHOWN])
                         + ("; and more overrides like these" if len(unproven) > MAX_SHOWN else ""))
