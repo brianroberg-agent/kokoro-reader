@@ -902,7 +902,7 @@ def test_a_lookup_of_the_displayed_word_needs_no_declaration(spelled):
 # (look up the respelling, override with its phonemes, declare it) and finish refused
 # every one: provenance used the budget's strict respelling rule (6+ letters, one plain
 # word), so 5-letter names and possessives could never be proven.
-NAMES = "Zounk spoke to Zowen. LindeHei agreed with Zounk's plan, but the form was late."
+NAMES = "Zounk spoke to Zowen. Then LindeHei agreed with Zounk's plan, but the form was late."
 
 
 @pytest.fixture
@@ -943,6 +943,24 @@ def test_an_undeclared_respelling_of_a_name_is_told_to_declare_it(names):
             "a respelling of 'Zounk': declare the respelling in substitutions "
             "(original 'Zounk', spoken 'Zunk')")):
         tools.finish(item, "clean", [], [])
+
+
+@pytest.mark.parametrize("article, old, shown, spoken", [
+    # Review F2: the session capitalises a lowercase article word to get the name rule.
+    ("Three people were found dead today.", "dead", "Dead", "Deed"),
+    # A word the article capitalises only where a sentence starts is not a name.
+    ("Three left early. Three stayed late.", "Three left", "Three", "Tree"),
+])
+def test_only_the_articles_own_names_get_the_name_rule(tmp_path, article, old, shown, spoken):
+    store = WorkItemStore(tmp_path)
+    tools = AgentTools(store, FakeTTS(), FakeVerifier(), SpellingG2P())
+    item, _ = store.open(article, {})
+    ph = tools.phonemes(item, spoken)["phonemes"]
+    tools.replace_text(item, old, old.replace(old.split()[0], f"[{shown}](/{ph}/)", 1))
+    _record_and_check(tools, item)
+    sub = {"original": shown, "spoken": spoken, "why": "pronunciation"}
+    with pytest.raises(ToolError, match=re.escape(f"override [{shown}]")):
+        tools.finish(item, "clean", [], [sub])
 
 
 @pytest.mark.parametrize("old, shown, spoken", [
@@ -1069,7 +1087,7 @@ def test_proven_overrides_need_no_respelling_comparisons(tmp_path, monkeypatch):
     respellings, word_calls = [], []
     real_words = agent_tools.words
     monkeypatch.setattr(agent_tools, "is_override_respelling",
-                        lambda a, b: respellings.append((a, b)))
+                        lambda *args: respellings.append(args))
     monkeypatch.setattr(agent_tools, "words", lambda t: word_calls.append(t) or real_words(t))
     assert tools.finish(item, "clean", [], [])["ok"]
     assert respellings == []

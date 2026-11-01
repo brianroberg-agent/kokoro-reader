@@ -39,9 +39,10 @@ import os
 import re
 import unicodedata
 
-from narration.words import (MAX_SUBSTITUTIONS, Substitution, audit, declaration_problems,
-                             is_override_respelling, is_respelling, looks_like_link,
-                             max_prepared_length, overrides, respellings_limit, words)
+from narration.words import (MAX_SUBSTITUTIONS, Substitution, article_names, audit,
+                             declaration_problems, is_override_respelling, is_respelling,
+                             looks_like_link, max_prepared_length, overrides,
+                             respellings_limit, words)
 
 MAX_RECORDS = 4
 MAX_CHECKS = 8
@@ -177,7 +178,8 @@ def _matches(text: str, old: str) -> int:
     return max(2, text.count(old))
 
 
-def _unproven_overrides(state: dict, prepared: str, declared: list[tuple], limit: int):
+def _unproven_overrides(state: dict, prepared: str, declared: list[tuple], limit: int,
+                        names: frozenset[str]):
     """Check each override in `prepared` against the recorded lookups. Returns
     messages for the ones not proven (stopping at `limit`), the indices of the
     `declared` substitutions (as words() pairs) that declare an override's respelling,
@@ -206,12 +208,12 @@ def _unproven_overrides(state: dict, prepared: str, declared: list[tuple], limit
             continue
         respelled = [k for k, (original, spoken) in enumerate(declared)
                      if original == display and spoken in found
-                     and is_override_respelling(shown, found[spoken])]
+                     and is_override_respelling(shown, found[spoken], names)]
         if respelled:
             used.update(respelled)
             by_respelling.add((shown.casefold(), phonemes))
             continue
-        problems.append(_unproven(shown, phonemes, found))
+        problems.append(_unproven(shown, phonemes, found, names))
         if len(problems) >= limit:
             break
     n_respelled = sum((s.casefold(), p) in by_respelling for s, p in every)
@@ -228,10 +230,11 @@ def _near_miss(shown: str, word: str) -> bool:
             and difflib.SequenceMatcher(None, a, b, autojunk=False).ratio() >= NEAR_MISS_RATIO)
 
 
-def _unproven(shown: str, phonemes: str, found: dict) -> str:
+def _unproven(shown: str, phonemes: str, found: dict, names: frozenset[str]) -> str:
     """Why an override isn't proven, and what to do about it."""
     override = f"[{shown}](/{phonemes}/)"
-    respellings = sorted(word for word in found.values() if is_override_respelling(shown, word))
+    respellings = sorted(word for word in found.values()
+                         if is_override_respelling(shown, word, names))
     if respellings:
         return (f"override {override} uses the phonemes the phonemes tool gave for "
                 f"{respellings[0]!r}, a respelling of {shown!r}: declare the respelling in "
@@ -527,7 +530,8 @@ def validate_substitutions(state: dict, source: str, prepared: str, subs_in: lis
         raise ToolError("the prepared text differs from the article: " + "; ".join(problems)
                         + ". Declare each word change in substitutions, or undo it.")
     unproven, respellings, n_respelled = _unproven_overrides(state, prepared, declared,
-                                                             MAX_SHOWN + 1)
+                                                             MAX_SHOWN + 1,
+                                                             article_names(source))
     if unproven:
         raise ToolError("; ".join(unproven[:MAX_SHOWN])
                         + ("; and more overrides like these" if len(unproven) > MAX_SHOWN else ""))

@@ -405,25 +405,49 @@ def is_respelling(a: str, b: str) -> bool:
 
 
 _NAME_WORD = re.compile(r"([^\W\d_]+)((?:'|’)s)?")  # letters, then a possessive ending
+_LETTER_RUN = re.compile(r"[^\W\d_]+")
+_SENTENCE_END = frozenset(".!?:;\n")  # before a word (past spaces, quotes, brackets)
+_OPENERS = frozenset("\"'“‘([ \t")
 
 
-def is_override_respelling(shown: str, spoken: str) -> bool:
+def article_names(source: str) -> frozenset[str]:
+    """The article's names, case-folded: the words it spells with a capital wherever
+    they appear, at least once where no sentence or line starts. A word capitalised
+    only as a sentence's first word or in a heading is not one, and neither is a word
+    the article also writes in lower case. Read from the article, never from the
+    prepared text, which the session writes."""
+    text = _spoken_text(source)
+    capital, lower, inside = set(), set(), set()
+    for m in _LETTER_RUN.finditer(text):
+        word, k = m.group(), m.start()
+        key = word.casefold()
+        if not word[0].isupper():
+            lower.add(key)
+            continue
+        capital.add(key)
+        while k > 0 and text[k - 1] in _OPENERS:
+            k -= 1
+        if k > 0 and text[k - 1] not in _SENTENCE_END:
+            inside.add(key)
+    return frozenset((capital & inside) - lower)
+
+
+def is_override_respelling(shown: str, spoken: str, names: frozenset[str]) -> bool:
     """Whether a phonemes() lookup of `spoken` may give the override displaying
     `shown` its phonemes, once declared as a substitution: a respelling
-    (is_respelling), or a looser one when `shown` is a name. Names need respelling
-    most and are short ("Zounk" as "Zunk"), so for a `shown` that starts with a
-    capital letter, each side may be one word of at least MIN_NAME_RESPELLING_LETTERS
+    (is_respelling), or a looser one when `shown` is one of the article's `names`
+    (article_names). Names need respelling most and are short ("Zounk" as "Zunk"),
+    so for a name each side may be one word of at least MIN_NAME_RESPELLING_LETTERS
     letters, with a possessive ending on both sides or neither, the same first letter,
-    neither inside the other, and at least NAME_RESPELLING_RATIO alike. The capital
-    is all that marks a name, so a sentence's first word is read as one too; the
+    neither inside the other, and at least NAME_RESPELLING_RATIO alike. The
     declaration is published either way."""
     if is_respelling(shown, spoken):
         return True
     wa, wb = words(shown), words(spoken)
-    if len(wa) != 1 or len(wb) != 1 or not shown[:1].isupper():
+    if len(wa) != 1 or len(wb) != 1:
         return False
     ma, mb = _NAME_WORD.fullmatch(wa[0]), _NAME_WORD.fullmatch(wb[0])
-    if not ma or not mb or bool(ma[2]) != bool(mb[2]):
+    if not ma or not mb or bool(ma[2]) != bool(mb[2]) or ma[1] not in names:
         return False
     a, b = ma[1], mb[1]
     return (min(len(a), len(b)) >= MIN_NAME_RESPELLING_LETTERS
