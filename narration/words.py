@@ -410,6 +410,17 @@ _SENTENCE_END = frozenset(".!?:;…\n")  # before a word (past spaces, quotes, b
 _BETWEEN = frozenset("\"'“”‘’()[]{} \t")  # quotes and brackets, open or closed, and spaces
 
 
+def _after_abbreviation(text: str, k: int) -> bool:
+    """Whether text[k - 1] is the period of a dotted abbreviation ("Mr. Zounk"), which
+    ends no sentence."""
+    if text[k - 1] != ".":
+        return False
+    j = k - 1
+    while j > 0 and text[j - 1].isalpha():
+        j -= 1
+    return text[j:k] in DOTTED_ABBREVIATIONS
+
+
 def article_names(source: str) -> frozenset[str]:
     """The article's names, case-folded: the words it spells with a capital wherever
     they appear, at least once where no sentence or line starts. A word capitalised
@@ -434,7 +445,7 @@ def article_names(source: str) -> frozenset[str]:
             continue
         while k > 0 and text[k - 1] in _BETWEEN:
             k -= 1
-        if k > 0 and text[k - 1] not in _SENTENCE_END:
+        if k > 0 and (text[k - 1] not in _SENTENCE_END or _after_abbreviation(text, k)):
             inside.add(key)
     return frozenset((capital & inside) - lower)
 

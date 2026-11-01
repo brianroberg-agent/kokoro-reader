@@ -1412,3 +1412,15 @@ def test_words_on_a_heading_or_title_line_are_not_names(article, names):
     # space and a letter, so they counted as mid-sentence.
     from narration.words import article_names
     assert article_names(article) == names
+
+
+@pytest.mark.parametrize("article", [
+    "Zounk spoke first. Later we met Mr. Zounk again.",
+    "Zounk spoke first. Later we met Dr. Zounk again.",
+    "Zounk spoke first. Later we met Mrs. Zounk again.",
+])
+def test_a_name_after_a_title_abbreviation_is_mid_sentence(article):
+    # Review round 2, G8: the abbreviation's period read as a sentence end, so a
+    # name the article always writes after "Mr." was never seen mid-sentence.
+    from narration.words import article_names
+    assert "zounk" in article_names(article)
