@@ -9,6 +9,8 @@ from narration.agent_tools import ToolError, _checks_used, _sha256
 from narration.gate import _meta, album_for, evaluate
 from narration.words import unlinked
 
+FINALIZE_WAIT_SECONDS = 600  # longest finalize waits for a running tool call on the item
+
 
 class RunnerTools:
     def __init__(self, store, converter, g2p):
@@ -52,7 +54,14 @@ class RunnerTools:
     def finalize(self, item_id: str, force: bool = False) -> dict:
         if not self.store.exists(item_id):
             raise ToolError("no such work item")
-        with self.store.item_lock(item_id):  # wait for a running record, check or finish
+        lock = self.store.item_lock(item_id)
+        # Wait for a running record, check or finish, but not forever: a call stuck in
+        # an engine would otherwise keep even finalize(force=True) from abandoning it.
+        if not lock.acquire(timeout=FINALIZE_WAIT_SECONDS):
+            raise ToolError(f"a tool call is still running on this work item after "
+                            f"{FINALIZE_WAIT_SECONDS:g} seconds; nothing was decided. "
+                            "Call finalize again later.")
+        try:
             state = self.store.load_state(item_id)
             if state["status"] == "open":
                 if not force:
@@ -72,6 +81,8 @@ class RunnerTools:
                 self.store.save_state(item_id, state)
             return {"action": result.action, "outcome": result.outcome, "reasons": result.reasons,
                     "notes": result.notes, "mp3": mp3.exists()}
+        finally:
+            lock.release()
 
     def _convert(self, item_id, mp3, meta):
         """recording.wav to episode.mp3, with the tags. episode.mp3 appears only once the
