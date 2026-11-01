@@ -13,7 +13,7 @@ So phonemes() takes one plain word (never link syntax, which misaki's
 preprocessing would read as an override and echo back) and records every lookup
 in the item's state, and finish accepts an override only if its phonemes are
 what a lookup returned for its displayed word, or for a respelling of it
-(words.is_respelling) that the call declares as a substitution, so the published
+(words.is_override_respelling) that the call declares as a substitution, so the published
 notes list it. Every declared substitution must be used, and declared once.
 
 The claims finish accepts are about the text that was recorded: record keeps the
@@ -39,8 +39,8 @@ import re
 import unicodedata
 
 from narration.words import (MAX_SUBSTITUTIONS, Substitution, audit, declaration_problems,
-                             is_respelling, looks_like_link, max_prepared_length, overrides,
-                             words)
+                             is_override_respelling, looks_like_link, max_prepared_length,
+                             overrides, words)
 
 MAX_RECORDS = 4
 MAX_CHECKS = 8
@@ -200,7 +200,7 @@ def _unproven_overrides(state: dict, prepared: str, declared: list[tuple], limit
             continue
         respelled = [k for k, (original, spoken) in enumerate(declared)
                      if original == display and spoken in found
-                     and is_respelling(shown, found[spoken])]
+                     and is_override_respelling(shown, found[spoken])]
         if respelled:
             used.update(respelled)
             continue
@@ -213,7 +213,7 @@ def _unproven_overrides(state: dict, prepared: str, declared: list[tuple], limit
 def _unproven(shown: str, phonemes: str, found: dict) -> str:
     """Why an override isn't proven, and what to do about it."""
     override = f"[{shown}](/{phonemes}/)"
-    respellings = sorted(word for word in found.values() if is_respelling(shown, word))
+    respellings = sorted(word for word in found.values() if is_override_respelling(shown, word))
     if respellings:
         return (f"override {override} uses the phonemes the phonemes tool gave for "
                 f"{respellings[0]!r}, a respelling of {shown!r}: declare the respelling in "

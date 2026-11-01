@@ -898,6 +898,68 @@ def test_a_lookup_of_the_displayed_word_needs_no_declaration(spelled):
     assert tools.finish(item, "clean", [], [])["ok"]
 
 
+# The first real session (2026-11-01) respelled three surnames as the instructions say
+# (look up the respelling, override with its phonemes, declare it) and finish refused
+# every one: provenance used the budget's strict respelling rule (6+ letters, one plain
+# word), so 5-letter names and possessives could never be proven.
+NAMES = "Zounk spoke to Zowen. LindeHei agreed with Zounk's plan, but the form was late."
+
+
+@pytest.fixture
+def names(tmp_path):
+    store = WorkItemStore(tmp_path)
+    tools = AgentTools(store, FakeTTS(), FakeVerifier(), SpellingG2P())
+    item, _ = store.open(NAMES, {})
+    return store, tools, item
+
+
+def _respell(tools, item, old, shown, spoken):
+    """What the session did: look up `spoken`, override `shown` (inside `old`, which
+    appears once) with its phonemes, and return the declaration finish needs."""
+    ph = tools.phonemes(item, spoken)["phonemes"]
+    tools.replace_text(item, old, old.replace(shown, f"[{shown}](/{ph}/)"))
+    return {"original": shown, "spoken": spoken, "why": "pronunciation"}
+
+
+@pytest.mark.parametrize("old, shown, spoken", [
+    ("Zounk spoke", "Zounk", "Zunk"),            # a letter dropped, 5 letters
+    ("to Zowen", "Zowen", "Zowan"),              # a vowel changed, 5 letters
+    ("LindeHei", "LindeHei", "Lindahigh"),       # a longer name, respelled more loosely
+    ("Zounk's plan", "Zounk's", "Zunk's"),       # a possessive
+])
+def test_a_declared_respelling_of_a_name_proves_its_override(names, old, shown, spoken):
+    store, tools, item = names
+    sub = _respell(tools, item, old, shown, spoken)
+    _record_and_check(tools, item)
+    assert tools.finish(item, "clean", [], [sub])["ok"]
+    assert store.load_state(item)["finish"]["substitutions"] == [sub]  # published
+
+
+def test_an_undeclared_respelling_of_a_name_is_told_to_declare_it(names):
+    store, tools, item = names
+    _respell(tools, item, "Zounk spoke", "Zounk", "Zunk")
+    _record_and_check(tools, item)
+    with pytest.raises(ToolError, match=re.escape(
+            "a respelling of 'Zounk': declare the respelling in substitutions "
+            "(original 'Zounk', spoken 'Zunk')")):
+        tools.finish(item, "clean", [], [])
+
+
+@pytest.mark.parametrize("old, shown, spoken", [
+    ("the form", "form", "from"),                # not a name: short words stay strict
+    ("to Zowen", "Zowen", "Kowen"),              # another first letter
+    ("to Zowen", "Zowen", "Zebra"),              # not alike
+    ("Zounk's plan", "Zounk's", "Zunk"),         # the possessive dropped on one side
+])
+def test_the_name_rule_still_refuses_other_words(names, old, shown, spoken):
+    store, tools, item = names
+    sub = _respell(tools, item, old, shown, spoken)
+    _record_and_check(tools, item)
+    with pytest.raises(ToolError, match=re.escape(f"override [{shown}]")):
+        tools.finish(item, "clean", [], [sub])
+    assert store.load_state(item)["status"] == "open"
+
+
 # I2: every declared substitution is used, and declared once
 def test_a_declared_substitution_the_text_does_not_use_is_refused(env):
     store, tools, _, _, item, _ = env
@@ -935,7 +997,8 @@ def test_proven_overrides_need_no_respelling_comparisons(tmp_path, monkeypatch):
     _record_and_check(tools, item)
     respellings, word_calls = [], []
     real_words = agent_tools.words
-    monkeypatch.setattr(agent_tools, "is_respelling", lambda a, b: respellings.append((a, b)))
+    monkeypatch.setattr(agent_tools, "is_override_respelling",
+                        lambda a, b: respellings.append((a, b)))
     monkeypatch.setattr(agent_tools, "words", lambda t: word_calls.append(t) or real_words(t))
     assert tools.finish(item, "clean", [], [])["ok"]
     assert respellings == []

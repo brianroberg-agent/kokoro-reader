@@ -132,6 +132,8 @@ RESPELLING_RATIO = 0.75      # single words this similar (and no more related) a
 MIN_RESPELLING_LETTERS = 6   # if both have at least this many letters
 MAX_RESPELLINGS = 50         # across the text: applications of respellings,
 RESPELLINGS_FRACTION = 0.05  # or this share of the article's words, whichever is larger
+NAME_RESPELLING_RATIO = 0.7  # a name this similar may lend an override its phonemes
+MIN_NAME_RESPELLING_LETTERS = 4  # (is_override_respelling), if both have this many letters
 _MAX_STATES_FACTOR = 50
 _MAX_TOKEN = 64              # characters in one word of a substitution's spoken side or an override
 _RESYNC_WINDOW = 12          # words per side searched for where the texts agree again
@@ -400,6 +402,35 @@ def is_respelling(a: str, b: str) -> bool:
     words(). Text with no words is not a respelling of anything."""
     wa, wb = tuple(words(a)), tuple(words(b))
     return bool(wa and wb) and _is_respelling(wa, wb)
+
+
+_NAME_WORD = re.compile(r"([^\W\d_]+)((?:'|’)s)?")  # letters, then a possessive ending
+
+
+def is_override_respelling(shown: str, spoken: str) -> bool:
+    """Whether a phonemes() lookup of `spoken` may give the override displaying
+    `shown` its phonemes, once declared as a substitution: a respelling
+    (is_respelling), or a looser one when `shown` is a name. Names need respelling
+    most and are short ("Zounk" as "Zunk"), so for a `shown` that starts with a
+    capital letter, each side may be one word of at least MIN_NAME_RESPELLING_LETTERS
+    letters, with a possessive ending on both sides or neither, the same first letter,
+    neither inside the other, and at least NAME_RESPELLING_RATIO alike. The capital
+    is all that marks a name, so a sentence's first word is read as one too; the
+    declaration is published either way."""
+    if is_respelling(shown, spoken):
+        return True
+    wa, wb = words(shown), words(spoken)
+    if len(wa) != 1 or len(wb) != 1 or not shown[:1].isupper():
+        return False
+    ma, mb = _NAME_WORD.fullmatch(wa[0]), _NAME_WORD.fullmatch(wb[0])
+    if not ma or not mb or bool(ma[2]) != bool(mb[2]):
+        return False
+    a, b = ma[1], mb[1]
+    return (min(len(a), len(b)) >= MIN_NAME_RESPELLING_LETTERS
+            and max(len(a), len(b)) <= _MAX_TOKEN
+            and a[0] == b[0] and a not in b and b not in a
+            and difflib.SequenceMatcher(None, a, b, autojunk=False).ratio()
+            >= NAME_RESPELLING_RATIO)
 
 
 def check(source: str, prepared: str, substitutions: list[Substitution]) -> list[str]:
