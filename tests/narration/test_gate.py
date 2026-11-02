@@ -708,7 +708,7 @@ def test_a_substitution_string_needs_a_word_and_no_markup_or_control_characters(
 
 
 @pytest.mark.parametrize("text", ["the Fourteenth", "U.S.", "Pengelley's", "Obrano-Corvan",
-                                  "$3.50", "5%", "No. 5, e.g.", "Saint-Saëns", '"quoted"',
+                                  "$3.50", "5%", "No. 5, e.g.", "Vaine-Bröck", '"quoted"',
                                   "#5", "(5%)", "Yahoo!", "a & b + c @ d / e: f; g?"])
 def test_plain_substitution_strings_pass(text):
     issues, subs = agent_tools.validate_finish("clean", [], [{"original": "x", "spoken": text}])
