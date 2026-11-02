@@ -924,7 +924,7 @@ def test_the_respelling_cap_counts_every_respelling_together():
 
 
 # ---- properties ----
-WORDS = ["the", "pope", "leo", "zoning", "alone", "court", "may", "end", "it", "and",
+WORDS = ["the", "king", "ivo", "zoning", "alone", "court", "may", "end", "it", "and",
          "city", "in", "mars", "life", "is", "there", "neighbors", "xiv"]
 # Numbers with internal punctuation, each with spellings that change what is said.
 NUMBERS = {"3.5": ["3 5", "35", "3.6", "3.50", "-3.5", ".5"],
