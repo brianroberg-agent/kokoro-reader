@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent template for the narration MCP server (docs/narration-server.md has the
+  install steps). Before installing, adjust it for this Mac:
+    - Paths: this assumes the checkout is at /Users/robergb/tools/kokoro. If it is
+      elsewhere, change WorkingDirectory. The other paths assume the home folder
+      /Users/robergb.
+    - TAILNET_IP: replace it, in NARRATION_HOST and NARRATION_ALLOWED_HOSTS, with the
+      output of: tailscale ip -4
+    - NARRATION_ALLOWED_HOSTS lists the host:port values clients put in their Host
+      header, and nothing else is accepted. Add or remove names to match how the
+      clients reach this Mac.
+  GEMINI_API_KEY: with real engines the server exits at startup if it is unset. Keep it
+  in the checkout's .env file (the server reads it from there), or add a GEMINI_API_KEY
+  key to EnvironmentVariables below. Don't put a real key in this template and commit it.
+  Never run the server behind a root path (uvicorn's root-path option): the bearer-token
+  gate matches absolute request paths, and a root path would move them out from under it.
+  The spaCy model en_core_web_sm is installed outside uv.lock (it comes from GitHub, not
+  PyPI). `uv run` below keeps it, but a plain `uv sync` removes it: update the checkout
+  with `uv sync --inexact`. With real engines the server exits at startup without it.
+  HF_HUB_OFFLINE=1: every record loads the TTS model again, and this makes it load from
+  the local Hugging Face cache without asking the hub each time. So the model, and each
+  voice the runner asks for, must be in the cache before the server runs: record one
+  sentence by hand once per voice (docs/narration-server.md).
+-->
+<plist version="1.0"><dict>
+  <key>Label</key><string>net.robergb.narration</string>
+  <key>WorkingDirectory</key><string>/Users/robergb/tools/kokoro</string>
+  <key>ProgramArguments</key><array>
+    <string>/bin/bash</string><string>-lc</string>
+    <string>export PATH=$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH; exec uv run python -m narration</string>
+  </array>
+  <key>EnvironmentVariables</key><dict>
+    <key>NARRATION_DATA_DIR</key><string>/Users/robergb/narration-data</string>
+    <key>NARRATION_RUNNER_TOKEN_FILE</key><string>/Users/robergb/.config/narration/runner-token</string>
+    <key>NARRATION_HOST</key><string>TAILNET_IP</string>
+    <key>NARRATION_PORT</key><string>8770</string>
+    <key>NARRATION_ALLOWED_HOSTS</key><string>TAILNET_IP:8770,brians-macbook-pro:8770</string>
+    <key>HF_HUB_OFFLINE</key><string>1</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/Users/robergb/Library/Logs/narration/out.log</string>
+  <key>StandardErrorPath</key><string>/Users/robergb/Library/Logs/narration/err.log</string>
+</dict></plist>

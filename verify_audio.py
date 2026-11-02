@@ -13,6 +13,7 @@ import tempfile
 import time
 from pathlib import Path
 from google import genai
+from google.genai import types as genai_types
 from dotenv import load_dotenv
 from pydub import AudioSegment
 from pydub.silence import detect_silence
@@ -22,6 +23,10 @@ from text_to_speech import split_sections
 load_dotenv()
 
 DEFAULT_MODEL = "gemini-flash-latest"
+
+# Longest one Gemini request (an upload, a status poll or a generate_content call)
+# may take. With none, a request on a dead connection never returned (review F3).
+GEMINI_TIMEOUT_MS = 10 * 60 * 1000
 
 # Longest stretch of audio one generate_content call can be trusted with.
 # Calibrated empirically on known audio (issue #4): at 11.4 minutes,
@@ -54,33 +59,47 @@ def format_timestamp(ms: int) -> str:
     return f"{total_seconds // 60}:{total_seconds % 60:02d}"
 
 
-def precheck_report(audio: AudioSegment, source_text: str) -> str:
-    """Deterministic sanity checks that run before any model call.
-
-    Reports audio duration, source word count, and effective words per
-    minute. Costs nothing — no API call involved.
-    """
+def _pace_stats(audio: AudioSegment, source_text: str) -> tuple[int, int, float]:
+    """Return (duration_ms, word_count, wpm); [BREAK] markers are not words."""
     duration_ms = len(audio)
     word_count = len(re.sub(r"\[BREAK\]", " ", source_text).split())
     wpm = word_count / (duration_ms / 60000) if duration_ms else 0
+    return duration_ms, word_count, wpm
 
-    lines = [
-        "## Pre-check (deterministic)",
-        f"Duration: {format_timestamp(duration_ms)} | "
-        f"{word_count} words | {wpm:.0f} WPM",
-    ]
+
+def precheck_warnings(audio: AudioSegment, source_text: str) -> list[str]:
+    """Deterministic warnings: pace outside 100-250 WPM, or silences over 5 s."""
+    _, _, wpm = _pace_stats(audio, source_text)
+    warnings = []
     if not 100 <= wpm <= 250:
-        lines.append(
-            f"WARNING: pace of {wpm:.0f} WPM is outside the normal speech "
+        warnings.append(
+            f"pace of {wpm:.0f} WPM is outside the normal speech "
             "range (100-250) — audio may be truncated or have extra content."
         )
     for start_ms, end_ms in detect_silence(
         audio, min_silence_len=5000, silence_thresh=-40, seek_step=100
     ):
-        lines.append(
-            f"WARNING: {format_timestamp(end_ms - start_ms)} of silence at "
+        warnings.append(
+            f"{format_timestamp(end_ms - start_ms)} of silence at "
             f"{format_timestamp(start_ms)} — far longer than a [BREAK] pause."
         )
+    return warnings
+
+
+def precheck_report(audio: AudioSegment, source_text: str) -> str:
+    """Deterministic sanity checks that run before any model call.
+
+    Reports audio duration, source word count, and effective words per
+    minute, followed by any precheck_warnings. Costs nothing — no API
+    call involved.
+    """
+    duration_ms, word_count, wpm = _pace_stats(audio, source_text)
+    lines = [
+        "## Pre-check (deterministic)",
+        f"Duration: {format_timestamp(duration_ms)} | "
+        f"{word_count} words | {wpm:.0f} WPM",
+    ]
+    lines += [f"WARNING: {w}" for w in precheck_warnings(audio, source_text)]
     return "\n".join(lines)
 
 
@@ -141,7 +160,8 @@ def check_single_call_limit(duration_ms: int, description: str) -> None:
         )
 
 
-def verify_audio(audio_path: str, source_text: str, model: str = DEFAULT_MODEL) -> str:
+def verify_audio(audio_path: str, source_text: str, model: str = DEFAULT_MODEL,
+                 audio: AudioSegment | None = None) -> str:
     """Verify a TTS audio recording against its source text using Gemini.
 
     Runs a deterministic pre-check, then — when the audio's [BREAK]
@@ -153,6 +173,8 @@ def verify_audio(audio_path: str, source_text: str, model: str = DEFAULT_MODEL) 
         audio_path: Path to the audio file (.wav)
         source_text: The original text that was read aloud
         model: Gemini model to use for verification
+        audio: The file already decoded, if the caller has it (the file is
+            then read only to upload it)
 
     Returns:
         The pre-check stats followed by the model's assessment
@@ -165,10 +187,12 @@ def verify_audio(audio_path: str, source_text: str, model: str = DEFAULT_MODEL) 
     if not os.path.exists(audio_path):
         raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-    audio = AudioSegment.from_wav(audio_path)
+    if audio is None:
+        audio = AudioSegment.from_wav(audio_path)
     precheck = precheck_report(audio, source_text)
 
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"),
+                          http_options=genai_types.HttpOptions(timeout=GEMINI_TIMEOUT_MS))
 
     sections = split_sections(source_text)
     gaps = find_section_gaps(audio)

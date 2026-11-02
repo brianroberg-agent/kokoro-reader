@@ -8,6 +8,7 @@ license = "MIT"
 dependencies = [
     "google-genai>=1.67.0",
     "misaki[en]",
+    "mcp==2.3.0",
     "mlx-audio",
     "mutagen>=1.47.0",
     "numpy",
@@ -15,10 +16,13 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "requests>=2.32.0",
     "soundfile",
+    "uvicorn>=0.30",
 ]
 
 [dependency-groups]
 dev = [
+    "httpx",
+    "hypothesis",
     "pytest",
     "pytest-subtests",
 ]
@@ -26,3 +30,8 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.uv]
+# curated-tokenizers (misaki[en] -> spacy-curated-transformers) ships only an sdist,
+# and Cython 3.1+ crashes compiling it (OptimizeBuiltinCalls in _bbpe.pyx).
+build-constraint-dependencies = ["cython<3.1"]

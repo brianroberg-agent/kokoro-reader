@@ -16,14 +16,24 @@ import numpy as np
 import soundfile as sf
 from pydub import AudioSegment
 
-try:
-    # mlx_audio only imports on Apple Silicon (it pulls in libmlx). Guard it so
-    # dependency-free helpers here (e.g. split_sections) can be imported by
-    # tools like verify_audio.py on any platform. The name stays bound for
-    # generate_audio and for tests that patch text_to_speech.load_model.
-    from mlx_audio.tts.utils import load_model
-except ImportError:  # pragma: no cover - exercised only off Apple Silicon
-    load_model = None
+
+def load_model(model_path: str):
+    """Load a TTS model with mlx_audio.
+
+    mlx_audio is imported here, when audio is made, never at module level: it pulls
+    in libmlx, which imports only on Apple Silicon, and which without a Metal device
+    (a headless or sandboxed session, a LaunchAgent without GPU access) aborts the
+    whole process instead of raising. So the dependency-free helpers here (e.g.
+    split_sections, clean_markdown_text) stay importable by verify_audio.py and the
+    narration server anywhere. Tests patch text_to_speech.load_model.
+    """
+    try:
+        from mlx_audio.tts.utils import load_model as load_mlx_model
+    except ImportError:  # pragma: no cover - exercised only off Apple Silicon
+        raise RuntimeError(
+            "mlx_audio is unavailable (audio generation requires Apple Silicon)."
+        ) from None
+    return load_mlx_model(model_path)
 
 
 def read_text_file(file_path: str) -> str:
@@ -40,16 +50,92 @@ def read_text_file(file_path: str) -> str:
     raise ValueError(f"Could not decode file {file_path} with any supported encoding")
 
 
+def _line_start_marker(marker: str) -> "re.Pattern[str]":
+    r"""A pattern that does what re.sub(r'^\s*' + marker, '', text, flags=re.M)
+    does when its matches are replaced with group 1, in linear time.
+
+    The ^\s* form retries at every line start inside a run of blank lines and
+    rescans the run each time, which is quadratic. Its match always starts at
+    the first line start of a whitespace run, so this pattern starts at the run
+    itself and keeps what comes before that line start (group 1); it also
+    starts at a line start right after a previous match, which consumed the run.
+    """
+    return re.compile(r'(?:(?<!\s)(\A|[^\S\n]*\n)\s*|(?<=\n))' + marker)
+
+
+_LIST_ITEM = _line_start_marker(r'[-*+]\s+')
+_NUMBERED_ITEM = _line_start_marker(r'\d+\.\s+')
+_BLOCKQUOTE = _line_start_marker(r'>\s+')
+
+
+def _remove_images(text: str) -> str:
+    r"""re.sub(r'!\[([^\]]*)\]\([^\)]+\)', '', text), in linear time.
+
+    The regex retries at every "![" before the same "]" and rescans to it (and
+    to the next ")") each time. Every such attempt succeeds or fails alike, so
+    only the first one is made; the next ")" is found once for all of them.
+    """
+    out, pos, search, close = [], 0, 0, -1
+    while True:
+        start = text.find('![', search)
+        if start < 0:
+            break
+        bracket = text.find(']', start + 2)
+        if bracket < 0:
+            break
+        if text.startswith('(', bracket + 1):
+            if close < bracket + 2:
+                close = text.find(')', bracket + 2)
+                if close < 0:
+                    break
+            if close > bracket + 2:
+                out.append(text[pos:start])
+                pos = search = close + 1
+                continue
+        search = bracket + 1
+    out.append(text[pos:])
+    return ''.join(out)
+
+
+def _unwrap_links(text: str) -> str:
+    r"""re.sub(r'\[([^\]]+)\]\((?!/[^)]*?/\))[^\)]+\)', r'\1', text), in linear
+    time, the same way as _remove_images. A link whose target is /.../ is a
+    Kokoro phonetic override and stays.
+    """
+    out, pos, search, close = [], 0, 0, -1
+    while True:
+        start = text.find('[', search)
+        if start < 0:
+            break
+        bracket = text.find(']', start + 1)
+        if bracket < 0:
+            break
+        if bracket > start + 1 and text.startswith('(', bracket + 1):
+            if close < bracket + 2:
+                close = text.find(')', bracket + 2)
+                if close < 0:
+                    break
+            phonetic = (text.startswith('/', bracket + 2) and close - 1 >= bracket + 3
+                        and text[close - 1] == '/')
+            if close > bracket + 2 and not phonetic:
+                out += [text[pos:start], text[start + 1:bracket]]
+                pos = search = close + 1
+                continue
+        search = bracket + 1
+    out.append(text[pos:])
+    return ''.join(out)
+
+
 def clean_markdown_text(text: str) -> str:
     """Clean markdown formatting from text for better TTS."""
     # Remove markdown headers
     text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
     
     # Remove markdown images completely (including alt text)
-    text = re.sub(r'!\[([^\]]*)\]\([^\)]+\)', '', text)
+    text = _remove_images(text)
     
     # Remove markdown links but keep the text (preserve Kokoro phonetic links like [word](/phonemes/))
-    text = re.sub(r'\[([^\]]+)\]\((?!/[^)]*?/\))[^\)]+\)', r'\1', text)
+    text = _unwrap_links(text)
     
     # Remove markdown emphasis (bold/italic)
     text = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', text)
@@ -60,11 +146,11 @@ def clean_markdown_text(text: str) -> str:
     text = re.sub(r'`([^`]+)`', r'\1', text)
     
     # Remove markdown lists
-    text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)
-    text = re.sub(r'^\s*\d+\.\s+', '', text, flags=re.MULTILINE)
+    text = _LIST_ITEM.sub(r'\1', text)
+    text = _NUMBERED_ITEM.sub(r'\1', text)
     
     # Remove blockquotes
-    text = re.sub(r'^\s*>\s+', '', text, flags=re.MULTILINE)
+    text = _BLOCKQUOTE.sub(r'\1', text)
     
     # Clean up excessive whitespace
     text = re.sub(r'\n\s*\n', '\n\n', text)
@@ -78,7 +164,9 @@ def prepare_for_tts(text: str) -> str:
 
     Replaces -- em dashes with ... ellipsis for longer pauses in the TTS model.
     """
-    text = re.sub(r'\s*--\s*', '... ', text)
+    # (?<!\s) starts the whitespace before "--" only at the start of its run:
+    # \s*--\s* would rescan a long run of whitespace from each position in it.
+    text = re.sub(r'(?:(?<!\s)\s+)?--\s*', '... ', text)
     return text
 
 
@@ -120,10 +208,6 @@ def generate_audio(
 
     sections = split_sections(text)
 
-    if load_model is None:
-        raise RuntimeError(
-            "mlx_audio is unavailable (audio generation requires Apple Silicon)."
-        )
     model = load_model("mlx-community/Kokoro-82M-bf16")
 
     temp_dir = tempfile.mkdtemp(prefix="kokoro_tts_")
