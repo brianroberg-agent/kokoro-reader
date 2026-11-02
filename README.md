@@ -10,13 +10,13 @@ The TTS engine is [Kokoro-82M](https://huggingface.co/mlx-community/Kokoro-82M-b
 
 ### With Claude Code (recommended)
 
-The included skill (`.claude/skills/article-tts-recording.md`) manages the full workflow — fetching articles via the [article-assistant](../article-assistant) project, preparing text, generating audio, verifying quality, and iteratively fixing issues:
+The included skill (`.claude/skills/recording-article-audio/SKILL.md`) manages the full workflow — fetching articles via the [article-assistant](../article-assistant) project, preparing text, generating audio, verifying quality, and iteratively fixing issues:
 
 ```
 > Record an audio version of this article: https://example.com/article
 ```
 
-You can also invoke it explicitly with `/article-tts-recording`.
+You can also invoke it explicitly with `/recording-article-audio`.
 
 ### From the Command Line
 

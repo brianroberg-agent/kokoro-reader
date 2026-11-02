@@ -93,3 +93,24 @@ def test_all_scripts_documented(subtests):
     for script in ["text_to_speech.py", "verify_audio.py", "convert_audio.py", "publish_audio.py"]:
         with subtests.test(script=script):
             assert script in readme_text, f"{script} not mentioned in README"
+
+
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_skill_lives_at_its_gerund_name():
+    skill = ROOT / ".claude" / "skills" / "recording-article-audio" / "SKILL.md"
+    assert skill.exists()
+    assert "name: recording-article-audio" in skill.read_text()
+    assert not (ROOT / ".claude" / "skills" / "article-tts-recording.md").exists()
+
+
+def test_docs_name_the_skill_by_its_new_name():
+    for doc in ("README.md", "docs/adr-001-no-orchestration-script.md"):
+        text = (ROOT / doc).read_text()
+        assert "article-tts-recording" not in text, doc
+    readme = (ROOT / "README.md").read_text()
+    assert ".claude/skills/recording-article-audio/SKILL.md" in readme
+    assert "/recording-article-audio" in readme

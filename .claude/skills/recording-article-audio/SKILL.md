@@ -1,5 +1,5 @@
 ---
-name: article-tts-recording
+name: recording-article-audio
 description: Use when producing an audio recording of an article or long-form text using the kokoro TTS package, especially when high-quality output with iterative verification is needed
 ---
 

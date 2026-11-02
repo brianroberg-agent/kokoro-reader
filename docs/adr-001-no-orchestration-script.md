@@ -6,7 +6,7 @@
 
 ## Decision
 
-The article recording workflow is orchestrated by a Claude Code agent using a project skill (`.claude/skills/article-tts-recording.md`), not by a deterministic Python script. The individual tools (`text_to_speech.py`, `verify_audio.py`, `convert_audio.py`) remain independently callable commands. Article content is fetched from a separate project (`article-assistant`) which interoperates via plain text on stdout.
+The article recording workflow is orchestrated by a Claude Code agent using a project skill (`.claude/skills/recording-article-audio/SKILL.md`), not by a deterministic Python script. The individual tools (`text_to_speech.py`, `verify_audio.py`, `convert_audio.py`) remain independently callable commands. Article content is fetched from a separate project (`article-assistant`) which interoperates via plain text on stdout.
 
 ## Context
 
@@ -32,7 +32,7 @@ These are exactly the kinds of decisions an agent with domain context handles we
 
 1. **Extracted `generate_audio()` from `text_to_speech.py`** — a callable function that handles the full text-to-audio pipeline (markdown cleaning, TTS preparation, section splitting, chunk generation, concatenation). This makes the TTS generation independently callable from any Python code, without needing to go through the CLI.
 
-2. **Wrote a detailed project skill** (`.claude/skills/article-tts-recording.md`) that documents the complete workflow, including both project locations, exact commands, metadata format, common issues and fixes, and assessment guidance for the verification report.
+2. **Wrote a detailed project skill** (`.claude/skills/recording-article-audio/SKILL.md`) that documents the complete workflow, including both project locations, exact commands, metadata format, common issues and fixes, and assessment guidance for the verification report.
 
 3. **The agent remains the orchestrator.** It invokes the skill, makes judgment calls during iteration, and adapts to each article's specific challenges.
 
