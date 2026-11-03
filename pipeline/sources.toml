@@ -1,0 +1,11 @@
+[[source]]
+id = "new-atlantis"
+name = "The New Atlantis"
+podcast = "The New Atlantis"        # Audiobookshelf podcast the episodes go to
+feed = "https://www.thenewatlantis.com/feed"
+listing = "new-atlantis-issues"     # optional extra discovery, named per site
+extractor = "new-atlantis"          # article-assistant mode
+start = { edition = 86, date = "2026-09-08" }
+text_rules = []                     # source-specific preparation notes for the agent
+
+[settings]
