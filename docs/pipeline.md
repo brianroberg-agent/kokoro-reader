@@ -155,7 +155,7 @@ for row in db.execute('SELECT updated_at, status, failed_nights, rounds, claude_
     print(*row, sep='  |  ')"
 ```
 
-The columns are in `pipeline/narration_pipeline/record.py`. The ones worth reading: `status` (`baseline`, `queued`, `in_progress`, `published`, `published_with_notes`, `held`, `failed`), `failed_nights`, `last_error`, `remaining_issues` (the notes published with the episode, or the reasons for a hold), `episode_id`, and the costs: `claude_cost_usd` and `claude_tokens` are the totals of every session the article has had, a retried one included, added as each session ends; `gemini_cost_usd` and `run_seconds` are its last attempt's.
+The columns are in `pipeline/narration_pipeline/record.py`. The ones worth reading: `status` (`baseline`, `queued`, `in_progress`, `published`, `published_with_notes`, `held`, `failed`), `failed_nights`, `last_error`, `remaining_issues` (the notes published with the episode, or the reasons for a hold), `episode_id`, and the costs: `claude_cost_usd` and `claude_tokens` are the totals of the sessions whose results the runner received, a retried article's earlier ones included, added as each result arrives (a session the runner stopped waiting for, past its timeout, isn't in them); `gemini_cost_usd` and `run_seconds` are its last attempt's.
 
 **Logs:** `docker compose -f deploy/compose.yaml logs --since 24h narration-runner` (and `narration-agent`).
 
