@@ -182,14 +182,9 @@ class _Night:
                                          self.s.session_budget_usd, self.s.session_timeout_s)
             it.session = self.d.handoff.wait_result(self.d.handoff_dir, it.item_id,
                                                     timeout_s=self.s.session_timeout_s + SESSION_GRACE_S)
-            it.fin = self.finalize(it)
-            it.st = self.d.narration.status(it.item_id)
-            if self.dry_run:
-                return self.result(it, row["status"], it.fin.get("reasons") or [], it.fin["action"])
-            self.save_costs(it)
-            return self.settle(it)
         except Exception as e:
             return self.after_error(it, e)
+        return self.conclude(it)
 
     def recover(self, row: Row) -> ItemResult:
         """An in_progress row: the last run stopped partway through it."""
@@ -198,9 +193,19 @@ class _Night:
         if it.item_id is None:
             return self.fail(it, "the run stopped before its work item was opened")
         try:
-            it.forced = True  # abandons an open item; on a finished or finalized one, a plain finalize
-            it.fin = self.d.narration.finalize(it.item_id, force=True)
+            it.fin = self.force(it)  # on a finished or finalized item, the same as a plain finalize
+        except Exception as e:
+            return self.after_error(it, e)
+        return self.conclude(it)
+
+    def conclude(self, it: _Item) -> ItemResult:
+        """Finalize (unless already decided), then publish, hold or fail by its answer."""
+        try:
+            if it.fin is None:
+                it.fin = self.finalize(it)
             it.st = self.d.narration.status(it.item_id)
+            if self.dry_run:
+                return self.result(it, it.row["status"], it.fin.get("reasons") or [], it.fin["action"])
             self.save_costs(it)
             if it.uploading and it.fin["action"] == "publish":
                 self.await_earlier_upload(it)
@@ -214,8 +219,13 @@ class _Night:
         except NarrationUnavailable:
             raise
         except NarrationError:  # still open: the session ended without calling finish
-            it.forced = True
-            return self.d.narration.finalize(it.item_id, force=True)
+            return self.force(it)
+
+    def force(self, it: _Item) -> dict:
+        """finalize(force=True): revokes the session's token, abandons an item still open,
+        and decides. Tried once per item."""
+        it.forced = True
+        return self.d.narration.finalize(it.item_id, force=True)
 
     def settle(self, it: _Item) -> ItemResult:
         action = it.fin["action"]
@@ -260,18 +270,28 @@ class _Night:
 
     def after_error(self, it: _Item, e: Exception) -> ItemResult:
         error = _error(e)
-        self.unavailable |= isinstance(e, NarrationUnavailable)
-        if it.item_id is not None and not it.forced:
-            try:  # revokes the session's token, and abandons the item if it is still open
-                self.d.narration.finalize(it.item_id, force=True)
+        unavailable = isinstance(e, NarrationUnavailable)
+        self.unavailable |= unavailable
+        if it.uploading:
+            return self.leave(it, error)
+        if it.item_id is not None and not it.forced and (it.fin is None or unavailable):
+            # If the Mac answers finalize(force=True), its decision stands: a blip costs no
+            # recorded work. Either way the session's token is revoked.
+            try:
+                fin = self.force(it)
             except NarrationUnavailable:
                 self.unavailable = True
                 return self.leave(it, error)
             except NarrationError:
                 pass
-        if self.dry_run or (isinstance(e, NarrationUnavailable) and it.fin is not None):
-            # Finalize has already decided and the Mac went away after: the next run's
-            # recovery picks the row up from that decision, without recording again.
+            else:
+                it.fin = fin
+                if fin["action"] != "retry":
+                    return self.conclude(it)
+                return self.leave(it, error) if self.dry_run else self.fail(it, error)
+        if self.dry_run or (unavailable and it.item_id is not None):
+            # The Mac went away after the forced finalize or after a decision: the next
+            # run's recovery takes the row from there, without recording again.
             return self.leave(it, error)
         return self.fail(it, error)
 

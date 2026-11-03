@@ -136,6 +136,31 @@ def test_mac_lost_mid_item_fails_item_and_continues(world):
     assert not report.mac_unreachable
 
 
+def test_mac_blip_on_finalize_keeps_the_decision(world):
+    # The session finished clean; the plain finalize hits a blip, finalize(force=True)
+    # gets through and its answer (publish) stands.
+    url = world.add_article(1, script=Script(mac="blip_finalize"))
+    [r] = world.run().results
+    assert r.status == "published"
+    item_id = only_item(world)
+    assert world.narration.finalizes == [(item_id, False), (item_id, True)]
+    assert len(world.abs.episodes) == 1 and world.record.row(url)["failed_nights"] == 0
+    world.next_night()
+    assert world.run().results == [] and len(world.narration.items) == 1  # nothing re-recorded
+
+
+def test_mac_blip_in_recovery_leaves_the_row_for_the_next_run(world):
+    url = world.add_article(1, script=Script(mac="blip_finalize"))
+    world.crash_on = "narration.finalize"  # the session finished; the run dies before finalize
+    with pytest.raises(Crash):
+        world.run()
+    [r] = world.run().results  # recovery's finalize(force=True) hits the blip
+    assert r.status == "in_progress" and world.record.row(url)["status"] == "in_progress"
+    [r] = world.run().results
+    assert r.status == "published"
+    assert len(world.narration.items) == 1 and len(world.abs.episodes) == 1
+
+
 def test_mac_gone_mid_item_waits_for_it_and_recovers_next_night(world):
     # The Mac is gone for 30 minutes from 01:05: finalize(force=True) can't get through
     # either, so the row is left in_progress, and the run waits for the Mac.
