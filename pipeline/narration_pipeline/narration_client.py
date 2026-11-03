@@ -7,6 +7,7 @@ import os
 import re
 from pathlib import Path
 
+import httpx2  # mcp's own HTTP client library, pinned through mcp
 import requests
 from mcp.client import Client
 from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
@@ -29,9 +30,14 @@ class NarrationUnavailable(NarrationError):
     """The server could not be reached or answered with a transport-level failure."""
 
 
+# The server's finalize waits up to 600 s for a tool call still running on the item;
+# mcp's default read timeout (300 s) would report that slow answer as a transport failure.
+MCP_TIMEOUT = httpx2.Timeout(30, read=900)
+
+
 @contextlib.asynccontextmanager
 async def _mcp_client(url: str, token: str):
-    http = create_mcp_http_client(headers={"Authorization": f"Bearer {token}"})
+    http = create_mcp_http_client(headers={"Authorization": f"Bearer {token}"}, timeout=MCP_TIMEOUT)
     async with http, Client(streamable_http_client(url, http_client=http)) as client:
         yield client
 

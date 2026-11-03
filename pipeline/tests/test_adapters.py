@@ -197,6 +197,21 @@ def test_open_refuses_a_bad_item_id(item_id):
         c.open("text", {"title": "T"})
 
 
+def test_runner_mcp_client_reads_for_900_seconds(monkeypatch):
+    # The server's finalize waits up to 600 s for a busy item; mcp's default read timeout is 300 s.
+    seen = {}
+
+    def create(headers=None, timeout=None, auth=None):
+        seen["headers"], seen["timeout"] = headers, timeout
+        raise RuntimeError("stop before any request")
+
+    monkeypatch.setattr(narration_client, "create_mcp_http_client", create)
+    with pytest.raises(NarrationUnavailable):
+        NarrationClient("http://h:1", "rtok").status("0123456789ab")
+    assert seen["headers"] == {"Authorization": "Bearer rtok"}
+    assert seen["timeout"].read == 900 and seen["timeout"].connect == 30
+
+
 def _stream_resp(chunks, status=200, fail_after=None):
     def it(chunk_size=None):
         for i, c in enumerate(chunks):
