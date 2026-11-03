@@ -1,3 +1,4 @@
+import shutil
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -23,6 +24,7 @@ def _clock():
 @pytest.fixture
 def env(tmp_path):
     (tmp_path / "sources.toml").write_text(Path(__file__).parent.parent.joinpath("sources.toml").read_text())
+    shutil.copytree(Path(__file__).parent.parent / "covers", tmp_path / "covers")
     e = {k: f"value-of-{k}" for k in REQUIRED}
     e.update(PIPELINE_DATA=str(tmp_path / "data"), PIPELINE_CONFIG=str(tmp_path / "sources.toml"),
              HANDOFF_DIR=str(tmp_path / "handoff"), ARTICLE_ASSISTANT_DIR=str(tmp_path / "aa"))

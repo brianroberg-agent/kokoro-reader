@@ -19,6 +19,7 @@ def test_loads_the_spec_entry():
     assert s.start_edition == 86
     assert s.start_date == date(2026, 9, 8)
     assert s.text_rules == ()
+    assert s.cover == Path("covers/new-atlantis.png")
 
 
 def test_unknown_key_is_refused():
@@ -100,6 +101,7 @@ name = "X"
 podcast = "X"
 feed = "https://example.com/feed"
 extractor = "new-atlantis"
+cover = "covers/x.png"
 start = {{ edition = 1, date = "2026-01-01" }}
 text_rules = {rules}
 """
@@ -140,3 +142,40 @@ def test_the_known_extractors():
     from narration_pipeline.config import EXTRACTORS
     assert EXTRACTORS == frozenset({"new-atlantis"})
     assert {s.extractor for s in load_sources(SOURCES_TOML.read_text())} <= EXTRACTORS
+
+
+
+# A cover for every podcast the pipeline publishes to (Brian, 2026-11-03: "When a new
+# podcast is created in Audiobookshelf, a graphic should be created for it as well").
+def test_a_source_without_a_cover_is_refused():
+    with pytest.raises(ValueError, match="missing source key.*cover"):
+        load_sources(source_toml("[]").replace('cover = "covers/x.png"\n', ""))
+
+
+def test_a_cover_is_found_beside_the_config_and_must_exist(tmp_path):
+    (tmp_path / "covers").mkdir()
+    (tmp_path / "covers" / "x.png").write_bytes(b"png")
+    [s] = load_sources(source_toml("[]"), tmp_path)
+    assert s.cover == tmp_path / "covers" / "x.png"
+    with pytest.raises(ValueError, match="x: cover .*nope.png not found"):
+        load_sources(source_toml("[]").replace("covers/x.png", "covers/nope.png"), tmp_path)
+
+
+def test_an_absolute_cover_path_is_kept(tmp_path):
+    cover = tmp_path / "elsewhere.png"
+    cover.write_bytes(b"png")
+    [s] = load_sources(source_toml("[]").replace("covers/x.png", str(cover)), Path("/no/such/dir"))
+    assert s.cover == cover
+
+
+def png_size(path: Path) -> tuple[int, int]:
+    head = path.read_bytes()[:24]
+    assert head[:8] == b"\x89PNG\r\n\x1a\n" and head[12:16] == b"IHDR", path
+    return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+
+
+def test_every_shipped_cover_is_a_square_png_of_at_least_1400_px():
+    # 1400 to 3000 px square is what podcast apps ask for.
+    for s in load_sources(SOURCES_TOML.read_text(), SOURCES_TOML.parent):
+        width, height = png_size(s.cover)
+        assert width == height and 1400 <= width <= 3000, (s.id, width, height)

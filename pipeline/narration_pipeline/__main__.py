@@ -41,7 +41,7 @@ def make_deps(env: Mapping[str, str]) -> Deps:
     settings = load_settings(text)
     return Deps(
         record=Record(data / "record.sqlite"),
-        sources=load_sources(text),
+        sources=load_sources(text, config.parent),
         settings=settings,
         fetch_text=fetch_text,
         article_assistant=lambda url: run_article_assistant(url, checkout),

@@ -4,6 +4,7 @@ import math
 import tomllib
 from dataclasses import dataclass, fields
 from datetime import date, time
+from pathlib import Path
 
 # The session service's limits on a request: a setting outside them would fail every
 # article's session, so loading refuses it.
@@ -27,6 +28,7 @@ class Source:
     start_edition: int
     start_date: date
     text_rules: tuple[str, ...]
+    cover: Path | None = None  # the podcast's cover image; sources.toml requires one
 
 
 MAX_CAP = 20  # articles a night; the spec's 5 is a starting point, tuned from the cost review
@@ -46,7 +48,7 @@ class Settings:
     gemini_usd_per_check: float = 0.03
 
 
-_SOURCE_KEYS = {"id", "name", "podcast", "feed", "listing", "extractor", "start", "text_rules"}
+_SOURCE_KEYS = {"id", "name", "podcast", "feed", "listing", "extractor", "start", "text_rules", "cover"}
 _REQUIRED = _SOURCE_KEYS - {"listing", "text_rules"}
 
 
@@ -72,7 +74,9 @@ def check_settings(s: "Settings") -> "Settings":
     return s
 
 
-def load_sources(text: str) -> list[Source]:
+def load_sources(text: str, base: Path | None = None) -> list[Source]:
+    """The [[source]] entries. With base (the config file's folder), each relative
+    cover path is resolved against it, and a cover that isn't a file is refused."""
     out = []
     for entry in tomllib.loads(text).get("source", []):
         unknown = set(entry) - _SOURCE_KEYS
@@ -87,6 +91,11 @@ def load_sources(text: str) -> list[Source]:
         start = entry["start"]
         if set(start) != {"edition", "date"}:
             raise ValueError("start needs exactly edition and date")
+        cover = Path(entry["cover"])
+        if base is not None:
+            cover = cover if cover.is_absolute() else base / cover
+            if not cover.is_file():
+                raise ValueError(f"{entry['id']}: cover {cover} not found")
         out.append(
             Source(
                 id=entry["id"],
@@ -98,6 +107,7 @@ def load_sources(text: str) -> list[Source]:
                 start_edition=start["edition"],
                 start_date=date.fromisoformat(start["date"]),
                 text_rules=_check_rules(entry["id"], entry.get("text_rules", [])),
+                cover=cover,
             )
         )
     return out

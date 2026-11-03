@@ -5,6 +5,7 @@ podcast = "The New Atlantis"        # Audiobookshelf podcast the episodes go to
 feed = "https://www.thenewatlantis.com/feed"
 listing = "new-atlantis-issues"     # optional extra discovery, named per site
 extractor = "new-atlantis"          # the site's extractor in article-assistant, which picks it by URL
+cover = "covers/new-atlantis.png"    # the podcast's cover, set when the podcast has none (covers/README.md)
 start = { edition = 86, date = "2026-09-08" }
 text_rules = []                     # source-specific preparation notes for the agent
 
