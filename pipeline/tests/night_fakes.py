@@ -14,6 +14,7 @@ from narration_pipeline.config import Settings, Source
 from narration_pipeline.fetch import FetchError
 from narration_pipeline.narration_client import NarrationError, NarrationUnavailable
 from narration_pipeline.night import Deps, NightReport, run_night
+from narration_pipeline import record as record_module
 from narration_pipeline.record import Record
 
 NY = ZoneInfo("America/New_York")
@@ -27,6 +28,14 @@ def source(id: str = "tna") -> Source:
                   feed=f"https://example.test/{id}/feed", listing=None, extractor="generic",
                   start_edition=86, start_date=date(2026, 9, 8),
                   text_rules=("Read the dateline once.",))
+
+
+_REAL_RECORD_NOW = record_module._now
+
+
+def restore_record_clock() -> None:
+    """Undo World's patch of the record's clock (each test and state machine calls it)."""
+    record_module._now = _REAL_RECORD_NOW
 
 
 class Crash(BaseException):
@@ -307,6 +316,7 @@ class World:
 
     def __post_init__(self):
         self.clock = Clock(self.start)
+        record_module._now = lambda: self.clock.t.isoformat()  # updated_at on the fake clock
         self.record = Record(self.root / "record.db")
         self.narration = FakeNarration(self)
         self.sessions = FakeSessions(self)

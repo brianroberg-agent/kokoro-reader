@@ -17,7 +17,7 @@ from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, ru
 
 from narration_pipeline.config import Settings
 from narration_pipeline.record import STATUSES
-from night_fakes import Crash, Script, World
+from night_fakes import Crash, Script, World, restore_record_clock
 
 CAP = 3
 
@@ -44,6 +44,7 @@ class Nights(RuleBasedStateMachine):
         self.report = None  # the last run's report, if it neither crashed nor was a dry run
 
     def teardown(self):
+        restore_record_clock()
         shutil.rmtree(self.dir)
 
     def _run(self, dry_run: bool, crash_at: int | None) -> None:

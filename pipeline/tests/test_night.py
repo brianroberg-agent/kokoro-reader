@@ -8,7 +8,13 @@ import pytest
 from narration_pipeline.abs import AbsError, episode_filename
 from narration_pipeline.discovery import Candidate
 from narration_pipeline.night import Deps, deadlines, run_night
-from night_fakes import HELD, ISSUES, NY, Crash, Script, World, source
+from night_fakes import HELD, ISSUES, NY, Crash, Script, World, restore_record_clock, source
+
+
+@pytest.fixture(autouse=True)
+def _real_record_clock_after():
+    yield
+    restore_record_clock()
 
 
 @pytest.fixture
@@ -334,6 +340,28 @@ def test_crash_before_upload_waits_then_uploads_once(world):
     [r] = world.run().results
     assert r.status == "published" and len(world.abs.episodes) == 1
     assert world.abs.waits == [(world.abs.episodes[0].filename, 1800)]
+
+
+def test_recovery_waits_only_what_is_left_of_30_minutes(world):
+    world.add_article(1)
+    world.crash_on = "abs.publish"  # publish_started is set, nothing uploaded
+    with pytest.raises(Crash):
+        world.run()
+    world.clock.sleep(600)
+    [r] = world.run().results
+    assert r.status == "published"
+    assert world.abs.waits == [(world.abs.episodes[0].filename, 1200)]
+
+
+def test_next_night_recovery_does_not_wait_for_an_old_upload(world):
+    world.add_article(1)
+    world.crash_on = "abs.publish"
+    with pytest.raises(Crash):
+        world.run()
+    world.next_night()
+    [r] = world.run().results
+    assert r.status == "published" and len(world.abs.episodes) == 1
+    assert world.abs.waits == []
 
 
 def test_upload_error_leaves_row_for_recovery_not_failed(world):

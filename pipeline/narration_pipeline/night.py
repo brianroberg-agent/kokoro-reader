@@ -21,7 +21,7 @@ from narration_pipeline.record import Record, Row
 
 MAC_POLL_S = 300        # how often to ask whether the Mac is back
 SESSION_GRACE_S = 300   # wait for the session's result this long past its own timeout
-RECOVERY_WAIT_S = 1800  # how long recovery waits for an earlier upload to show (R16)
+RECOVERY_WAIT_S = 1800  # an upload has this long to show before recovery uploads again (R16, R21)
 
 
 @dataclass
@@ -264,13 +264,18 @@ class _Night:
 
     def await_earlier_upload(self, it: _Item) -> None:
         """publish_started was set, so an upload may have reached Audiobookshelf without
-        showing yet. Look for it, then wait for it, before publish may upload again."""
+        showing yet. Look for it, then wait for what is left of RECOVERY_WAIT_S since the
+        row was last written (at or after publish_started), before publish may upload."""
         podcast = self.sources[it.row["source"]].podcast
         filename = episode_filename(it.st["metadata"]["title"], it.item_id)
         if self.d.abs.find_episode(podcast, filename) is not None:
             return
+        age = _seconds(datetime.fromisoformat(it.row["updated_at"]), self.d.now())
+        wait = min(RECOVERY_WAIT_S, RECOVERY_WAIT_S - age)
+        if wait <= 0:
+            return
         try:
-            self.d.abs.wait_episode(podcast, filename, timeout_s=RECOVERY_WAIT_S)
+            self.d.abs.wait_episode(podcast, filename, timeout_s=wait)
         except AbsTimeout:
             pass  # not seen within the wait: publish uploads it. Any other AbsError propagates.
         # It showed (publish then finds it), or the wait timed out (publish then uploads).
