@@ -89,7 +89,7 @@ def fake_claude(tmp_path, monkeypatch):
 def cfg(tmp_path):
     prompt = tmp_path / "agent_prompt.md"
     prompt.write_text("# The system prompt\n")
-    return ss.ServiceConfig(narration_url=URL, prompt_path=prompt)
+    return ss.ServiceConfig(narration_url=URL, prompt_path=prompt, prompt="# The system prompt\n")
 
 
 def request(**changes):
@@ -244,10 +244,8 @@ def test_mcp_config_is_the_documented_shape():
         "type": "http", "url": URL, "timeout": 900000, "headers": {"Authorization": f"Bearer {TOKEN}"}}}}
 
 
-def test_claude_argv_is_the_s1_flag_set(tmp_path):
-    prompt = tmp_path / "agent_prompt.md"
-    prompt.write_text("# How to record\n")
-    argv = ss.claude_argv(Path("/private/dir/mcp.json"), prompt, 2.0, "Record the article.")
+def test_claude_argv_is_the_s1_flag_set():
+    argv = ss.claude_argv(Path("/private/dir/mcp.json"), "# How to record\n", 2.0, "Record the article.")
     assert argv == [
         "claude", "-p", "Record the article.",
         "--tools", "", "--strict-mcp-config", "--mcp-config", "/private/dir/mcp.json",
@@ -295,7 +293,7 @@ def test_run_session_reads_a_finished_session(fake_claude, cfg):
                          {"out": "not json"}, {"out": RESULT})
     assert ss.run_session(request(text_rules=("Drop the box.",)), cfg) == ss.parse_result(RESULT)
     seen = json.loads((bindir / "seen.json").read_text())
-    assert seen["argv"] == ss.claude_argv(Path(seen["mcp_path"]), cfg.prompt_path, 2.0,
+    assert seen["argv"] == ss.claude_argv(Path(seen["mcp_path"]), cfg.prompt, 2.0,
                                           ss.session_prompt(("Drop the box.",)))[1:]
     assert seen["mcp"] == ss.mcp_config(URL, TOKEN)
     assert seen["mcp_mode"] == 0o600 and seen["dir_mode"] == 0o700
@@ -385,12 +383,6 @@ def test_run_session_without_claude(cfg, monkeypatch, tmp_path):
     out = ss.run_session(request(), cfg)
     assert out == {"finished_ok": False, "cost_usd": None, "num_turns": None, "terminal_reason": None,
                    "error": "claude not found", "tokens": None}
-
-
-def test_run_session_without_the_prompt_file(fake_claude, cfg):
-    fake_claude({"out": init_event()}, {"out": RESULT})
-    out = ss.run_session(request(), dataclasses.replace(cfg, prompt_path=cfg.prompt_path.with_name("gone.md")))
-    assert out["finished_ok"] is False and "agent prompt" in out["error"]
 
 
 # -- serve --
@@ -493,17 +485,40 @@ def test_recover_keeps_a_result_already_written(tmp_path):
 # -- the service as a script --
 
 def test_service_config_from_env(tmp_path, monkeypatch):
-    assert ss.ServiceConfig.from_env({"NARRATION_AGENT_URL": URL, "AGENT_PROMPT": "/p/a.md"}) == \
-        ss.ServiceConfig(URL, Path("/p/a.md"))
+    prompt = tmp_path / "a.md"
+    prompt.write_text("# A prompt\n")
+    assert ss.ServiceConfig.from_env({"NARRATION_AGENT_URL": URL, "AGENT_PROMPT": str(prompt)}) == \
+        ss.ServiceConfig(URL, prompt, "# A prompt\n")
     monkeypatch.setattr(ss, "DEFAULT_PROMPT", tmp_path / "absent.md")
-    assert ss.ServiceConfig.from_env({"NARRATION_AGENT_URL": URL}).prompt_path == \
-        Path(ss.__file__).resolve().with_name("agent_prompt.md")
-    (tmp_path / "present.md").write_text("x")
-    monkeypatch.setattr(ss, "DEFAULT_PROMPT", tmp_path / "present.md")
-    assert ss.ServiceConfig.from_env({"NARRATION_AGENT_URL": URL}).prompt_path == tmp_path / "present.md"
+    beside = Path(ss.__file__).resolve().with_name("agent_prompt.md")
+    found = ss.ServiceConfig.from_env({"NARRATION_AGENT_URL": URL})
+    assert found.prompt_path == beside and found.prompt == beside.read_text()
+    monkeypatch.setattr(ss, "DEFAULT_PROMPT", prompt)
+    assert ss.ServiceConfig.from_env({"NARRATION_AGENT_URL": URL}).prompt_path == prompt
     with pytest.raises(SystemExit) as e:
         ss.ServiceConfig.from_env({})
     assert "NARRATION_AGENT_URL" in str(e.value)
+
+
+@pytest.mark.parametrize("content", [None, "", " \n\n", b"\xff\xfe not UTF-8"])
+def test_the_service_does_not_start_without_a_usable_prompt(tmp_path, monkeypatch, content):
+    monkeypatch.setattr(ss, "serve", lambda *a, **k: pytest.fail("the service started serving"))
+    path = tmp_path / "agent_prompt.md"
+    if isinstance(content, str):
+        path.write_text(content)
+    elif content is not None:
+        path.write_bytes(content)
+    with pytest.raises(SystemExit) as e:
+        ss.main({"NARRATION_AGENT_URL": URL, "AGENT_PROMPT": str(path), "HANDOFF_DIR": str(tmp_path / "handoff")})
+    assert isinstance(e.value.code, str) and str(path) in e.value.code  # a message: exit status 1
+
+
+def test_the_script_exits_non_zero_without_its_prompt(tmp_path):
+    missing = tmp_path / "absent.md"
+    done = subprocess.run([sys.executable, ss.__file__], capture_output=True, text=True, timeout=30,
+                          env={"PATH": os.environ["PATH"], "NARRATION_AGENT_URL": URL, "AGENT_PROMPT": str(missing),
+                               "HANDOFF_DIR": str(tmp_path / "handoff")})
+    assert done.returncode == 1 and str(missing) in done.stderr
 
 
 def test_service_imports_only_stdlib():

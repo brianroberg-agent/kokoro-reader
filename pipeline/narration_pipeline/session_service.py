@@ -85,21 +85,31 @@ class Request:
 @dataclass(frozen=True)
 class ServiceConfig:
     narration_url: str  # the narration server's agent endpoint, http://<mac>:8770/agent/mcp
-    prompt_path: Path   # the agent prompt, passed as the session's appended system prompt
+    prompt_path: Path   # where the agent prompt was read from
+    prompt: str = field(repr=False)  # its text, the session's appended system prompt
 
     @classmethod
     def from_env(cls, environ) -> ServiceConfig:
+        """The configuration, or SystemExit with a message (exit status 1) when the URL is
+        unset or the prompt is missing, unreadable or empty: read once, at startup, so a
+        misdeployed image stops at once instead of failing every article."""
         url = environ.get("NARRATION_AGENT_URL")
         if not url:
             raise SystemExit("NARRATION_AGENT_URL is not set (the narration server's agent "
                              "endpoint, like http://<mac>:8770/agent/mcp)")
         if environ.get("AGENT_PROMPT"):
-            prompt = Path(environ["AGENT_PROMPT"])
+            path = Path(environ["AGENT_PROMPT"])
         elif DEFAULT_PROMPT.exists():
-            prompt = DEFAULT_PROMPT
+            path = DEFAULT_PROMPT
         else:
-            prompt = HERE / "agent_prompt.md"
-        return cls(url, prompt)
+            path = HERE / "agent_prompt.md"
+        try:
+            prompt = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            raise SystemExit(f"cannot read the agent prompt {path}: {e}") from None
+        if not prompt.strip():
+            raise SystemExit(f"the agent prompt {path} is empty")
+        return cls(url, path, prompt)
 
 
 # -- pure logic --
@@ -143,7 +153,7 @@ def mcp_config(narration_url: str, token: str) -> dict:
                                          "headers": {"Authorization": f"Bearer {token}"}}}}
 
 
-def claude_argv(mcp_config_path, prompt_path, budget_usd: float, task: str) -> list[str]:
+def claude_argv(mcp_config_path, prompt: str, budget_usd: float, task: str) -> list[str]:
     """The S1 flag set (tests/narration/smoke_claude.sh), with stream-json output so the
     init event can be read, and the agent prompt's text as the appended system prompt.
     The task comes right after -p: --mcp-config and --allowedTools each take several
@@ -153,7 +163,7 @@ def claude_argv(mcp_config_path, prompt_path, budget_usd: float, task: str) -> l
             "--allowedTools", " ".join(PREFIX + name for name in TOOL_NAMES),
             "--permission-mode", "dontAsk", "--setting-sources", "", "--settings", '{"disableAllHooks":true}',
             "--no-session-persistence", "--max-budget-usd", str(budget_usd),
-            "--append-system-prompt", Path(prompt_path).read_text(encoding="utf-8"),
+            "--append-system-prompt", prompt,
             "--output-format", "stream-json", "--verbose"]
 
 
@@ -287,10 +297,7 @@ def run_session(req: Request, cfg: ServiceConfig) -> dict:
 def _run(req: Request, cfg: ServiceConfig, private: Path, started: list, secrets) -> dict:
     config = private / "mcp.json"
     _write_private(config, json.dumps(mcp_config(cfg.narration_url, req.agent_token)))
-    try:
-        argv = claude_argv(config, cfg.prompt_path, req.budget_usd, session_prompt(req.text_rules))
-    except OSError as e:
-        return failure(f"could not read the agent prompt: {e}")
+    argv = claude_argv(config, cfg.prompt, req.budget_usd, session_prompt(req.text_rules))
     try:
         proc = subprocess.Popen(argv, cwd=private, env=session_env(os.environ), stdin=subprocess.DEVNULL,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -506,8 +513,8 @@ def _terminate(signum, frame) -> None:
 
 def main(environ=None) -> None:
     environ = os.environ if environ is None else environ
-    logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="%(asctime)s %(levelname)s %(message)s")
     cfg = ServiceConfig.from_env(environ)
+    logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="%(asctime)s %(levelname)s %(message)s")
     handoff = Path(environ.get("HANDOFF_DIR") or "/handoff")
     signal.signal(signal.SIGTERM, _terminate)
     log.info("serving %s for %s, prompt %s", handoff, cfg.narration_url, cfg.prompt_path)
