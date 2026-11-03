@@ -16,7 +16,7 @@ from narration_pipeline import handoff as handoff_files
 from narration_pipeline.abs import AbsTimeout, episode_filename
 from narration_pipeline.config import Settings, Source
 from narration_pipeline.discovery import DiscoveryError, discover
-from narration_pipeline.messages import discovery_failed_message, hold_message, stopped_message
+from narration_pipeline.messages import discovery_failed_message, hold_message, plain, stopped_message
 from narration_pipeline.narration_client import NarrationError, NarrationUnavailable, valid_item_id
 from narration_pipeline.record import Record, Row
 from narration_pipeline.session_service import HEARTBEAT_STALE_S, LOGIN_ERROR, RESULT_GRACE_S
@@ -277,7 +277,7 @@ class _Night:
             return self.publish(it)
         if action == "hold":
             reasons = it.fin.get("reasons") or ["held by the gate"]
-            self.rec.transition(it.row["url"], "held")
+            self.rec.transition(it.row["url"], "held", last_error=plain("; ".join(reasons)))
             self.notify(*hold_message(it.row, reasons))
             return self.result(it, "held", reasons)
         return self.fail(it, self.why(it))

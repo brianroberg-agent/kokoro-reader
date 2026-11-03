@@ -82,9 +82,23 @@ def test_hold_pushes_reason(world, session, outcome, reason):
     [(title, body, _)] = world.push.sent
     assert "Article 1" in title and reason in body
     row = world.record.row(url)
-    assert row["status"] == "held"
+    assert row["status"] == "held" and row["last_error"] == reason  # the reason is kept with the row
     if session == "hold":
         assert json.loads(row["remaining_issues"]) == HELD
+
+
+def test_a_holds_reasons_are_stored_joined_and_sanitized(world, monkeypatch):
+    url = world.add_article(1, script=Script(session="gate_hold"))
+    reasons = ["the prepared text changes a word without declaring it",
+               "see https://user:pw@example.test/x?token=abc#f"]
+    real = world.narration.finalize
+
+    def finalize(item_id, force=False):
+        return {**real(item_id, force), "reasons": reasons}
+    monkeypatch.setattr(world.narration, "finalize", finalize)
+    world.run()
+    assert world.record.row(url)["last_error"] == (
+        "the prepared text changes a word without declaring it; see https://example.test/x")
 
 
 def test_no_finish_fails_and_retries_next_night(world):
