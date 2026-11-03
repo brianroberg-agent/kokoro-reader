@@ -174,9 +174,24 @@ def test_mac_gone_mid_item_waits_for_it_and_recovers_next_night(world):
 
     world.next_night()
     world.scripts[a] = Script()
-    report = world.run()
-    assert [(r.url, r.status) for r in report.results] == [(a, "failed"), (a, "published")]
+    assert [(r.url, r.status) for r in world.run().results] == [(a, "failed")]
     assert world.record.row(a)["failed_nights"] == 1
+    world.next_night()
+    assert [(r.url, r.status) for r in world.run().results] == [(a, "published")]
+
+
+def test_a_recovered_row_is_not_retried_the_same_night(world):
+    a = world.add_article(1)
+    b = world.add_article(2)
+    world.crash_on = "handoff.wait_result"  # the run dies while a's session is open
+    with pytest.raises(Crash):
+        world.run()
+    world.next_night()
+    report = world.run()
+    assert [(r.url, r.status) for r in report.results] == [(a, "failed"), (b, "published")]
+    assert world.record.row(a)["failed_nights"] == 1
+    world.next_night()
+    assert [(r.url, r.status) for r in world.run().results] == [(a, "published")]
 
 
 def test_waits_for_mac_until_0500_then_stops(world):

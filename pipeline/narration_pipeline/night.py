@@ -129,7 +129,10 @@ class _Night:
                 self.report.results.append(self.recover(row))
                 if not self.mac_still_there():
                     return self.report
-        for row in [self.rec.row(only)] if only else self.rec.pick(self.s.cap):
+        # One result per article a night: a row recovery just settled waits for the next.
+        seen = {r.url for r in self.report.results}
+        picked = [r for r in self.rec.pick(self.s.cap + len(seen)) if r["url"] not in seen]
+        for row in [self.rec.row(only)] if only else picked[:self.s.cap]:
             if self.d.now().timestamp() >= self.no_new.timestamp():
                 self.report.stopped_at_cutoff = True
                 break
