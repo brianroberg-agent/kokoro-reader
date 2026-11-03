@@ -137,7 +137,7 @@ class Record:
                 raise ValueError(f"unknown article: {url}")
             if to not in TRANSITIONS.get(row["status"], frozenset()):
                 raise ValueError(f"cannot move {url} from {row['status']} to {to}")
-            self._write(url, {**fields, "status": to})
+            self._write(url, {**fields, "status": to}, expect=row["status"])
 
     def update(self, url: str, **fields) -> None:
         fields = _checked(fields)
@@ -146,10 +146,15 @@ class Record:
                 raise ValueError(f"unknown article: {url}")
             self._write(url, fields)
 
-    def _write(self, url: str, fields: dict) -> None:
+    def _write(self, url: str, fields: dict, expect: str | None = None) -> None:
         fields = {**fields, "updated_at": _now()}
         sets = ", ".join(f"{k} = ?" for k in fields)
-        self._conn.execute(f"UPDATE articles SET {sets} WHERE url = ?", (*fields.values(), url))
+        sql, args = f"UPDATE articles SET {sets} WHERE url = ?", [*fields.values(), url]
+        if expect is not None:
+            # Compare-and-swap: another connection may have moved the row since we read it.
+            sql, args = sql + " AND status = ?", [*args, expect]
+        if self._conn.execute(sql, args).rowcount == 0:
+            raise ValueError(f"{url} changed under us (expected status {expect})")
 
     def in_progress(self) -> list[Row]:
         return self._conn.execute(

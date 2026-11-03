@@ -155,3 +155,43 @@ def test_record_survives_reopen(tmp_path):
     assert rec2.in_progress()[0]["url"] == cand(1).url
     assert sqlite3.connect(path).execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     assert rec2.row("https://example.test/none") is None
+
+
+def test_stale_transition_loses_the_race(tmp_path):
+    path = tmp_path / "r.db"
+    first, second = Record(path), Record(path)
+    first.add_discovered([cand(1)], SOURCE)
+    url = cand(1).url
+
+    class RacingConn:
+        """Lets `first` win right after `second` has read the row as queued."""
+
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __enter__(self):
+            return self._conn.__enter__()
+
+        def __exit__(self, *a):
+            return self._conn.__exit__(*a)
+
+        def execute(self, sql, *args):
+            result = self._conn.execute(sql, *args)
+            if sql.startswith("SELECT status"):
+                snapshot = result.fetchall()
+                first.transition(url, "in_progress", item_id="first")
+                result = _Rows(snapshot)
+            return result
+
+    class _Rows:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def fetchone(self):
+            return self._rows[0] if self._rows else None
+
+    second._conn = RacingConn(second._conn)
+    with pytest.raises(ValueError):
+        second.transition(url, "in_progress", item_id="second")
+    r = first.row(url)
+    assert r["status"] == "in_progress" and r["item_id"] == "first"
