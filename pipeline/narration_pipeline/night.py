@@ -13,7 +13,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from narration_pipeline import handoff as handoff_files
-from narration_pipeline.abs import AbsError, episode_filename
+from narration_pipeline.abs import AbsTimeout, episode_filename
 from narration_pipeline.config import Settings, Source
 from narration_pipeline.discovery import DiscoveryError, discover
 from narration_pipeline.narration_client import NarrationError, NarrationUnavailable, valid_item_id
@@ -269,12 +269,10 @@ class _Night:
         filename = episode_filename(it.st["metadata"]["title"], it.item_id)
         if self.d.abs.find_episode(podcast, filename) is not None:
             return
-        waited_from = self.d.now()
         try:
             self.d.abs.wait_episode(podcast, filename, timeout_s=RECOVERY_WAIT_S)
-        except AbsError:
-            if _seconds(waited_from, self.d.now()) < RECOVERY_WAIT_S:
-                raise  # the wait ended in an error, not at its timeout: absence isn't known
+        except AbsTimeout:
+            pass  # not seen within the wait: publish uploads it. Any other AbsError propagates.
         # It showed (publish then finds it), or the wait timed out (publish then uploads).
 
     def after_error(self, it: _Item, e: Exception) -> ItemResult:

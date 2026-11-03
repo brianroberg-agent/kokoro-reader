@@ -9,7 +9,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 from zoneinfo import ZoneInfo
 
-from narration_pipeline.abs import AbsError
+from narration_pipeline.abs import AbsError, AbsTimeout
 from narration_pipeline.config import Settings, Source
 from narration_pipeline.fetch import FetchError
 from narration_pipeline.narration_client import NarrationError, NarrationUnavailable
@@ -249,7 +249,7 @@ class FakeAbs:
                    and e.appears_at <= limit]
         if not pending:
             clock.sleep(timeout_s)
-            raise AbsError(f"episode {filename} did not appear in {podcast} within {timeout_s}s")
+            raise AbsTimeout(f"episode {filename} did not appear in {podcast} within {timeout_s}s")
         ep = min(pending, key=lambda e: e.appears_at)
         if ep.appears_at > clock.now():
             clock.sleep((ep.appears_at - clock.now()).total_seconds())

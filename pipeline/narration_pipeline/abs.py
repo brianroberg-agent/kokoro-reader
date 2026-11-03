@@ -58,6 +58,10 @@ class AbsError(Exception):
     pass
 
 
+class AbsTimeout(AbsError):
+    """The episode did not appear within the wait. Any other AbsError is a failure."""
+
+
 def episode_filename(title: str, item_id: str) -> str:
     ascii_title = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode()
     slug = re.sub(r"[^a-z0-9]+", "-", ascii_title.lower()).strip("-")
@@ -139,7 +143,7 @@ class Audiobookshelf:
             if found:
                 return found
             if self._clock() >= deadline:
-                raise AbsError(
+                raise AbsTimeout(
                     f"episode {filename} did not appear in {podcast} within {timeout_s}s")
             self._sleep(poll_s)
 

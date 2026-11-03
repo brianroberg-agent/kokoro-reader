@@ -5,7 +5,7 @@ from datetime import date, datetime, time, timedelta
 
 import pytest
 
-from narration_pipeline.abs import episode_filename
+from narration_pipeline.abs import AbsError, episode_filename
 from narration_pipeline.discovery import Candidate
 from narration_pipeline.night import Deps, deadlines, run_night
 from night_fakes import HELD, ISSUES, NY, Crash, Script, World, source
@@ -305,6 +305,35 @@ def test_wait_ended_by_an_error_is_not_taken_for_absent(world):
     [r] = world.run().results
     assert r.status == "published" and len(world.abs.episodes) == 1
     assert world.record.row(url)["status"] == "published"
+
+
+def test_an_error_at_the_end_of_the_wait_is_not_taken_for_absent(world, monkeypatch):
+    url = world.add_article(1, script=Script(late_s=2400))  # shows only after the wait
+    world.crash_on = "abs.publish:uploaded"
+    with pytest.raises(Crash):
+        world.run()
+
+    def wait_then_error(podcast, filename, timeout_s=600, poll_s=15):
+        world.clock.sleep(timeout_s)
+        raise AbsError("GET /api/libraries returned 502")
+
+    monkeypatch.setattr(world.abs, "wait_episode", wait_then_error)
+    [r] = world.run().results
+    assert r.status == "in_progress" and len(world.abs.episodes) == 1
+    world.next_night()
+    [r] = world.run().results
+    assert r.status == "published" and len(world.abs.episodes) == 1
+    assert world.record.row(url)["episode_id"] == world.abs.episodes[0].id
+
+
+def test_crash_before_upload_waits_then_uploads_once(world):
+    url = world.add_article(1)
+    world.crash_on = "abs.publish"  # publish_started is set, nothing uploaded
+    with pytest.raises(Crash):
+        world.run()
+    [r] = world.run().results
+    assert r.status == "published" and len(world.abs.episodes) == 1
+    assert world.abs.waits == [(world.abs.episodes[0].filename, 1800)]
 
 
 def test_upload_error_leaves_row_for_recovery_not_failed(world):

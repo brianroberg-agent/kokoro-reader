@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from narration_pipeline.abs import Audiobookshelf, AbsError, abs_check, episode_filename
+from narration_pipeline.abs import Audiobookshelf, AbsError, AbsTimeout, abs_check, episode_filename
 
 PODCAST = "Test Podcast"
 KEY = "sekret-key-123"
@@ -128,8 +128,17 @@ def test_wait_episode_times_out():
     t = {"now": 0.0}
     a, _, _ = make(base_routes(FakeResponse(200, item_with([]))), clock=lambda: t["now"])
     a._sleep = lambda s: t.__setitem__("now", t["now"] + s)
-    with pytest.raises(AbsError, match=r"episode x.mp3 did not appear in Test Podcast within 30s"):
+    with pytest.raises(AbsTimeout, match=r"episode x.mp3 did not appear in Test Podcast within 30s") as e:
         a.wait_episode(PODCAST, "x.mp3", timeout_s=30, poll_s=10)
+    assert isinstance(e.value, AbsError)
+
+
+def test_an_error_during_the_wait_is_not_a_timeout():
+    routes = {("GET", "/api/libraries"): FakeResponse(502, {})}
+    a, _, _ = make(routes)
+    with pytest.raises(AbsError) as e:
+        a.wait_episode(PODCAST, "x.mp3", timeout_s=30, poll_s=10)
+    assert not isinstance(e.value, AbsTimeout)
 
 
 def test_http_error_names_status_and_path_not_key():
