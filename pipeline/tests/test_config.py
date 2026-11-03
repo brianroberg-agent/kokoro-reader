@@ -179,3 +179,18 @@ def test_every_shipped_cover_is_a_square_png_of_at_least_1400_px():
     for s in load_sources(SOURCES_TOML.read_text(), SOURCES_TOML.parent):
         width, height = png_size(s.cover)
         assert width == height and 1400 <= width <= 3000, (s.id, width, height)
+
+
+# The podcast is created at <folder>/<podcast>, and the upload goes to a folder named
+# from the same name after Audiobookshelf drops what a file name can't hold: a name it
+# would change would split the podcast in two.
+@pytest.mark.parametrize("name", ["A: B", "A/B", "A?", 'A \\"B\\"', "A*", "A|B", "A<B>", "A\\\\B", " A", "A ", "A.", ""])
+def test_a_podcast_name_a_folder_name_would_change_is_refused(name):
+    with pytest.raises(ValueError, match="podcast"):
+        load_sources(source_toml("[]").replace('podcast = "X"', f'podcast = "{name}"'))
+
+
+@pytest.mark.parametrize("name", ["The New Atlantis", "Notes & Briefs", "St. Mary's Review", "Vol. 2, No. 3"])
+def test_a_podcast_name_a_folder_can_hold_loads(name):
+    [s] = load_sources(source_toml("[]").replace('podcast = "X"', f'podcast = "{name}"'))
+    assert s.podcast == name

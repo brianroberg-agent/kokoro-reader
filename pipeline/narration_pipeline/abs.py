@@ -21,6 +21,7 @@ log = logging.getLogger(__name__)
 # --- endpoints and field names (verified against Audiobookshelf 2.37.2, 2026-11-02) ---------------------------------
 LIBRARIES_PATH = "/api/libraries"
 UPLOAD_PATH = "/api/upload"
+PODCASTS_PATH = "/api/podcasts"  # POST creates a podcast item (verified against 2.37.2, 2026-11-03)
 
 
 def items_path(library_id: str) -> str:
@@ -209,6 +210,26 @@ class Audiobookshelf:
         self._call("PATCH", episode_path(item_id, episode_id), empty_ok=True,
                    json=details_body(title, description, pub_date))
 
+    def create_podcast(self, podcast: str, cover: Path | None) -> str:
+        """Create the podcast, titled `podcast`, in the folder an upload for it goes to
+        (upload: the first podcast library, its first folder, a subfolder named after
+        the podcast), and give it its cover. The scanner can't be left to make it from
+        the first upload: it titles the podcast from the MP3's album tag ("The New
+        Atlantis, No. 86 (Fall 2026)"), and the episode is never found under its own."""
+        lib = self._library_for_upload(podcast)
+        if not lib.get("folders"):
+            raise AbsError(f"library {lib['id']} has no folders")
+        folder = lib["folders"][0]
+        item = self._call("POST", PODCASTS_PATH, json={
+            "path": f"{folder['fullPath'].rstrip('/')}/{podcast}", "folderId": folder["id"],
+            "libraryId": lib["id"], "autoDownloadEpisodes": False,
+            "media": {"metadata": {"title": podcast}}})
+        if not isinstance(item.get("id"), str):
+            raise AbsError("POST /api/podcasts returned no item id")
+        if cover is not None:
+            self.ensure_cover(item["id"], cover)
+        return item["id"]
+
     def ensure_cover(self, item_id: str, cover: Path) -> None:
         """Upload cover as the podcast's when it has none: the first upload creates a
         podcast without one. A cover already set is left as it is. Best effort: the
@@ -225,8 +246,11 @@ class Audiobookshelf:
     def publish(self, podcast: str, mp3: Path, filename: str, title: str,
                 description: str, pub_date: str | None,
                 wait_timeout_s: float = 600, poll_s: float = 15, *, cover: Path | None = None) -> str:
-        found = self._locate(podcast, _named(filename))
+        items = self._podcast_items(podcast)  # _locate's two steps, so the items are at hand
+        found = self._in_items(items, _named(filename))
         if found is None:
+            if not items:
+                self.create_podcast(podcast, cover)
             self.upload(podcast, mp3, filename)
             found = self._wait_locate(podcast, _named(filename), f"episode {filename}", wait_timeout_s, poll_s)
         item_id, episode_id = found

@@ -1,6 +1,7 @@
 """Source list and run settings, read from one TOML file."""
 
 import math
+import re
 import tomllib
 from dataclasses import dataclass, fields
 from datetime import date, time
@@ -74,6 +75,20 @@ def check_settings(s: "Settings") -> "Settings":
     return s
 
 
+# What Audiobookshelf drops from a folder name (the upload names the podcast's folder
+# after it), or a name it trims: such a podcast would be created in one folder and
+# uploaded to in another.
+_FOLDER_UNSAFE = re.compile(r'[/\\?<>:*|"\x00-\x1f]')
+
+
+def _check_podcast(source_id: str, name) -> str:
+    if (not isinstance(name, str) or not name or name != name.strip() or name.endswith(".")
+            or _FOLDER_UNSAFE.search(name)):
+        raise ValueError(f"{source_id}: podcast {name!r} can't be its folder's name as written "
+                         '(no / \\ ? < > : * | ", no space or dot at either end)')
+    return name
+
+
 def load_sources(text: str, base: Path | None = None) -> list[Source]:
     """The [[source]] entries. With base (the config file's folder), each relative
     cover path is resolved against it, and a cover that isn't a file is refused."""
@@ -100,7 +115,7 @@ def load_sources(text: str, base: Path | None = None) -> list[Source]:
             Source(
                 id=entry["id"],
                 name=entry["name"],
-                podcast=entry["podcast"],
+                podcast=_check_podcast(entry["id"], entry["podcast"]),
                 feed=entry["feed"],
                 listing=entry.get("listing"),
                 extractor=entry["extractor"],

@@ -42,7 +42,7 @@ class FakeSession:
 
 LIBS = {"libraries": [
     {"id": "lib-books", "mediaType": "book", "folders": [{"id": "f0"}]},
-    {"id": "lib-pod", "mediaType": "podcast", "folders": [{"id": "fold-1"}]},
+    {"id": "lib-pod", "mediaType": "podcast", "folders": [{"id": "fold-1", "fullPath": "/podcasts"}]},
 ]}
 ITEMS = {"results": [{"id": "it1", "media": {"metadata": {"title": PODCAST}}}]}
 
@@ -344,3 +344,48 @@ def test_a_missing_cover_file_leaves_the_episode_published(mp3, tmp_path, caplog
     a, s, _ = make(cover_routes(item_with(["x-1.mp3"])))
     assert a.publish(PODCAST, mp3, "x-1.mp3", "Title", "Notes", None, cover=tmp_path / "gone.png") == "ep-0"
     assert "cover" in caplog.text
+
+
+
+# ---- a podcast that doesn't exist yet (end-to-end test, 2026-11-03) ----
+# Left to the scanner, the first upload made a podcast titled from the MP3's album tag,
+# "The New Atlantis, No. 86 (Fall 2026)", so the wait for "The New Atlantis" timed out.
+def new_podcast_routes(created):
+    def items(call):
+        return FakeResponse(200, ITEMS if created["yes"] else {"results": []})
+
+    def create(call):
+        created["yes"] = True
+        return FakeResponse(200, {"id": "it1", "media": {"metadata": {"title": PODCAST}}})
+
+    routes = base_routes(lambda call: FakeResponse(200, item_with(["x-1.mp3"])))
+    routes[("GET", "/api/libraries/lib-pod/items")] = items
+    routes[("POST", "/api/podcasts")] = create
+    routes[("POST", "/api/items/it1/cover")] = FakeResponse(200, {"success": True})
+    return routes
+
+
+def test_publish_creates_a_missing_podcast_under_its_title_then_uploads(mp3, cover):
+    a, s, _ = make(new_podcast_routes({"yes": False}))
+    a.publish(PODCAST, mp3, "x-1.mp3", "Title", "Notes", None, wait_timeout_s=1, cover=cover)
+    [create] = [c for c in s.calls if c["path"] == "/api/podcasts"]
+    assert create["json"] == {"path": "/podcasts/Test Podcast", "folderId": "fold-1", "libraryId": "lib-pod",
+                              "autoDownloadEpisodes": False, "media": {"metadata": {"title": PODCAST}}}
+    order = [(c["method"], c["path"]) for c in s.calls]
+    assert order.index(("POST", "/api/podcasts")) < order.index(("POST", "/api/items/it1/cover")) \
+        < order.index(("POST", "/api/upload"))
+
+
+def test_publish_into_an_existing_podcast_creates_none(mp3, cover):
+    a, s, _ = make(new_podcast_routes({"yes": True}))
+    a.publish(PODCAST, mp3, "x-1.mp3", "Title", "Notes", None, wait_timeout_s=1, cover=cover)
+    assert "/api/podcasts" not in s.paths("POST")
+
+
+def test_a_failed_podcast_creation_fails_the_publish_before_any_upload(mp3, cover):
+    routes = new_podcast_routes({"yes": False})
+    routes[("POST", "/api/podcasts")] = FakeResponse(500, {})
+    a, s, _ = make(routes)
+    with pytest.raises(AbsError, match="POST /api/podcasts returned 500"):
+        a.publish(PODCAST, mp3, "x-1.mp3", "Title", "Notes", None, wait_timeout_s=1, cover=cover)
+    assert "/api/upload" not in s.paths("POST")
