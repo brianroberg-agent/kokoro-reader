@@ -210,3 +210,51 @@ def test_publish_passes_wait_values_to_the_wait(mp3):
     with pytest.raises(AbsError, match="within 30s"):
         a.publish(PODCAST, mp3, "x.mp3", "T", "D", None, wait_timeout_s=30, poll_s=10)
     assert sleeps == [10, 10, 10]
+
+
+def lookups(s):
+    """(libraries, podcast item lists, item reads) made so far."""
+    gets = s.paths("GET")
+    return (gets.count("/api/libraries"), gets.count("/api/libraries/lib-pod/items"), gets.count("/api/items/it1"))
+
+
+def test_a_wait_resolves_the_podcast_once_then_reads_only_its_item():
+    n = {"i": 0}
+
+    def item(call):
+        n["i"] += 1
+        assert call["params"] == {"expanded": 1}
+        return FakeResponse(200, item_with(["x.mp3"] if n["i"] >= 4 else []))
+
+    a, s, sleeps = make(base_routes(item))
+    assert a.wait_episode(PODCAST, "x.mp3", timeout_s=100, poll_s=5) == "ep-0"
+    assert sleeps == [5, 5, 5] and lookups(s) == (1, 1, 4)  # one item read per poll
+
+
+def test_a_wait_looks_for_the_podcast_again_only_while_it_does_not_exist():
+    # a first upload creates the podcast's item: until it shows, each poll lists again
+    listed = {"n": 0}
+
+    def items(call):
+        listed["n"] += 1
+        return FakeResponse(200, ITEMS if listed["n"] >= 3 else {"results": []})
+
+    routes = base_routes(FakeResponse(200, item_with(["x.mp3"])))
+    routes[("GET", "/api/libraries/lib-pod/items")] = items
+    a, s, sleeps = make(routes)
+    assert a.wait_episode(PODCAST, "x.mp3", timeout_s=100, poll_s=5) == "ep-0"
+    assert sleeps == [5, 5] and lookups(s) == (3, 3, 1)
+
+
+def test_publish_waits_on_the_item_alone_after_its_upload(mp3):
+    shown = {"n": 0}
+
+    def item(call):
+        shown["n"] += 1
+        return FakeResponse(200, item_with([] if shown["n"] <= 3 else ["x-1.mp3"]))
+
+    a, s, sleeps = make(base_routes(item))
+    assert a.publish(PODCAST, mp3, "x-1.mp3", "T", "D", None, poll_s=5) == "ep-0"
+    # the look before the upload (1, 1, 1), the upload's library pick (1, 1, 0), then
+    # the wait: resolved once, and one item read for each of its three polls
+    assert sleeps == [5, 5] and lookups(s) == (3, 3, 4)

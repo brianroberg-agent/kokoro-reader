@@ -100,18 +100,29 @@ class Audiobookshelf:
     def _libraries(self) -> list[dict]:
         return podcast_libraries(self._call("GET", LIBRARIES_PATH))
 
-    def _locate(self, podcast: str, filename: str) -> tuple[str, str] | None:
-        """(item_id, episode_id) of the episode with this file name, or None."""
+    def _podcast_items(self, podcast: str) -> list[str]:
+        """The ids of the library items titled `podcast` (normally one), in library order."""
+        ids = []
         for lib in self._libraries():
             results = self._call("GET", items_path(lib["id"]), params={"limit": 0}).get("results", [])
-            for it in results:
-                if item_title(it) != podcast:
-                    continue
-                full = self._call("GET", item_path(it["id"]), params={"expanded": 1})
-                for ep in item_episodes(full):
-                    if episode_file_name(ep) == filename:
-                        return it["id"], ep["id"]
+            ids += [it["id"] for it in results if item_title(it) == podcast]
+        return ids
+
+    def _episode_in(self, item_id: str, filename: str) -> str | None:
+        """The id of the item's episode with this file name, or None: one GET."""
+        full = self._call("GET", item_path(item_id), params={"expanded": 1})
+        return next((ep["id"] for ep in item_episodes(full) if episode_file_name(ep) == filename), None)
+
+    def _in_items(self, items: list[str], filename: str) -> tuple[str, str] | None:
+        for item_id in items:
+            episode_id = self._episode_in(item_id, filename)
+            if episode_id is not None:
+                return item_id, episode_id
         return None
+
+    def _locate(self, podcast: str, filename: str) -> tuple[str, str] | None:
+        """(item_id, episode_id) of the episode with this file name, or None."""
+        return self._in_items(self._podcast_items(podcast), filename)
 
     def find_episode(self, podcast: str, filename: str) -> str | None:
         found = self._locate(podcast, filename)
@@ -137,9 +148,15 @@ class Audiobookshelf:
                        files={"0": (filename, f, "audio/mpeg")})
 
     def _wait_locate(self, podcast, filename, timeout_s, poll_s) -> tuple[str, str]:
+        """Poll for the episode: the podcast's item is looked up once (again on each poll
+        only while it doesn't exist yet, as before a first upload), then each poll reads
+        only that item."""
         deadline = self._clock() + timeout_s
+        items: list[str] = []
         while True:
-            found = self._locate(podcast, filename)
+            if not items:
+                items = self._podcast_items(podcast)
+            found = self._in_items(items, filename)
             if found:
                 return found
             if self._clock() >= deadline:
