@@ -41,6 +41,7 @@ class Nights(RuleBasedStateMachine):
         self.n = 0
         self.out_of_scope: set[str] = set()
         self.started: list[int] = []  # work items opened, per night
+        self.report = None  # the last run's report, if it neither crashed nor was a dry run
 
     def teardown(self):
         shutil.rmtree(self.dir)
@@ -49,10 +50,11 @@ class Nights(RuleBasedStateMachine):
         opened = len(self.world.narration.items)
         self.world.calls, self.world.crash_at = 0, crash_at
         try:
-            self.world.run(dry_run=dry_run)
+            report = self.world.run(dry_run=dry_run)
         except Crash:
-            pass
+            report = None
         self.world.crash_at = None
+        self.report = None if dry_run else report
         self.started.append(len(self.world.narration.items) - opened)
 
     def _add(self, in_scope: bool, count: int) -> None:
@@ -93,10 +95,14 @@ class Nights(RuleBasedStateMachine):
         assert all(n == 1 for n in per_article.values()), per_article
 
     @invariant()
-    def every_row_is_in_one_known_status(self):
-        for url in self.world.urls():
-            row = self.world.record.row(url)
-            assert row is None or row["status"] in STATUSES
+    def every_article_processed_in_a_run_ends_in_one_status(self):
+        if self.report is None:
+            return
+        urls = [r.url for r in self.report.results]
+        assert len(urls) == len(set(urls)), urls
+        for r in self.report.results:
+            row = self.world.record.row(r.url)
+            assert r.status == row["status"] in STATUSES, (r.url, r.status, row["status"])
 
     @invariant()
     def no_night_starts_more_than_the_cap(self):
