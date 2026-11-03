@@ -31,6 +31,7 @@ services:
       TZ: America/New_York
       AGENTBOX_NET: restricted
       AGENTBOX_GITHUB: "off"
+      AGENTBOX_BASE: "off"  # no telemetry hosts: it never runs claude, and it holds the secrets
       # hostnames, every port: the source site and the ntfy host
       AGENTBOX_ALLOW: ${RUNNER_ALLOW:?set RUNNER_ALLOW in deploy/.env}
       # host:port grants: the Mac's narration port, then RUNNER_LAN's (Audiobookshelf by address)

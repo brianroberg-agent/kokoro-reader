@@ -153,3 +153,12 @@ def test_a_failed_run_is_pushed_once_with_its_traceback_logged(caplog):
     assert push.sent[0] == ("Narration run failed", "ValueError: boom")
     assert len(push.sent) == 2 and push.sent[1][0].startswith("Narration: ")
     assert "Traceback" in caplog.text
+
+
+def test_the_loop_logs_its_next_run_when_it_starts_waiting(caplog):
+    # docker compose logs shows a runner that is waiting, not stuck (R28)
+    clock, push = Clock(datetime(2026, 11, 2, 12, 0, tzinfo=Z)), Push()
+    with caplog.at_level(logging.INFO, logger="narration_pipeline.schedule"):
+        loop(clock, push, ran(clock), nights=2)
+    runs = [m for m in caplog.messages if m.startswith("next run at ")]
+    assert runs == ["next run at 2026-11-03T01:00:00-05:00", "next run at 2026-11-04T01:00:00-05:00"]

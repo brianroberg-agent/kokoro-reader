@@ -34,7 +34,9 @@ def schedule_loop(make_deps: Callable[[], Deps], *, now: Callable[[], datetime],
     done = 0
     while nights is None or done < nights:
         done += 1
-        _sleep_until(next_at(now(), s.start_at, s.tz), now, sleep)
+        start = next_at(now(), s.start_at, s.tz)
+        log.info("next run at %s", start.isoformat())
+        _sleep_until(start, now, sleep)
         started = now()
         try:
             report: NightReport | None = run(deps)

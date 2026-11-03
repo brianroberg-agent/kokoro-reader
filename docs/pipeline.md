@@ -13,10 +13,10 @@ The runner starts the night at 01:00 New York time, keeps trying to reach the Ma
 
 | | `narration-runner` | `narration-agent` |
 |---|---|---|
-| Profile | `restricted`, `AGENTBOX_GITHUB=off` | `restricted`, `AGENTBOX_GITHUB=off`, `AGENTBOX_BASE=off` |
+| Profile | `restricted`, `AGENTBOX_GITHUB=off`, `AGENTBOX_BASE=off` | `restricted`, `AGENTBOX_GITHUB=off`, `AGENTBOX_BASE=off` |
 | Hostnames (every port) | `RUNNER_ALLOW`: the source site and the ntfy host | none |
 | Host:port grants | the Mac's narration port, plus `RUNNER_LAN` (Audiobookshelf by address) | the Mac's narration port |
-| Also, from agentbox | `api.anthropic.com`, and the base hosts (`statsig.com`, `sentry.io`, `code.claude.com`, `docs.claude.com`) | `api.anthropic.com` (`code.claude.com` and `docs.claude.com` share its address) |
+| Also, from agentbox | `api.anthropic.com` (`code.claude.com` and `docs.claude.com` share its address) | the same |
 
 Neither container publishes a port, and the firewall drops inbound connections. The runner hands work to the agent through the `narration-handoff` volume.
 
@@ -88,7 +88,7 @@ On the home server, from scratch:
    docker compose -f deploy/compose.yaml logs narration-agent narration-runner
    ```
 
-   Both logs show agentbox's firewall lines ending in `profile=restricted applied` and `dropping privileges to node`. The agent then logs `serving /handoff for http://<MAC_HOST>:8770/agent/mcp, prompt /opt/narration/agent_prompt.md`. The runner logs nothing more while it waits for 01:00. If a container keeps restarting, its log says why: for example a hostname in `RUNNER_ALLOW` that doesn't resolve, or a missing variable in `runner.env` (the runner names it, never its value).
+   Both logs show agentbox's firewall lines ending in `profile=restricted applied` and `dropping privileges to node`. The agent then logs `serving /handoff for http://<MAC_HOST>:8770/agent/mcp, prompt /opt/narration/agent_prompt.md`. The runner then logs `next run at <time>` (01:00 New York time, as an ISO time) and waits. If a container keeps restarting, its log says why: for example a hostname in `RUNNER_ALLOW` that doesn't resolve, or a missing variable in `runner.env` (the runner names it, never its value).
 
    Then check that the containers, not only the host, reach the Mac over the tailnet: `docker compose -f deploy/compose.yaml exec -u node narration-runner curl -s http://<MAC_HOST>:8770/health` gives `{"ok":true}`.
 
