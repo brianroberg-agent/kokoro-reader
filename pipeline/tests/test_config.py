@@ -79,6 +79,19 @@ def test_session_budget_inside_the_limits_loads(value):
     assert load_settings(f"[settings]\nsession_budget_usd = {value}\n").session_budget_usd == float(value)
 
 
+# Finding 5 (end-to-end test, 2026-11-03): cap 0 stops every new article without a word,
+# and a negative cap slices the picked list from the end (picked[:-1] takes all but one).
+@pytest.mark.parametrize("value", ["0", "-1", "21", "5.0", "true", '"5"'])
+def test_cap_outside_1_to_20_is_refused(value):
+    with pytest.raises(ValueError, match="cap"):
+        load_settings(f"[settings]\ncap = {value}\n")
+
+
+@pytest.mark.parametrize("value", ["1", "5", "20"])
+def test_cap_inside_1_to_20_loads(value):
+    assert load_settings(f"[settings]\ncap = {value}\n").cap == int(value)
+
+
 def source_toml(rules: str) -> str:
     return f"""
 [[source]]

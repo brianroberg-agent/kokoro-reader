@@ -29,6 +29,9 @@ class Source:
     text_rules: tuple[str, ...]
 
 
+MAX_CAP = 20  # articles a night; the spec's 5 is a starting point, tuned from the cost review
+
+
 @dataclass(frozen=True)
 class Settings:
     cap: int = 5
@@ -56,7 +59,10 @@ def _check_rules(source_id: str, rules) -> tuple[str, ...]:
 
 
 def check_settings(s: "Settings") -> "Settings":
-    """The settings, or ValueError naming the first one outside the session service's limits."""
+    """The settings, or ValueError naming the first one outside its limits: the session
+    service's for the timeout and the budget, and 1 to MAX_CAP articles a night."""
+    if not (isinstance(s.cap, int) and not isinstance(s.cap, bool) and 1 <= s.cap <= MAX_CAP):
+        raise ValueError(f"cap must be an integer from 1 to {MAX_CAP}")
     timeout, budget = s.session_timeout_s, s.session_budget_usd
     if not (isinstance(timeout, int) and not isinstance(timeout, bool) and MIN_TIMEOUT_S <= timeout <= MAX_TIMEOUT_S):
         raise ValueError(f"session_timeout_s must be an integer from {MIN_TIMEOUT_S} to {MAX_TIMEOUT_S}")
