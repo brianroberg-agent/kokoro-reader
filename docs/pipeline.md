@@ -9,6 +9,8 @@ The Mac runs the narration server (`docs/narration-server.md`). The files are `d
 
 Each source is a `[[source]]` entry in `pipeline/sources.toml`. Its `extractor` names the article-assistant extractor its site needs, and the runner refuses a name it doesn't know (`new-atlantis` is the one there is); article-assistant itself picks the extractor from each article's URL, so the key documents the source rather than choosing anything. A new site needs its extractor in article-assistant first, then its name added to `EXTRACTORS` in `pipeline/narration_pipeline/config.py`.
 
+Every recording opens with the article's title and who wrote it ("Is There Life on Mars, Pennsylvania? by Vladimir Snurenco."), or the title alone when the page shows no author under it. The runner puts that line before the text it sends to the Mac. The names are article-assistant's `byline`, the names shown under the title; for a site whose extractor has no `byline`, they are its `authors`.
+
 The runner starts the night at 01:00 New York time, keeps trying to reach the Mac until 05:00, starts no new article after 06:00, and sends the summary at 07:00 (`pipeline/sources.toml`, `[settings]`). Then it exits, and compose's `restart: unless-stopped` starts it again (see "Name lookups" below for why).
 
 ## What each container may reach

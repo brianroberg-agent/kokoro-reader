@@ -1,4 +1,4 @@
-"""Fetching: plain GETs and the article_assistant checkout."""
+"""Fetching: plain GETs, the article_assistant checkout, and the article's spoken opening."""
 
 import json
 import subprocess
@@ -49,3 +49,40 @@ def run_article_assistant(url: str, checkout: Path) -> tuple[str, dict]:
     markdown = _run(["content", url, "--no-images"], checkout)
     meta = parse_metadata(_run(["metadata", "--json", url], checkout))
     return markdown, meta
+
+def _names(meta: dict) -> list[str]:
+    """Who wrote the piece, for the spoken opening: the byline article-assistant read
+    under the title (`[]` when the page shows no one, as for an unsigned statement),
+    or, with no byline key (a site without its own extractor, or a page in markup it
+    doesn't read), the authors."""
+    names = meta["byline"] if "byline" in meta else meta.get("authors")
+    if not isinstance(names, list):
+        return []
+    return [" ".join(n.split()) for n in names if isinstance(n, str) and n.strip()]
+
+
+def spoken_title(meta: dict, fallback_title: str = "") -> str:
+    """The line the reading opens with (Brian, 2026-11-03): the title and who wrote it,
+    "Is There Life on Mars, Pennsylvania? by Vladimir Snurenco.", or the title alone
+    when the page names no one. The metadata's title, else fallback_title (the
+    record's, as the night names the episode); "" when there is neither."""
+    raw = meta.get("title")
+    title = " ".join((raw if isinstance(raw, str) and raw.strip() else fallback_title).split())
+    if not title:
+        return ""
+    names = _names(meta)
+    if not names:
+        return title if title.endswith((".", "?", "!")) else f"{title}."
+    if len(names) == 1:
+        who = names[0]
+    elif len(names) == 2:
+        who = f"{names[0]} and {names[1]}"
+    else:
+        who = f"{', '.join(names[:-1])}, and {names[-1]}"
+    return f"{title.removesuffix('.')} by {who}."
+
+
+def with_spoken_title(markdown: str, meta: dict, fallback_title: str = "") -> str:
+    """The article as the narration server gets it: the spoken title, then the text."""
+    line = spoken_title(meta, fallback_title)
+    return f"{line}\n\n{markdown}" if line else markdown

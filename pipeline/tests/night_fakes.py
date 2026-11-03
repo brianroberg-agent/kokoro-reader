@@ -87,6 +87,7 @@ class FakeItem:
     records: int = 0
     checks: int = 0
     forgotten: bool = False  # the Mac no longer has it: "no such work item"
+    text: str = ""  # the article text the runner opened it with
 
     def decision(self) -> dict:
         title = self.metadata.get("title") or "?"
@@ -142,7 +143,7 @@ class FakeNarration:
         script = self.w.scripts[url]
         self._call("open", url, script)
         item_id = f"{len(self.items) + 1:012x}"
-        self.items[item_id] = FakeItem(url, dict(metadata), script)
+        self.items[item_id] = FakeItem(url, dict(metadata), script, text=text)
         return item_id, f"tok-{item_id}"
 
     def finalize(self, item_id: str, force: bool = False) -> dict:

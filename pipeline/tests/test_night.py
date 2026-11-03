@@ -379,6 +379,14 @@ def test_mac_gone_mid_item_waits_for_it_and_recovers_next_night(world):
     assert [(r.url, r.status) for r in world.run().results] == [(a, "published")]
 
 
+def test_the_mac_is_given_the_article_with_its_title_and_byline_first(world):
+    # Brian, 2026-11-03: "The reading should always begin with the title and author(s)."
+    url = world.add_article(1)
+    world.run()
+    item = world.narration.items[only_item(world)]
+    assert item.text == f"{world.titles[url]} by A. Writer.\n\nText of {url}."
+
+
 def test_a_session_cut_off_by_the_mac_keeps_its_cost(world):
     # Finding 4 (end-to-end test, 2026-11-03): the session ran and was paid for, but the
     # Mac went away before finalize, so the costs were never written.

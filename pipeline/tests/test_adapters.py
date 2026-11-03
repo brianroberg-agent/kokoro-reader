@@ -12,7 +12,7 @@ import pytest
 import requests
 
 from narration_pipeline import fetch, handoff, narration_client, push
-from narration_pipeline.fetch import FetchError, fetch_text, run_article_assistant
+from narration_pipeline.fetch import FetchError, fetch_text, run_article_assistant, spoken_title, with_spoken_title
 from narration_pipeline.handoff import HandoffError, wait_result, write_request
 from narration_pipeline.narration_client import NarrationClient, NarrationError, NarrationUnavailable
 from narration_pipeline.push import Push
@@ -397,3 +397,42 @@ def test_write_private_json_is_atomic_and_private(tmp_path):
     ss.write_private_json(path, {"a": 1})
     assert json.loads(path.read_text()) == {"a": 1} and path.stat().st_mode & 0o777 == 0o600
     assert sorted(p.name for p in path.parent.iterdir()) == ["0123456789ab.json"]
+
+
+# The article's spoken opening (Brian, 2026-11-03): "The reading should always begin with
+# the title and author(s) ... For the occasional article that has no author attributed,
+# just the title should be read." Names here are made up.
+@pytest.mark.parametrize("meta, line", [
+    ({"title": "Is There Life on Mars, Pennsylvania?", "byline": ["Ilse Varnholt"]},
+     "Is There Life on Mars, Pennsylvania? by Ilse Varnholt."),
+    ({"title": "The Pro-Human AI Declaration", "byline": [], "authors": ["A Coalition"]},
+     "The Pro-Human AI Declaration."),          # no name under the title: the title alone
+    ({"title": "Zoning Alone", "authors": ["Ada Quill"]},
+     "Zoning Alone by Ada Quill."),             # no byline key (another site): the authors
+    ({"title": "Two Hands", "byline": ["Ada Quill", "Tom Brandvold"]},
+     "Two Hands by Ada Quill and Tom Brandvold."),
+    ({"title": "Three Hands", "byline": ["Ada Quill", "Tom Brandvold", "Mara Odell"]},
+     "Three Hands by Ada Quill, Tom Brandvold, and Mara Odell."),
+    ({"title": "Why Not?", "byline": []}, "Why Not?"),
+    ({"title": "Notes and Briefs.", "byline": ["Ada Quill"]}, "Notes and Briefs by Ada Quill."),
+    ({"title": "  Spaced \n Out ", "byline": ["  Ada \n Quill ", "", 7]}, "Spaced Out by Ada Quill."),
+    ({"title": "Odd", "byline": "Ada Quill", "authors": ["Tom Brandvold"]}, "Odd."),
+])
+def test_spoken_title_is_the_title_and_the_byline(meta, line):
+    assert spoken_title(meta) == line
+
+
+def test_with_spoken_title_puts_the_line_first_as_its_own_paragraph():
+    assert with_spoken_title("Body.", {"title": "T", "byline": ["Ada Quill"]}) == "T by Ada Quill.\n\nBody."
+
+
+@pytest.mark.parametrize("meta", [{}, {"title": ""}, {"title": None}, {"title": "  "}])
+def test_with_spoken_title_falls_back_to_the_records_title(meta):
+    # The night carries on without a title in the metadata (it names the episode from
+    # the record's title), so the spoken title does too.
+    assert with_spoken_title("Body.", {**meta, "byline": ["Ada Quill"]}, "From the record") == (
+        "From the record by Ada Quill.\n\nBody.")
+
+
+def test_with_spoken_title_without_any_title_is_the_text_alone():
+    assert with_spoken_title("Body.", {"byline": ["Ada Quill"]}, "") == "Body."

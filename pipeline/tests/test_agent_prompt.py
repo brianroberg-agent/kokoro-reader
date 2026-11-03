@@ -70,3 +70,9 @@ def test_prompt_has_fixable_issues_fixed_before_minor(text):
     minor = outcome_line(text, "minor")
     assert "While record rounds are left" in minor and "isn't `minor` yet" in minor
     assert "A round spent fixing what a listener would hear is a turn you need." in text
+
+
+def test_prompt_says_the_first_paragraph_is_the_title_and_byline(text):
+    # The runner puts the spoken title first (Brian, 2026-11-03); the agent keeps it.
+    line = report_line(text, "The opening line")
+    assert "title and who wrote it" in line and "Keep it as it is" in line

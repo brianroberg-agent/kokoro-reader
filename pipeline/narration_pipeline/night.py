@@ -16,6 +16,7 @@ from narration_pipeline import handoff as handoff_files
 from narration_pipeline.abs import AbsError, AbsTimeout, episode_filename
 from narration_pipeline.config import Settings, Source
 from narration_pipeline.discovery import DiscoveryError, canonical_url, discover
+from narration_pipeline.fetch import with_spoken_title
 from narration_pipeline.messages import discovery_failed_message, hold_message, plain, stopped_message
 from narration_pipeline.narration_client import NarrationError, NarrationUnavailable, valid_item_id
 from narration_pipeline.record import Record, Row
@@ -222,7 +223,7 @@ class _Night:
         try:
             source = self.sources[row["source"]]
             markdown, metadata = self.d.article_assistant(row["url"])
-            item_id, token = self.d.narration.open(markdown, metadata)
+            item_id, token = self.d.narration.open(with_spoken_title(markdown, metadata, row["title"]), metadata)
             if not valid_item_id(item_id):  # it goes into handoff paths and the MP3's URL
                 raise NarrationError(f"open returned a bad work item id: {item_id!r}")
             it.item_id = item_id
