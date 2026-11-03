@@ -62,6 +62,8 @@ On the home server, from scratch:
    docker build -t agentbox:latest ~/agentbox/image/
    ```
 
+   Both images' builds stop with "agentbox:latest predates AGENTBOX_BASE (agentbox PR #14); rebuild it from agentbox main" when the base image is older than that change.
+
    Rebuild it, and then these two images, about monthly: that is how the toolchain gets updates. Claude Code inside `narration-agent` stays at `CLAUDE_CODE_VERSION` in `deploy/narration-agent/Dockerfile` whatever the base has; change that line to move it.
 
 2. **Get the repo:** `git clone https://github.com/brianroberg/kokoro-reader.git ~/kokoro-reader && cd ~/kokoro-reader`. The commands below run from the repo root.
@@ -101,9 +103,9 @@ On the home server, from scratch:
    docker compose -f deploy/compose.yaml logs narration-agent
    ```
 
-   The log shows agentbox's firewall lines ending in `profile=restricted applied` and `dropping privileges to node`, then `serving /handoff for http://<MAC_HOST>:8770/agent/mcp, prompt /opt/narration/agent_prompt.md`. If the container keeps restarting, its log says why.
+   The log shows agentbox's firewall lines, among them `verified: base hosts blocked` (the base hosts are closed: `AGENTBOX_BASE=off` took effect), ending in `profile=restricted applied` and `dropping privileges to node`, then `serving /handoff for http://<MAC_HOST>:8770/agent/mcp, prompt /opt/narration/agent_prompt.md`. If the container keeps restarting, its log says why.
 
-   Then check that a runner container, not only the host, reaches the Mac over the tailnet: `docker compose -f deploy/compose.yaml run --rm narration-runner curl -s http://<MAC_HOST>:8770/health` gives `{"ok":true}`. (`run --rm` starts a one-off runner container through agentbox's entrypoint, so the firewall applies and the command runs as node; its firewall lines come first in the output. If it can't start, the output says why: for example a hostname in `RUNNER_ALLOW` that doesn't resolve, or a missing variable in `runner.env`, named but never its value.)
+   Then check that a runner container, not only the host, reaches the Mac over the tailnet: `docker compose -f deploy/compose.yaml run --rm narration-runner curl -s http://<MAC_HOST>:8770/health` gives `{"ok":true}`. (`run --rm` starts a one-off runner container through agentbox's entrypoint, so the firewall applies and the command runs as node; its firewall lines come first in the output, and they too include `verified: base hosts blocked`. If it can't start, the output says why: for example a hostname in `RUNNER_ALLOW` that doesn't resolve, or a missing variable in `runner.env`, named but never its value.)
 
 8. **The acceptance run:** one real article, first as a dry run, then published (the commands are in Operate, below):
    1. A dry run of one article: `run --dry-run --only <article URL>`. Its discovery also queues every article in scope, and it reports `would publish` with the episode notes.
@@ -117,7 +119,7 @@ On the home server, from scratch:
    docker compose -f deploy/compose.yaml logs narration-runner
    ```
 
-   The log shows the firewall lines as the agent's did, then `next run at <time>` (01:00 New York time, as an ISO time), and the runner waits. That night it takes the articles the acceptance run's discovery queued, five a night, oldest first.
+   The log shows the firewall lines as the agent's did, `verified: base hosts blocked` among them, then `next run at <time>` (01:00 New York time, as an ISO time), and the runner waits. That night it takes the articles the acceptance run's discovery queued, five a night, oldest first.
 
 `docker compose config` prints the merged configuration with the secrets from both files in it: don't paste its output anywhere.
 

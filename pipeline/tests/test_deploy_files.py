@@ -5,6 +5,7 @@ started, and the containment) are recorded in docs/pipeline.md."""
 
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -156,3 +157,31 @@ def test_runner_code_stays_roots():
     ins = instructions("narration-runner")
     assert not [i for i in ins if "chown" in i]
     assert [i for i in ins if "-o node" in i] == ["RUN install -d -o node -g node -m 0700 /data /handoff"]
+
+
+FIREWALL = "/usr/local/bin/init-firewall.sh"
+OLD_IMAGE = "agentbox:latest predates AGENTBOX_BASE (agentbox PR #14); rebuild it from agentbox main"
+
+
+def base_check(name: str) -> str:
+    """The Dockerfile's check of its base image, the instruction right after FROM."""
+    check = instructions(name)[1]
+    assert check.startswith("RUN ") and FIREWALL in check
+    return check.removeprefix("RUN ")
+
+
+@pytest.mark.parametrize("name", SERVICES)
+@pytest.mark.parametrize("script, ok", [
+    ("AGENTBOX_GITHUB=off ... AGENTBOX_BASE=off", True),
+    ("AGENTBOX_GITHUB=off only", False),   # an image from before agentbox PR #14
+    ("AGENTBOX_BASE=off only", False),
+    ("neither", False),
+])
+def test_the_build_stops_on_an_agentbox_image_without_the_switches(name, script, ok, tmp_path):
+    # an older agentbox ignores AGENTBOX_BASE=off and leaves its base hosts reachable
+    fake = tmp_path / "init-firewall.sh"
+    fake.write_text(script)
+    done = subprocess.run(["sh", "-c", base_check(name).replace(FIREWALL, str(fake))],
+                          capture_output=True, text=True, timeout=10)
+    assert (done.returncode == 0) is ok
+    assert (OLD_IMAGE in done.stderr) is not ok

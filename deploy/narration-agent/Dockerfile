@@ -4,6 +4,12 @@
 # firewall as root, then runs the command as node.
 FROM agentbox:latest
 
+# The compose file's AGENTBOX_GITHUB=off and AGENTBOX_BASE=off need an agentbox image
+# that knows them: an older one ignores AGENTBOX_BASE=off without a word and leaves
+# its base hosts reachable. Stop the build instead.
+RUN grep -q AGENTBOX_GITHUB /usr/local/bin/init-firewall.sh && grep -q AGENTBOX_BASE /usr/local/bin/init-firewall.sh \
+  || { echo "agentbox:latest predates AGENTBOX_BASE (agentbox PR #14); rebuild it from agentbox main" >&2; exit 1; }
+
 ENV DISABLE_AUTOUPDATER=1
 
 # The Claude Code version the sessions have been checked with, in place of the one the
