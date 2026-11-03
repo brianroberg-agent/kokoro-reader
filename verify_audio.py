@@ -65,10 +65,21 @@ _TIMESTAMP = re.compile(
     r"(?<![\w.:])(\d{1,3}):([0-5]\d)(?::([0-5]\d))?(?!\w|:\d|\.\d|\s?[AaPp]\.?[Mm]\b)")
 
 
+# What the report quotes from the article, where a time is the article's own ("John
+# 3:16"): text in straight or curly double quotes, *italics* (not **bold**, which the
+# report uses for its own labels such as "**1:26 - Missing word:**"), and `code`.
+_QUOTED = re.compile(r'"[^"\n]*"|\u201c[^\u201d\n]*\u201d|(?<!\*)\*(?!\*)[^*\n]+(?<!\*)\*(?!\*)|`[^`\n]*`')
+
+
 def shift_timestamps(text: str, offset_ms: int) -> str:
     """Each time in a section's report moved by the section's start, written as
-    format_timestamp writes it, so the report's times are times in the whole recording."""
+    format_timestamp writes it, so the report's times are times in the whole recording.
+    A time inside text the report quotes from the article is left as it is."""
+    quoted = [m.span() for m in _QUOTED.finditer(text)]
+
     def shift(m: re.Match) -> str:
+        if any(a <= m.start() < b for a, b in quoted):
+            return m.group()
         a, b, c = m.group(1), m.group(2), m.group(3)
         seconds = int(a) * 3600 + int(b) * 60 + int(c) if c else int(a) * 60 + int(b)
         return format_timestamp(seconds * 1000 + offset_ms)

@@ -378,6 +378,15 @@ class TestFormatTimestamp:
             "At ~5:14, the number is omitted. **6:28 - Missing word:** dot. "
             "5:03 - 5:05: the heading. At 67:05 too.")
 
+    def test_shift_timestamps_leaves_text_quoted_from_the_article(self):
+        """Review finding 1: the report quotes the article, and a time there is the
+        article's, not the recording's ("John 3:16" became "John 13:16")."""
+        text = ('At 1:26 the word "as John 3:16 puts it" is cut; \u201cthe 4:30 train\u201d '
+                "and *a 0:03 pause* and `2:15` stay; **1:26 - Missing word:** shifts.")
+        assert shift_timestamps(text, 600000) == (
+            'At 11:26 the word "as John 3:16 puts it" is cut; \u201cthe 4:30 train\u201d '
+            "and *a 0:03 pause* and `2:15` stay; **11:26 - Missing word:** shifts.")
+
     def test_shift_timestamps_leaves_clock_times_and_other_numbers(self):
         text = "Read as 10:30 a.m. and 9:45pm, a 3:2 ratio, 2.5:1, and v1:20b."
         assert shift_timestamps(text, 302000) == text
