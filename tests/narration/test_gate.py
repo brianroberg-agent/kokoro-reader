@@ -910,3 +910,22 @@ def test_a_number_range_read_out_publishes_with_its_substitution_in_the_notes(tm
     out = runner.finalize(item)
     assert out["action"] == "publish" and out["mp3"], out["reasons"]
     assert '- "2-3" read as "2 to 3"' in out["notes"]
+
+
+# ---- end-to-end test findings, 2026-11-03 ----
+def test_an_omission_is_a_kind_of_issue_finish_accepts():
+    # F3: a word the engine left out fitted none of the kinds, so it was published as "other".
+    issues, _ = agent_tools.validate_finish(
+        "minor", [{"kind": "omission", "where": "2:27", "note": "a dropped"}], [])
+    assert issues == [{"kind": "omission", "where": "2:27", "note": "a dropped"}]
+
+
+def test_notes_list_the_issues_in_time_order():
+    # F3: the notes followed the order the agent wrote them in (3:32, 3:43, then 2:27).
+    finish = {"outcome": "minor", "substitutions": [],
+              "remaining_issues": [{"kind": "mispronunciation", "where": "12:40", "note": ""},
+                                   {"kind": "pacing", "where": "9:40", "note": ""},
+                                   {"kind": "omission", "where": "2:27", "note": ""},
+                                   {"kind": "other", "where": "9:40", "note": ""}]}
+    lines = [l for l in notes_for(META, finish).splitlines() if l.startswith("- ")]
+    assert lines == ["- 2:27 omission", "- 9:40 pacing", "- 9:40 other", "- 12:40 mispronunciation"]

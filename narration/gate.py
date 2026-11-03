@@ -103,8 +103,8 @@ def notes_for(metadata: dict, finish: dict) -> str:
     override-respellings included, its original and spoken text as written: agent_tools
     allows one line of plain text for each. Each entry is checked again here with
     finish's own validators, and one that fails (in a record written before a rule
-    existed) is left out."""
-    issues = _valid(_issue, finish.get("remaining_issues"))
+    existed) is left out. Issues are listed in time order."""
+    issues = sorted(_valid(_issue, finish.get("remaining_issues")), key=_seconds)
     subs = _valid(_substitution, finish.get("substitutions"))
     parts = [_meta(metadata)["description"]]
     if issues:
@@ -115,6 +115,12 @@ def notes_for(metadata: dict, finish: dict) -> str:
         parts += [f"- \"{s['original']}\" read as \"{s['spoken']}\"" for s in subs]
     parts.append("Recorded automatically.")
     return "\n".join(p for p in parts if p)
+
+
+def _seconds(issue: dict) -> int:
+    """An issue's place in seconds: `where` is m:ss to mmm:ss, checked by _issue first."""
+    minutes, seconds = issue["where"].split(":")
+    return int(minutes) * 60 + int(seconds)
 
 
 def _valid(validator, entries) -> list[dict]:

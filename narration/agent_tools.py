@@ -61,7 +61,7 @@ NOT_PLAIN = frozenset("<>[]{}*_`|\\")
 # original and spoken text, which are bounded to one line of plain text (_plain: no
 # markup or control characters, at most MAX_FIELD characters), and which the word
 # check and its budgets bound to a few words of the article and what is read for them.
-ISSUE_KINDS = ("mispronunciation", "pacing", "artifact", "truncation", "other")
+ISSUE_KINDS = ("mispronunciation", "omission", "pacing", "artifact", "truncation", "other")
 # m:ss to mmm:ss in ASCII digits, seconds below 60; matched with fullmatch.
 WHERE_RE = re.compile(r"^[0-9]{1,3}:[0-5][0-9]$")
 MAX_ISSUES = 20
