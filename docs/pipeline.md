@@ -51,7 +51,7 @@ To renew it, run `claude setup-token` again, put the new value in `/srv/narratio
 
 On the home server, from scratch:
 
-1. **Build agentbox's image** from agentbox `main` (once the `AGENTBOX_BASE` change has merged; the agent's `AGENTBOX_BASE=off` needs it):
+1. **Build agentbox's image** from agentbox `main` (once the `AGENTBOX_BASE` change has merged: both containers set `AGENTBOX_BASE=off`, which needs it):
 
    ```bash
    git clone https://github.com/brianroberg/agentbox.git ~/agentbox
@@ -106,7 +106,7 @@ Before the first night, do a dry run and then a real run of one article (Operate
 
 ## Operate
 
-Every `exec` below has `-u node`. `exec` doesn't go through agentbox's entrypoint, so without it the command runs as root, and files it leaves in `/data`, `/handoff` or `/app` would belong to root, where the node processes may then fail to write. `run --rm` does go through the entrypoint (firewall, then node), so it needs no `-u`.
+Every `exec` below has `-u node`. `exec` doesn't go through agentbox's entrypoint, so without it the command runs as root, and files it leaves in `/data` or `/handoff` would belong to root, where the node processes may then fail to write. `run --rm` does go through the entrypoint (firewall, then node), so it needs no `-u`.
 
 **Status:** counts by status and the ten rows updated last.
 

@@ -137,8 +137,9 @@ def test_agent_pins_claude_code_and_turns_off_its_updater():
 
 
 def test_runner_runs_what_the_build_installed():
-    # At start uv would find the project "modified" (it compares ctimes, which the chown
-    # and the image's layers change) and rebuild it, fetching hatchling past the firewall.
+    # At start uv would find the project "modified" (it compares ctimes, which the image's
+    # layers change) and rebuild it, and install the dev group the build left out: both
+    # fetch from PyPI past the firewall.
     ins = instructions("narration-runner")
     last_sync = max(n for n, i in enumerate(ins) if "uv sync --frozen" in i)
     assert "ENV UV_NO_SYNC=1" in ins[last_sync + 1:]
