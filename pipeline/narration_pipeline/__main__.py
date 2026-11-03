@@ -65,6 +65,8 @@ def report_text(report: NightReport, dry_run: bool) -> str:
         lines.append("the Mac wasn't reachable")
     if report.stopped_at_cutoff:
         lines.append("stopped at the cutoff")
+    if report.login_failed:
+        lines.append("stopped: Claude login failed")
     return "\n".join(lines) or "nothing to do"
 
 

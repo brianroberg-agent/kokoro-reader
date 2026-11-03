@@ -9,9 +9,10 @@ gets a result saying the service restarted; the runner's finalize then decides t
 Standard library only, in one file: the agent image runs it as
 `python3 session_service.py` (Debian's Python 3.11) with nothing installed.
 
-The session's whole process group is killed when its first event (`init`) lists any
-tool but the six, or the narration server isn't connected, and when it runs past the
-request's timeout. A request whose item id is valid gets a result, failures included;
+The session's whole process group is killed when its init event (its first event
+other than another system event) lists any tool but the six, or the narration server
+isn't connected, and when it runs past the request's timeout. A session Claude Code
+couldn't log in for ends with LOGIN_ERROR, so the runner can tell it from the others. A request whose item id is valid gets a result, failures included;
 one without a valid id is moved to rejected/ instead. The MCP config file holds the
 item's agent token: it lives in a private temporary directory, which is removed when
 the session ends, however it ends.
@@ -59,6 +60,8 @@ PASSED_THROUGH = ("PATH", "HOME", "USER", "LOGNAME", OAUTH_VAR)
 SESSION_FLAGS = {"CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1", "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
                  "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_AUTOUPDATER": "1"}
 TOKEN_KEYS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+LOGIN_ERROR = "Claude Code is not logged in (CLAUDE_CODE_OAUTH_TOKEN missing or expired)"
+NOT_LOGGED_IN = "Not logged in"  # how Claude Code's own message starts
 
 TASK = ("Record the article in this work item with the narration tools, following your "
         "instructions for recording articles. Start with get_text and end with finish.")
@@ -192,6 +195,30 @@ def _names(names: list[str]) -> str:
     return shown + (f" and {len(names) - 10} more" if len(names) > 10 else "")
 
 
+def before_init(event: dict) -> bool:
+    """A system event other than init, which Claude Code may write before it (2.1.316
+    writes ui_invalidate first): read past it. Any other event is checked as the init."""
+    return event.get("type") == "system" and event.get("subtype") != "init"
+
+
+def says_not_logged_in(event: dict) -> bool:
+    """Claude Code's own "Not logged in" message: an assistant message it wrote itself
+    (model <synthetic>), or a result that says so with nothing spent. A session the
+    article steered into those words has a real model and a cost, so it doesn't count."""
+    if event.get("type") == "assistant":
+        message = event.get("message")
+        if not isinstance(message, dict) or message.get("model") != "<synthetic>":
+            return False
+        content = message.get("content")
+        return isinstance(content, list) and any(
+            isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)
+            and block["text"].startswith(NOT_LOGGED_IN) for block in content)
+    if event.get("type") == "result":
+        text, cost = event.get("result"), event.get("total_cost_usd")
+        return isinstance(text, str) and text.startswith(NOT_LOGGED_IN) and _number(cost) and cost == 0
+    return False
+
+
 def check_init(event: dict) -> str | None:
     """Why the session must be stopped, or None: the event must be the init event, list
     exactly EXPECTED_TOOLS, and show the narration server connected."""
@@ -229,21 +256,25 @@ def _result_error(event: dict) -> str:
     return "; ".join(parts) or "the session ended with an error"
 
 
-def parse_result(event: dict) -> dict:
+def parse_result(event: dict, logged_out: bool = False) -> dict:
     """The service's result from claude's final `result` event. finished_ok means the
     session ended normally, not that the recording is good: the runner's finalize
     decides that. tokens is the total volume: input_tokens + output_tokens +
-    cache_creation_input_tokens + cache_read_input_tokens, those present (spend is cost_usd)."""
+    cache_creation_input_tokens + cache_read_input_tokens, those present (spend is cost_usd).
+    logged_out (Claude Code said so before its result) or a result saying so: LOGIN_ERROR."""
     usage = event.get("usage") if isinstance(event.get("usage"), dict) else {}
     counts = [usage[key] for key in TOKEN_KEYS if _integer(usage.get(key))]
     cost, turns, reason = event.get("total_cost_usd"), event.get("num_turns"), event.get("terminal_reason")
     ok = (event.get("type") == "result" and event.get("is_error") is not True
           and event.get("subtype") in (None, "success"))
+    error = None if ok else _result_error(event)
+    if logged_out or says_not_logged_in(event):
+        ok, error = False, LOGIN_ERROR
     return {"finished_ok": ok,
             "cost_usd": float(cost) if _number(cost) and math.isfinite(cost) else None,
             "num_turns": turns if _integer(turns) else None,
             "terminal_reason": _clip(reason, 200) if isinstance(reason, str) else None,
-            "error": None if ok else _result_error(event),
+            "error": error,
             "tokens": sum(counts) if counts else None}
 
 
@@ -319,7 +350,7 @@ def _watch(proc: subprocess.Popen, timeout_s: int, secrets) -> dict:
     threading.Thread(target=_pump, args=(proc.stdout, lines, secrets), daemon=True).start()
     drain = threading.Thread(target=_drain, args=(proc.stderr, tail, secrets), daemon=True)
     drain.start()
-    checked = False
+    checked = logged_out = False
     while True:
         remaining = deadline - time.monotonic()
         try:
@@ -336,6 +367,8 @@ def _watch(proc: subprocess.Popen, timeout_s: int, secrets) -> dict:
         if event is None:
             continue
         if not checked:
+            if before_init(event):
+                continue
             problem = check_init(event)
             if problem:
                 _stop(proc)
@@ -343,7 +376,9 @@ def _watch(proc: subprocess.Popen, timeout_s: int, secrets) -> dict:
             checked = True
         elif event.get("type") == "result":
             _finish(proc)
-            return parse_result(event)
+            return parse_result(event, logged_out)
+        else:
+            logged_out = logged_out or says_not_logged_in(event)
     status = _finish(proc)
     drain.join(timeout=2)
     return failure(f"no result event (claude exited with status {status})", list(tail))

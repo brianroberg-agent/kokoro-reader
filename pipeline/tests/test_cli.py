@@ -8,7 +8,7 @@ from narration_pipeline.__main__ import main, make_deps
 from narration_pipeline.discovery import Candidate
 from narration_pipeline.night import RunInProgress
 from narration_pipeline.record import Record
-from night_fakes import NY, START, World, restore_record_clock, source
+from night_fakes import NY, START, Script, World, restore_record_clock, source
 
 REQUIRED = ["NARRATION_URL", "NARRATION_RUNNER_TOKEN", "AUDIOBOOKSHELF_URL", "AUDIOBOOKSHELF_API_KEY",
             "NTFY_TOPIC_URL", "NTFY_TOKEN"]
@@ -186,3 +186,12 @@ def test_schedule_nights_must_be_at_least_one(tmp_path, capsys, value, message):
     with pytest.raises(SystemExit) as e:
         main(["schedule", "--nights", value], env={}, deps_factory=lambda env: world.deps())
     assert e.value.code == 2 and message in capsys.readouterr().err
+
+
+def test_run_says_when_a_lost_login_stopped_it(tmp_path, capsys):
+    world = World(tmp_path)
+    world.add_article(1, script=Script(session="no_login"))
+    world.add_article(2)
+    assert main(["run"], env={}, deps_factory=lambda env: world.deps()) == 0
+    out = capsys.readouterr().out
+    assert "stopped: Claude login failed" in out and "Article 2" not in out

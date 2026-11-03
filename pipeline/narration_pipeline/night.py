@@ -16,9 +16,10 @@ from narration_pipeline import handoff as handoff_files
 from narration_pipeline.abs import AbsTimeout, episode_filename
 from narration_pipeline.config import Settings, Source
 from narration_pipeline.discovery import DiscoveryError, discover
-from narration_pipeline.messages import discovery_failed_message, hold_message
+from narration_pipeline.messages import discovery_failed_message, hold_message, login_failed_message
 from narration_pipeline.narration_client import NarrationError, NarrationUnavailable, valid_item_id
 from narration_pipeline.record import Record, Row
+from narration_pipeline.session_service import LOGIN_ERROR
 
 MAC_POLL_S = 300        # how often to ask whether the Mac is back
 SESSION_GRACE_S = 300   # wait for the session's result this long past its own timeout
@@ -66,6 +67,7 @@ class NightReport:
     discovery_errors: list[str] = field(default_factory=list)
     mac_unreachable: bool = False
     stopped_at_cutoff: bool = False
+    login_failed: bool = False  # a session found Claude Code logged out: the night stopped
 
 
 def deadlines(start: datetime, mac_wait_until: time, no_new_after: time) -> tuple[datetime, datetime]:
@@ -143,7 +145,7 @@ class _Night:
                 self.report.stopped_at_cutoff = True
                 break
             self.report.results.append(self.process(row))
-            if not self.mac_still_there():
+            if self.report.login_failed or not self.mac_still_there():
                 break
         return self.report
 
@@ -217,6 +219,8 @@ class _Night:
         try:
             if it.fin is None:
                 it.fin = self.finalize(it)
+            if (it.session or {}).get("error") == LOGIN_ERROR:
+                self.report.login_failed = True  # every later session would fail the same way
             it.st = self.d.narration.status(it.item_id)
             if self.dry_run:
                 return self.result(it, it.row["status"], it.fin.get("reasons") or [], it.fin["action"])
@@ -248,7 +252,16 @@ class _Night:
             self.rec.transition(it.row["url"], "held")
             self.notify(*hold_message(it.row, reasons))
             return self.result(it, "held", reasons)
+        if self.report.login_failed:
+            return self.logged_out(it)
         return self.fail(it, self.why(it))
+
+    def logged_out(self, it: _Item) -> ItemResult:
+        """The session couldn't log in, which says nothing about the article: the row is
+        failed (so it comes first next night) without a failed night, and Brian is told."""
+        self.rec.transition(it.row["url"], "failed", last_error=LOGIN_ERROR)
+        self.notify(*login_failed_message(LOGIN_ERROR))
+        return self.result(it, "failed", [LOGIN_ERROR])
 
     def publish(self, it: _Item) -> ItemResult:
         meta = it.st["metadata"]  # the server's copy, so recovery computes the same file name

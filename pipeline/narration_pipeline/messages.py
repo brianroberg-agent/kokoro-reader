@@ -41,10 +41,14 @@ def discovery_failed_message(source_name: str, reason: str) -> tuple[str, str]:
     return f"Discovery failed: {source_name}", plain(reason)
 
 
+def login_failed_message(error: str) -> tuple[str, str]:
+    return "Claude login failed", plain(error)
+
+
 def summary_text(report: "NightReport") -> str | None:
     queued = sum(report.discovered.values())
     if not (report.results or report.discovery_errors or report.mac_unreachable
-            or report.stopped_at_cutoff or queued):
+            or report.stopped_at_cutoff or report.login_failed or queued):
         return None
     lines = []
     by_status = {}
@@ -66,6 +70,8 @@ def summary_text(report: "NightReport") -> str | None:
         lines.append("The Mac wasn't reachable.")
     if report.stopped_at_cutoff:
         lines.append("Stopped at the 06:00 cutoff.")
+    if report.login_failed:
+        lines.append("Stopped: Claude login failed.")
     lines += [f"Discovery failed: {e}" for e in report.discovery_errors]
     if queued:
         lines.append(f"{queued} new article{'' if queued == 1 else 's'} queued.")

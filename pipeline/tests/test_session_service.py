@@ -329,6 +329,87 @@ def test_run_session_refuses_a_first_event_that_is_not_init(fake_claude, cfg):
     assert out["finished_ok"] is False and out["error"].startswith("tool check failed: ")
 
 
+# Claude Code 2.1.316's stream-json, with the service's flags (captured in the agent
+# container, 2026-11-02): a ui_invalidate event can come before init, and with no login
+# it writes its own "Not logged in" message (model <synthetic>, nothing spent).
+UI_INVALIDATE = {"type": "system", "subtype": "ui_invalidate", "event": "ui.render", "uuid": "u-1",
+                 "session_id": "s-1"}
+NOT_LOGGED_IN = "Not logged in \u00b7 Please run /login"
+ZERO_USAGE = {"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0}
+LOGIN_ASSISTANT = {"type": "assistant", "session_id": "s-1", "parent_tool_use_id": None,
+                   "message": {"model": "<synthetic>", "role": "assistant", "type": "message",
+                               "stop_reason": "stop_sequence", "usage": ZERO_USAGE,
+                               "content": [{"type": "text", "text": NOT_LOGGED_IN}]}}
+LOGIN_RESULT = {"type": "result", "subtype": "success", "is_error": True, "result": NOT_LOGGED_IN,
+                "num_turns": 1, "total_cost_usd": 0, "duration_api_ms": 0, "api_error_status": None,
+                "terminal_reason": "api_error", "usage": ZERO_USAGE}
+LOGIN_ERROR = "Claude Code is not logged in (CLAUDE_CODE_OAUTH_TOKEN missing or expired)"
+
+
+def test_run_session_reads_past_system_events_before_init(fake_claude, cfg):
+    fake_claude({"out": UI_INVALIDATE}, {"out": init_event()}, {"out": RESULT})
+    assert ss.run_session(request(), cfg) == ss.parse_result(RESULT)
+
+
+def test_run_session_still_checks_an_init_that_follows_system_events(fake_claude, cfg):
+    bindir = fake_claude({"out": UI_INVALIDATE}, {"out": init_event(SIX | {"Bash"})}, {"sleep": 60}, {"out": RESULT})
+    started = time.monotonic()
+    out = ss.run_session(request(), cfg)
+    assert time.monotonic() - started < 5
+    assert gone(json.loads((bindir / "seen.json").read_text())["pid"])
+    assert out["finished_ok"] is False and out["error"] == "tool check failed: extra tools: Bash"
+
+
+@pytest.mark.parametrize("before", [{"type": "assistant", "message": {}}, RESULT],
+                         ids=["assistant", "result"])
+def test_run_session_refuses_a_non_system_event_before_init(fake_claude, cfg, before):
+    fake_claude({"out": UI_INVALIDATE}, {"out": before}, {"out": init_event()}, {"sleep": 60})
+    out = ss.run_session(request(), cfg)
+    assert out["finished_ok"] is False and out["error"].startswith("tool check failed: ")
+
+
+def test_run_session_without_an_init_fails(fake_claude, cfg):
+    fake_claude({"out": UI_INVALIDATE}, {"exit": 1})
+    out = ss.run_session(request(), cfg)
+    assert out["finished_ok"] is False and out["error"].startswith("no result event")
+
+
+@pytest.mark.parametrize("is_error", [True, False])  # True as captured; False as first described
+def test_run_session_reports_a_missing_login(fake_claude, cfg, is_error):
+    fake_claude({"out": UI_INVALIDATE}, {"out": init_event()}, {"out": LOGIN_ASSISTANT},
+                {"out": {**LOGIN_RESULT, "is_error": is_error}})
+    out = ss.run_session(request(), cfg)
+    assert out["finished_ok"] is False and out["error"] == LOGIN_ERROR == ss.LOGIN_ERROR
+    assert out["cost_usd"] == 0.0 and out["num_turns"] == 1
+
+
+def test_run_session_reports_a_missing_login_from_the_assistant_message_alone(fake_claude, cfg):
+    fake_claude({"out": init_event()}, {"out": LOGIN_ASSISTANT},
+                {"out": {**LOGIN_RESULT, "result": "", "is_error": False}})
+    out = ss.run_session(request(), cfg)
+    assert out["finished_ok"] is False and out["error"] == LOGIN_ERROR
+
+
+def test_a_model_writing_not_logged_in_is_not_a_login_failure(fake_claude, cfg):
+    # An article could steer the agent into these words; its message has a real model and
+    # its session a cost, so it ends as any other session does.
+    steered = {**LOGIN_ASSISTANT, "message": {**LOGIN_ASSISTANT["message"], "model": "a-model"}}
+    result = {**RESULT, "result": NOT_LOGGED_IN}
+    fake_claude({"out": init_event()}, {"out": steered}, {"out": result})
+    assert ss.run_session(request(), cfg) == ss.parse_result(result)
+    assert ss.parse_result(result)["finished_ok"] is True
+
+
+def test_not_logged_in_is_read_only_from_claude_codes_own_messages():
+    assert ss.says_not_logged_in(LOGIN_ASSISTANT) and ss.says_not_logged_in(LOGIN_RESULT)
+    assert not ss.says_not_logged_in({**LOGIN_ASSISTANT, "message": {**LOGIN_ASSISTANT["message"], "model": "m"}})
+    assert not ss.says_not_logged_in({**LOGIN_RESULT, "total_cost_usd": 0.05})
+    assert not ss.says_not_logged_in({**LOGIN_RESULT, "result": "Logged in fine"})
+    assert not ss.says_not_logged_in({"type": "assistant", "message": {"model": "<synthetic>", "content": "x"}})
+    assert not ss.says_not_logged_in(UI_INVALIDATE)
+
+
 def test_run_session_timeout_kills(fake_claude, cfg):
     bindir = fake_claude({"child": True}, {"out": init_event()}, {"sleep": 60}, {"out": RESULT})
     started = time.monotonic()

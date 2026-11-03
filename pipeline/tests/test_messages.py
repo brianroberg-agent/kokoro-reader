@@ -1,4 +1,5 @@
-from narration_pipeline.messages import discovery_failed_message, hold_message, plain, summary_text
+from narration_pipeline.messages import (discovery_failed_message, hold_message, login_failed_message, plain,
+                                         summary_text)
 from narration_pipeline.night import ItemResult, NightReport
 
 
@@ -89,3 +90,15 @@ def test_summary_discovery_line_is_sanitized():
     text = summary_text(NightReport(discovery_errors=[DIRTY]))
     assert "pass" not in text and "abc123" not in text and "frag" not in text and "HTTPS" not in text
     assert "Discovery failed: GET https://example.test:8080/feed/x failed" in text
+
+
+def test_login_failed_message_goes_through_the_sanitizer():
+    title, body = login_failed_message("not logged in; see https://u:pw@auth.example.test/x?code=abc#f")
+    assert title == "Claude login failed"
+    assert body == "not logged in; see https://auth.example.test/x"
+
+
+def test_summary_says_the_night_stopped_on_a_lost_login():
+    text = summary_text(NightReport(results=[result("failed", "A")], login_failed=True))
+    assert "1 failed" in text and "Stopped: Claude login failed." in text
+    assert summary_text(NightReport(login_failed=True)) == "Stopped: Claude login failed."

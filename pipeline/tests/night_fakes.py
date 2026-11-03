@@ -16,6 +16,7 @@ from narration_pipeline.narration_client import NarrationError, NarrationUnavail
 from narration_pipeline.night import Deps, NightReport, run_night
 from narration_pipeline import record as record_module
 from narration_pipeline.record import Record
+from narration_pipeline.session_service import LOGIN_ERROR
 
 NY = ZoneInfo("America/New_York")
 START = datetime(2026, 11, 3, 1, 0, tzinfo=NY)
@@ -46,7 +47,7 @@ class Crash(BaseException):
 @dataclass
 class Script:
     fetch: str = "ok"        # ok | error
-    session: str = "clean"   # clean | minor | hold | gate_hold | no_finish | no_result
+    session: str = "clean"   # clean | minor | hold | gate_hold | no_finish | no_result | no_login
     session_s: int = 1200    # how long the session takes
     mac: str | None = None   # None | blip_<call> (that call fails once) | down_in_session
     abs: str = "ok"          # ok | error_before_upload | error_after_upload | error_in_wait (once each)
@@ -203,6 +204,10 @@ class FakeSessions:
             clock.sleep(300)
             item.records = 1
             return {**result, "cost_usd": 0.12, "error": "the narration server stopped answering"}
+        if script.session == "no_login":  # Claude Code isn't logged in: it stops at once
+            clock.sleep(5)
+            return {**result, "cost_usd": 0.0, "num_turns": 1, "tokens": 0, "terminal_reason": "api_error",
+                    "error": LOGIN_ERROR}
         clock.sleep(script.session_s)
         if script.session == "no_finish":
             item.records, item.checks = 4, 8

@@ -103,6 +103,45 @@ def test_no_finish_fails_and_retries_next_night(world):
     assert r.status == "published" and len(world.narration.items) == 2
 
 
+LOGIN_ERROR = "Claude Code is not logged in (CLAUDE_CODE_OAUTH_TOKEN missing or expired)"
+
+
+def test_a_lost_claude_login_pushes_once_and_stops_the_night(world):
+    a = world.add_article(1, script=Script(session="no_login"))
+    b = world.add_article(2)
+    report = world.run()
+    [r] = report.results  # the second article isn't started
+    assert report.login_failed and (r.url, r.status) == (a, "failed")
+    item_id = only_item(world)
+    assert world.narration.finalizes == [(item_id, False), (item_id, True)]  # finalized as usual
+    row = world.record.row(a)
+    assert (row["status"], row["failed_nights"], row["last_error"]) == ("failed", 0, LOGIN_ERROR)
+    assert world.record.row(b)["status"] == "queued"
+    assert world.push.sent == [("Claude login failed", LOGIN_ERROR, "default")]
+    assert world.abs.episodes == []
+
+
+def test_a_lost_login_never_holds_the_article(world):
+    url = world.add_article(1, script=Script(session="no_login"))
+    for night in range(4):
+        [r] = world.run().results
+        assert r.status == "failed"
+        world.next_night()
+    row = world.record.row(url)
+    assert (row["status"], row["failed_nights"]) == ("failed", 0)
+    assert [title for title, _, _ in world.push.sent] == ["Claude login failed"] * 4
+    world.scripts[url] = Script()  # the login is renewed
+    [r] = world.run().results
+    assert r.status == "published"
+
+
+def test_a_lost_login_in_a_dry_run_stops_it_without_a_push(world):
+    world.add_article(1, script=Script(session="no_login"))
+    world.add_article(2)
+    report = world.run(dry_run=True)
+    assert report.login_failed and len(report.results) == 1 and world.push.sent == []
+
+
 def test_no_session_result_fails(world):
     url = world.add_article(1, script=Script(session="no_result"))
     [r] = world.run().results
