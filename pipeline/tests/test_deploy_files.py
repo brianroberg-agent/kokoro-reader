@@ -148,3 +148,10 @@ def test_runner_leaves_the_dev_tools_out():
     # pytest, hypothesis and pyyaml have no place in the image that holds the secrets
     syncs = [i for i in instructions("narration-runner") if "uv sync" in i]
     assert len(syncs) == 2 and all("uv sync --frozen --no-dev" in i for i in syncs)
+
+
+def test_runner_code_stays_roots():
+    # node can run the code and its venvs but not change them; it owns only its data
+    ins = instructions("narration-runner")
+    assert not [i for i in ins if "chown" in i]
+    assert [i for i in ins if "-o node" in i] == ["RUN install -d -o node -g node -m 0700 /data /handoff"]
