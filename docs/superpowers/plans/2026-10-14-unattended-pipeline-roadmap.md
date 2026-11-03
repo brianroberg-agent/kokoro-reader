@@ -11,7 +11,7 @@
 | **0. Spikes** (this file) | Answers to the spec's open questions, before code is built on guesses | none (throwaway) | S1 and S4: an agent here. S2 and S3: Brian, on the Mac, one evening | — |
 | **1. Prerequisites** (`2026-10-14-plan-1-prerequisites.md`) | Skill rename; New Atlantis metadata fixes; agentbox entrypoint hook, GitHub switch, and uv | kokoro-reader, article-assistant, agentbox | agents (one PR per repo) | — |
 | **2. Narration server** (`2026-10-14-plan-2-narration-server.md`) | The `narration` MCP server: work items, the six agent tools, runner tools, the quality gate, bearer-token auth | kokoro-reader | agents; Brian installs it on the Mac at the end | S1 |
-| **3. Runner, agent container, deploy** | Discovery and sources, the record (SQLite), the nightly flow, publishing and pushes, the `narration-agent` session service, both container images, compose and launchd | kokoro-reader (+ compose on the home server) | agents; Brian deploys | Plans 1 and 2, and S2–S4. **Written after the spikes report**, because their answers change its shape |
+| **3. Runner, agent container, deploy** (`2026-11-02-plan-3-runner-and-deploy.md`) | Discovery and sources, the record (SQLite), the nightly flow, publishing and pushes, the `narration-agent` session service, both container images, compose and launchd | kokoro-reader (+ agentbox `AGENTBOX_BASE`, compose on the home server) | agents; Brian deploys | Plans 1 and 2, and S2–S4. Written 2026-11-02, after the spikes |
 
 **Changes the plans make to the spec:** two, recorded here for Brian's veto.
 
@@ -181,3 +181,7 @@ sudo pmset repeat cancel        # only if Plan 3 will set its own schedule
   - **Dates:** trust JSON-LD `datePublished`, which equals the feed's pubDate. The visible "Published online on …" text can be days later.
   - **"Gated" (subscriber-only) articles still serve their full text.** `zoning-alone` has 4,415 words in its body. 8 of No. 86's 9 articles are gated.
   - **The fixture for Plan 3** (blocks No. 85 and No. 86, plus a trimmed `TNA_ISSUES`, 39.7 KB) is kept in the assistant workspace at `local/kokoro-pipeline/new_atlantis_issues_sample.html` (the parser scripts are beside it, in `s4-scripts/`), to be copied into `tests/fixtures/` when Plan 3 starts.
+- **S2 + S3 (2026-11-02, Brian's MacBook, compressed to an evening: on power, external display unplugged, lid closed):**
+  - **S3 passes.** A LaunchAgent started with `launchctl kickstart` ran `text_to_speech.py` from `~/tools/kokoro-reader` and wrote the WAV in 7 s, so MLX gets the GPU under launchd.
+  - **S2 is only half a pass.** A `sudo pmset schedule wake` woke the closed Mac on time (17:50:00, an RTC wake), but it went back to sleep at 17:50:45 ("Clamshell Sleep", once powerd's wake linger timed out). The job set for five minutes later was missed and ran only when the lid was opened.
+  - **Decision (Brian):** drop the closed-lid track for now; he often leaves the lid open overnight. With the lid open the Mac still idle-sleeps, so Plan 3 keeps it awake on power (its Decision 1).
