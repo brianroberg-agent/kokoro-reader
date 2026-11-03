@@ -285,8 +285,6 @@ class _Night:
         error = _error(e)
         unavailable = isinstance(e, NarrationUnavailable)
         self.unavailable |= unavailable
-        if it.uploading:
-            return self.leave(it, error)
         if it.item_id is not None and not it.forced and (it.fin is None or unavailable):
             # If the Mac answers finalize(force=True), its decision stands: a blip costs no
             # recorded work. Either way the session's token is revoked.
