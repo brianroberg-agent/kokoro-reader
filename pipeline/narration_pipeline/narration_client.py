@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import json
 import os
-import re
 from pathlib import Path
 
 import httpx2  # mcp's own HTTP client library, pinned through mcp
@@ -12,14 +11,7 @@ import requests
 from mcp.client import Client
 from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
 
-
-# The server's work item ids. fullmatch: `$` would also accept a trailing newline.
-ITEM_ID_RE = re.compile(r"[0-9a-f]{12}")
-
-
-def valid_item_id(value) -> bool:
-    """Checked before an id goes into a file path or a URL."""
-    return isinstance(value, str) and ITEM_ID_RE.fullmatch(value) is not None
+from narration_pipeline.session_service import valid_item_id  # the server's work item ids
 
 
 class NarrationError(Exception):

@@ -1,18 +1,16 @@
 """File handoff between the runner and the session service."""
 
 import json
-import os
 import time
 from datetime import datetime
 from pathlib import Path
 
-from narration_pipeline.session_service import HEARTBEAT
+# The contract's one definition is the session service's (it runs alone in the agent image).
+from narration_pipeline.session_service import HEARTBEAT, SUBDIRS, write_private_json
+
 
 class HandoffError(Exception):
     pass
-
-
-SUBDIRS = ("requests", "running", "results")
 
 
 def write_request(handoff: Path, item_id: str, agent_token: str, text_rules: list[str],
@@ -24,15 +22,7 @@ def write_request(handoff: Path, item_id: str, agent_token: str, text_rules: lis
         d.chmod(0o700)
     body = {"item_id": item_id, "agent_token": agent_token, "text_rules": list(text_rules),
             "budget_usd": budget_usd, "timeout_s": timeout_s}
-    tmp = handoff / "requests" / f".{item_id}.tmp"
-    try:
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            f.write(json.dumps(body))
-        os.replace(tmp, handoff / "requests" / f"{item_id}.json")
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
+    write_private_json(handoff / "requests" / f"{item_id}.json", body)
 
 
 def wait_result(handoff: Path, item_id: str, timeout_s: float, poll_s: float = 5) -> dict | None:

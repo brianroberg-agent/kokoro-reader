@@ -376,3 +376,24 @@ def test_wait_result_corrupt_at_timeout_raises(tmp_path):
     (tmp_path / "results" / "i1.json").write_text("{nope")
     with pytest.raises(HandoffError, match="unreadable result for i1"):
         wait_result(tmp_path, "i1", timeout_s=0.05, poll_s=0.01)
+
+
+def test_the_handoff_contract_is_the_session_services():
+    # one definition each, in the file the agent image runs (CR10)
+    from narration_pipeline import session_service as ss
+    assert handoff.SUBDIRS is ss.SUBDIRS == ("requests", "running", "results")
+    assert narration_client.valid_item_id is ss.valid_item_id
+    assert handoff.write_private_json is ss.write_private_json
+    for module in (handoff, narration_client):
+        source = Path(module.__file__).read_text()
+        assert "re.compile" not in source and "os.open(" not in source
+
+
+def test_write_private_json_is_atomic_and_private(tmp_path):
+    from narration_pipeline import session_service as ss
+    path = tmp_path / "results" / "0123456789ab.json"
+    path.parent.mkdir()
+    (path.parent / ".0123456789ab.tmp").write_text("a stale temp file")
+    ss.write_private_json(path, {"a": 1})
+    assert json.loads(path.read_text()) == {"a": 1} and path.stat().st_mode & 0o777 == 0o600
+    assert sorted(p.name for p in path.parent.iterdir()) == ["0123456789ab.json"]

@@ -51,6 +51,9 @@ PREFIX = "mcp__narration__"
 TOOL_NAMES = ("get_text", "replace_text", "record", "check", "phonemes", "finish")
 EXPECTED_TOOLS = frozenset(PREFIX + name for name in TOOL_NAMES)
 
+# The handoff contract, which the runner imports from here (handoff.py, narration_client.py):
+# the directories, the work item id, and how a request or result file is written.
+SUBDIRS = ("requests", "running", "results")
 ITEM_ID_RE = re.compile(r"[0-9a-f]{12}")     # the narration server's secrets.token_hex(6)
 TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{43}")  # secrets.token_urlsafe(32); both matched with fullmatch
 MAX_RULES = 20
@@ -129,6 +132,8 @@ class ServiceConfig:
 # -- pure logic --
 
 def valid_item_id(value) -> bool:
+    """Checked before an id goes into a file path or a URL. fullmatch: `$` would also
+    accept a trailing newline."""
     return isinstance(value, str) and ITEM_ID_RE.fullmatch(value) is not None
 
 
@@ -531,21 +536,27 @@ def _write_private(path: Path, text: str) -> None:
 
 # -- the handoff directory --
 
+def write_private_json(path: Path, obj) -> None:
+    """The object as JSON at path, mode 0600, written atomically: a fresh temp file
+    beside it (.<name>.tmp, which neither side reads as a request or a result), then
+    os.replace. Requests and results are both written this way."""
+    tmp = path.with_name(f".{path.stem}.tmp")
+    tmp.unlink(missing_ok=True)  # a stale one may have looser permissions
+    try:
+        _write_private(tmp, json.dumps(obj))
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def write_result(handoff: Path, item_id: str, result: dict) -> None:
-    """results/<item_id>.json, 0600, written atomically (a temp file, then os.replace),
-    as the runner writes its requests."""
+    """results/<item_id>.json, as the runner writes its requests (write_private_json)."""
     if not valid_item_id(item_id):  # a path is built from it
         raise ValueError("not a work item id")
     results = handoff / "results"
     results.mkdir(mode=0o700, parents=True, exist_ok=True)
-    tmp = results / f".{item_id}.tmp"
-    tmp.unlink(missing_ok=True)
-    try:
-        _write_private(tmp, json.dumps(result))
-        os.replace(tmp, results / f"{item_id}.json")
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
+    write_private_json(results / f"{item_id}.json", result)
 
 
 def _pending(directory: Path) -> list[Path]:
@@ -666,7 +677,7 @@ def serve(handoff: Path, cfg: ServiceConfig, poll_s: float = POLL_S, until=None)
     """One request at a time, polling requests/ every poll_s seconds and touching the
     heartbeat each time (and while a session runs). `until` (for tests) is asked before
     each poll whether to stop."""
-    for sub in ("requests", "running", "results"):
+    for sub in SUBDIRS:
         (handoff / sub).mkdir(mode=0o700, parents=True, exist_ok=True)
     heartbeat = Heartbeat(handoff / HEARTBEAT)
     heartbeat()
