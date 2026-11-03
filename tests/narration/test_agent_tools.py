@@ -251,23 +251,36 @@ def test_a_change_undone_later_still_counts_as_a_fix_tried(env):
     assert tools.finish(item, "minor", [MISSAID], [])["ok"]
 
 
-def test_minor_with_an_omission_needs_a_second_recording_of_any_text(env):
+def test_minor_with_an_omission_needs_a_recording_of_any_text_after_the_first_check(env):
     _, tools, *_, item, _ = env
     _round(tools, item)
-    with pytest.raises(ToolError, match="only one round has been recorded"):
+    with pytest.raises(ToolError, match="no round has been recorded since the first check"):
         tools.finish(item, "minor", [DROPPED], [])
     _round(tools, item)  # the engine doesn't always drop the same words
     assert tools.finish(item, "minor", [DROPPED], [])["ok"]
 
 
-def test_a_failed_round_is_not_a_second_recording(env):
+def test_a_round_after_a_failed_one_counts(env):
     _, tools, tts, _, item, _ = env
     _round(tools, item)
     tts.fail_next = True
     with pytest.raises(Exception):
         tools.record(item)
-    tools.record(item); tools.check(item)  # round 3, the second recording
+    tools.record(item); tools.check(item)  # round 3, recorded after the first check
     assert tools.finish(item, "minor", [DROPPED], [])["ok"]
+
+
+def test_a_change_made_before_the_first_check_is_not_a_fix_tried(env):
+    # The prompt has speech_warnings fixed and recorded again before a check is spent,
+    # so two texts are often recorded before any check has heard a word.
+    _, tools, *_, item, _ = env
+    tools.record(item)
+    tools.replace_text(item, *A_PAUSE)
+    _round(tools, item)
+    with pytest.raises(ToolError, match="try a fix first"):
+        tools.finish(item, "minor", [MISSAID], [])
+    with pytest.raises(ToolError, match="no round has been recorded since the first check"):
+        tools.finish(item, "minor", [DROPPED], [])
 
 
 def test_minor_is_accepted_once_no_record_round_is_left(env):

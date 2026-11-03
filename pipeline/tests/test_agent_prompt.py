@@ -93,5 +93,6 @@ def test_prompt_says_finish_refuses_minor_before_a_fix_is_tried(text):
     # session that reads the prompt isn't surprised by the refusal (Brian, 2026-11-03).
     finish = next(line for line in text.splitlines() if line.startswith("- **`finish` ends"))
     assert ("While record rounds and checks are left, `finish` refuses `minor` that lists a "
-            "`mispronunciation` until a round has been recorded from changed text, or an "
-            "`omission` until a second round has been recorded.") in finish
+            "`mispronunciation` until a round recorded after the first check has changed the "
+            "text that check heard, or an `omission` until a round has been recorded after the "
+            "first check.") in finish

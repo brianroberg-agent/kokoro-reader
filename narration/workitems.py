@@ -28,7 +28,7 @@ FILES = {"source.md", "prepared.md", "metadata.json", "state.json",
          "recording.wav", "episode.mp3", "result.json"}
 # status: open -> finished (finish) -> finalized (finalize); open -> abandoned (finalize, force=True).
 # records: record calls so far. recorded_round: the round whose audio is in recording.wav.
-# recorded_texts: the sha256 of the text of each round that left a recording, in order.
+# recorded_texts: each round that left a recording, as its round and its text's sha256.
 INITIAL_STATE = {"status": "open", "records": 0, "recorded_round": None, "recorded_texts": [],
                  "checks": [], "finish": None}
 
