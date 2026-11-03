@@ -234,6 +234,8 @@ class _Night:
                                                     timeout_s=self.s.session_timeout_s + SESSION_GRACE_S)
             if it.session is None:  # given up on: if the service hasn't taken it, it won't
                 self.d.handoff.withdraw_request(self.d.handoff_dir, it.item_id)
+            elif not self.dry_run:
+                self.add_session_cost(it)
             self.classify(it)
             if it.outside:
                 self.stop_night(it.outside, it.outside_error)
@@ -467,14 +469,26 @@ class _Night:
         detail = it.session.get("terminal_reason") or it.session.get("error")
         return f"{why} (session: {detail})" if detail else why
 
+    def add_session_cost(self, it: _Item) -> None:
+        """A session is paid for when it ends, whatever happens after it (the Mac may be
+        gone before finalize): its cost and tokens go onto the article's totals at once,
+        so a retried article's record holds what all its sessions cost (e2e finding 4)."""
+        row = self.rec.row(it.row["url"])
+        fields = {}
+        cost = it.session.get("cost_usd")
+        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+            fields["claude_cost_usd"] = (row["claude_cost_usd"] or 0.0) + cost
+        tokens = it.session.get("tokens")  # all four usage counts, from the session (R20a)
+        if isinstance(tokens, int) and not isinstance(tokens, bool):
+            fields["claude_tokens"] = (row["claude_tokens"] or 0) + tokens
+        if fields:
+            self.rec.update(it.row["url"], **fields)
+
     def save_costs(self, it: _Item) -> None:
+        """This attempt's rounds, checks and time; the Claude totals are add_session_cost's."""
         fields = {"rounds": it.st.get("records"), "gemini_cost_usd": self.gemini_usd(it)}
         if not it.recovered:
-            fields["claude_cost_usd"] = self.claude_usd(it)
             fields["run_seconds"] = _seconds(it.started, self.d.now())
-            tokens = (it.session or {}).get("tokens")  # all four usage counts, from the session (R20a)
-            if isinstance(tokens, int):
-                fields["claude_tokens"] = tokens
         issues = (it.st.get("finish") or {}).get("remaining_issues")
         if issues:
             fields["remaining_issues"] = issues

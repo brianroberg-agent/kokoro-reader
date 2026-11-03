@@ -379,6 +379,30 @@ def test_mac_gone_mid_item_waits_for_it_and_recovers_next_night(world):
     assert [(r.url, r.status) for r in world.run().results] == [(a, "published")]
 
 
+def test_a_session_cut_off_by_the_mac_keeps_its_cost(world):
+    # Finding 4 (end-to-end test, 2026-11-03): the session ran and was paid for, but the
+    # Mac went away before finalize, so the costs were never written.
+    a = world.add_article(1, script=Script(mac="down_in_session"))
+    world.run()
+    row = world.record.row(a)
+    assert row["status"] == "in_progress"
+    assert row["claude_cost_usd"] == pytest.approx(0.12) and row["claude_tokens"] == 51000
+
+
+def test_an_articles_claude_cost_is_the_total_of_its_sessions(world):
+    # The cost review is per article: a retried article's sessions all count.
+    a = world.add_article(1, script=Script(mac="down_in_session"))
+    world.run()                      # session 1: $0.12, cut off by the Mac
+    world.next_night()
+    world.scripts[a] = Script()
+    world.run()                      # recovery: failed, no session
+    world.next_night()
+    world.run()                      # session 2: $0.40, published
+    row = world.record.row(a)
+    assert row["status"] == "published"
+    assert row["claude_cost_usd"] == pytest.approx(0.52) and row["claude_tokens"] == 102000
+
+
 def test_a_recovered_row_is_not_retried_the_same_night(world):
     a = world.add_article(1)
     b = world.add_article(2)
