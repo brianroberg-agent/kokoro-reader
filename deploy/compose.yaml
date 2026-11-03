@@ -4,7 +4,8 @@
 #                     the narration runner token (/srv/narration/runner.env)
 #   narration-agent   one locked-down Claude Code session at a time; holds only the
 #                     Claude login (/srv/narration/agent.env)
-# From the repo root: docker compose -f deploy/compose.yaml up -d --build
+# From the repo root: docker compose -f deploy/compose.yaml build, then up -d narration-agent;
+# the runner (up -d narration-runner) only after the acceptance run (docs/pipeline.md, Deploy).
 # MAC_HOST, MAC_PORT, RUNNER_ALLOW and RUNNER_LAN come from deploy/.env, written from
 # deploy/env.example; compose reads the .env beside this file.
 #

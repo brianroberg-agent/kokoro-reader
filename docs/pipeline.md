@@ -87,24 +87,37 @@ On the home server, from scratch:
 
 5. **Check that the Mac answers** from the home server: `curl -s http://<MAC_HOST>:8770/health` gives `{"ok":true}`.
 
-6. **Build and start:**
+6. **Build both images, and start only the agent.** The runner's schedule waits until the acceptance run below (spec, "Acceptance": Brian listens to the first article before the schedule is turned on):
 
    ```bash
-   docker compose -f deploy/compose.yaml up -d --build
+   docker compose -f deploy/compose.yaml build
+   docker compose -f deploy/compose.yaml up -d narration-agent
    ```
 
-7. **Check the start:**
+7. **Check the agent's start:**
 
    ```bash
    docker compose -f deploy/compose.yaml ps
-   docker compose -f deploy/compose.yaml logs narration-agent narration-runner
+   docker compose -f deploy/compose.yaml logs narration-agent
    ```
 
-   Both logs show agentbox's firewall lines ending in `profile=restricted applied` and `dropping privileges to node`. The agent then logs `serving /handoff for http://<MAC_HOST>:8770/agent/mcp, prompt /opt/narration/agent_prompt.md`. The runner then logs `next run at <time>` (01:00 New York time, as an ISO time) and waits. If a container keeps restarting, its log says why: for example a hostname in `RUNNER_ALLOW` that doesn't resolve, or a missing variable in `runner.env` (the runner names it, never its value).
+   The log shows agentbox's firewall lines ending in `profile=restricted applied` and `dropping privileges to node`, then `serving /handoff for http://<MAC_HOST>:8770/agent/mcp, prompt /opt/narration/agent_prompt.md`. If the container keeps restarting, its log says why.
 
-   Then check that the containers, not only the host, reach the Mac over the tailnet: `docker compose -f deploy/compose.yaml exec -u node narration-runner curl -s http://<MAC_HOST>:8770/health` gives `{"ok":true}`.
+   Then check that a runner container, not only the host, reaches the Mac over the tailnet: `docker compose -f deploy/compose.yaml run --rm narration-runner curl -s http://<MAC_HOST>:8770/health` gives `{"ok":true}`. (`run --rm` starts a one-off runner container through agentbox's entrypoint, so the firewall applies and the command runs as node; its firewall lines come first in the output. If it can't start, the output says why: for example a hostname in `RUNNER_ALLOW` that doesn't resolve, or a missing variable in `runner.env`, named but never its value.)
 
-Before the first night, do a dry run and then a real run of one article (Operate, below), as Plan 3's Task 11 says.
+8. **The acceptance run:** one real article, first as a dry run, then published (the commands are in Operate, below):
+   1. A dry run of one article: `run --dry-run --only <article URL>`. Its discovery also queues every article in scope, and it reports `would publish` with the episode notes.
+   2. The same article for real: `run --only <article URL>`. It reports `published` (or `published_with_notes`).
+   3. Brian listens to the episode in Audiobookshelf.
+
+9. **Start the schedule**, once the episode is good:
+
+   ```bash
+   docker compose -f deploy/compose.yaml up -d narration-runner
+   docker compose -f deploy/compose.yaml logs narration-runner
+   ```
+
+   The log shows the firewall lines as the agent's did, then `next run at <time>` (01:00 New York time, as an ISO time), and the runner waits. That night it takes the articles the acceptance run's discovery queued, five a night, oldest first.
 
 `docker compose config` prints the merged configuration with the secrets from both files in it: don't paste its output anywhere.
 
@@ -118,7 +131,7 @@ Every `exec` below has `-u node`. `exec` doesn't go through agentbox's entrypoin
 docker compose -f deploy/compose.yaml exec -u node narration-runner uv run --frozen python -m narration_pipeline status
 ```
 
-**A dry run of one article.** It fetches, records and checks the article and finalizes the work item, then reports what it would have done (`would publish`, with the notes), but publishes nothing, sends no push and leaves the row `queued`. The URL must already be in the record from a night's discovery; otherwise the run stops with `not discovered: <URL>`.
+**A dry run of one article.** It fetches, records and checks the article and finalizes the work item, then reports what it would have done (`would publish`, with the notes), but publishes nothing, sends no push and leaves the row `queued`. The run discovers first, and the URL must be one discovery found (now or on an earlier night); otherwise the run stops with `not discovered: <URL>`.
 
 ```bash
 docker compose -f deploy/compose.yaml run --rm narration-runner \
