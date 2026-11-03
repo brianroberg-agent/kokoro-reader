@@ -145,7 +145,16 @@ class TestCleanMarkdownText:
         text = "- Item 1\n* Item 2\n+ Item 3\n1. Numbered item"
         expected = "Item 1\nItem 2\nItem 3\nNumbered item"
         assert clean_markdown_text(text) == expected
-    
+
+    def test_a_numbered_heading_keeps_its_number(self):
+        """E2E finding 1: the header marks went first, so the list rule took a
+        heading's own number ("##### 1. Keeping Humans in Charge" read without "1")."""
+        text = ("##### 1. Keeping Humans in Charge\n\nText.\n\n"
+                "##### **2.** Avoiding Concentration of Power\n\nMore.")
+        expected = ("1. Keeping Humans in Charge\n\nText.\n\n"
+                    "2. Avoiding Concentration of Power\n\nMore.")
+        assert clean_markdown_text(text) == expected
+
     def test_remove_blockquotes(self):
         """Test removal of blockquote formatting."""
         text = "> This is a quote\n> Multi-line quote"

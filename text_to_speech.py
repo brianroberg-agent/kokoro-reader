@@ -128,6 +128,12 @@ def _unwrap_links(text: str) -> str:
 
 def clean_markdown_text(text: str) -> str:
     """Clean markdown formatting from text for better TTS."""
+    # Remove markdown lists first, while a heading's line still starts with its
+    # marks: run after them, the numbered-list rule took a heading's own number
+    # ("##### 1. Keeping Humans in Charge" was read without "1").
+    text = _LIST_ITEM.sub(r'\1', text)
+    text = _NUMBERED_ITEM.sub(r'\1', text)
+
     # Remove markdown headers
     text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
     
@@ -144,10 +150,6 @@ def clean_markdown_text(text: str) -> str:
     # Remove code blocks and inline code
     text = re.sub(r'```[^`]*```', '', text, flags=re.DOTALL)
     text = re.sub(r'`([^`]+)`', r'\1', text)
-    
-    # Remove markdown lists
-    text = _LIST_ITEM.sub(r'\1', text)
-    text = _NUMBERED_ITEM.sub(r'\1', text)
     
     # Remove blockquotes
     text = _BLOCKQUOTE.sub(r'\1', text)
