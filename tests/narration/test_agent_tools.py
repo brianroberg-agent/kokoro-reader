@@ -281,6 +281,15 @@ def test_the_first_check_is_what_a_fix_must_follow_not_round_one(env):
         tools.finish(item, "minor", [DROPPED], [])
 
 
+def test_a_fix_recorded_again_unchanged_still_counts_as_tried(env):
+    # Fixed in round 2, then the fixed text recorded again for a dropped word: the latest
+    # two rounds have the same text, but round 2 tried a fix after the first check.
+    _, tools, *_, item, _ = env
+    _round(tools, item)
+    tools.replace_text(item, *A_PAUSE)
+    _round(tools, item); _round(tools, item)
+    assert tools.finish(item, "minor", [MISSAID], [])["ok"]
+
 def test_a_change_made_before_the_first_check_is_not_a_fix_tried(env):
     # The prompt has speech_warnings fixed and recorded again before a check is spent,
     # so two texts are often recorded before any check has heard a word.
