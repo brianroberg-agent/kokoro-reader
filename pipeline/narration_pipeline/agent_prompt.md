@@ -45,7 +45,7 @@ Edit the prepared text only with `replace_text`. Its `old` must appear exactly o
 
 `check` returns the verifier's report and `precheck_warnings`. The verifier listens to the recording and reports mispronunciations, missing or extra content, pacing problems and audio problems, with approximate timestamps. The report opens with a pre-check (duration, word count, reading pace, long silences) that catches a recording cut short or carrying extra content; its findings are the `precheck_warnings`, and `finish` with outcome `clean` or `minor` needs a check with none.
 
-When the `[BREAK]` markers line up with the silences in the audio, each section is verified on its own and reported under a header like `## Section 2 of 5 (12:34–25:10)`. Timestamps inside a section are relative to that section's start: add the section's start to place an issue in the whole recording. If a recording longer than about 15 minutes can't be paired with its `[BREAK]` markers, the check refuses to run, and the refused check still counts: fix the `[BREAK]` structure and record again.
+When the `[BREAK]` markers line up with the silences in the audio, each section is verified on its own and reported under a header like `## Section 2 of 5 (12:34–25:10)`. Every timestamp in the report is a time in the whole recording, the one to give as an issue's `where`. If a recording longer than about 15 minutes can't be paired with its `[BREAK]` markers, the check refuses to run, and the refused check still counts: fix the `[BREAK]` structure and record again.
 
 Use judgment. Not every flagged issue needs fixing:
 

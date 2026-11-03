@@ -16,6 +16,7 @@ from verify_audio import (
     precheck_report,
     precheck_warnings,
     format_timestamp,
+    shift_timestamps,
     find_section_gaps,
     split_audio_at_gaps,
 )
@@ -246,7 +247,20 @@ class TestChunkedVerification:
 
         assert "## Section 1 of 2 (0:00–0:02)" in result
         assert "## Section 2 of 2 (0:02–0:05)" in result
-        assert "relative to" in result  # note explaining in-section timestamps
+        assert "whole recording" in result  # note saying where the timestamps count from
+
+    @patch("verify_audio.genai")
+    def test_section_timestamps_are_times_in_the_whole_recording(self, mock_genai, tmp_path):
+        """E2E finding 2: the agent had to add each section's start itself, and once
+        published 0:10 for an issue at 6:28. The report does the adding now."""
+        mock_gemini_client(mock_genai, "At 0:01, a word is dropped.")
+        audio_path = make_wav(tmp_path / "audio.wav", self.TWO_SECTION_SPEC)
+
+        result = verify_audio(audio_path, self.TWO_SECTION_TEXT)
+
+        first, second = result.split("## Section 2 of 2")
+        assert "At 0:01, a word is dropped." in first
+        assert "At 0:03, a word is dropped." in second  # 0:01 into a section starting at 0:02
 
     @patch("verify_audio.genai")
     def test_single_section_text_verifies_whole_file_without_warning(
@@ -355,6 +369,18 @@ class TestFormatTimestamp:
 
     def test_formats_over_an_hour(self):
         assert format_timestamp(3723000) == "62:03"
+
+    def test_shift_timestamps_adds_the_offset_to_each_time_in_its_own_form(self):
+        """The forms Gemini wrote in the end-to-end test's report, shifted by 5:02."""
+        text = ("At ~00:12, the number is omitted. **1:26 - Missing word:** dot. "
+                "0:01 - 0:03: the heading. At 1:02:03 too.")
+        assert shift_timestamps(text, 302000) == (
+            "At ~5:14, the number is omitted. **6:28 - Missing word:** dot. "
+            "5:03 - 5:05: the heading. At 67:05 too.")
+
+    def test_shift_timestamps_leaves_clock_times_and_other_numbers(self):
+        text = "Read as 10:30 a.m. and 9:45pm, a 3:2 ratio, 2.5:1, and v1:20b."
+        assert shift_timestamps(text, 302000) == text
 
 
 class TestPrecheckReport:

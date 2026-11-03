@@ -123,7 +123,7 @@ uv run python verify_audio.py recording.wav source_text.md
 
 Sends audio + source text to Gemini, which listens and reports mispronunciations, missing or extra content, and pacing issues with timestamps. Costs ~3 cents per 16 minutes of audio.
 
-The report begins with a free, deterministic pre-check (duration, word count, reading pace, unexpected silence gaps) that runs before any model call. When the source text contains `[BREAK]` markers and the audio's silence gaps line up with them, each section is verified separately against its own slice of the text and the results are aggregated under headers like `## Section 2 of 5 (12:34–25:10)` — timestamps inside a section are relative to that section's start. Verifying long recordings in one call produces unreliable phantom reports, so recordings longer than ~15 minutes that can't be chunked this way are rejected with an error asking for `[BREAK]` markers.
+The report begins with a free, deterministic pre-check (duration, word count, reading pace, unexpected silence gaps) that runs before any model call. When the source text contains `[BREAK]` markers and the audio's silence gaps line up with them, each section is verified separately against its own slice of the text and the results are aggregated under headers like `## Section 2 of 5 (12:34–25:10)` — every timestamp in the report is a time in the whole recording. Verifying long recordings in one call produces unreliable phantom reports, so recordings longer than ~15 minutes that can't be chunked this way are rejected with an error asking for `[BREAK]` markers.
 
 | Option | Description | Default |
 |--------|-------------|---------|
