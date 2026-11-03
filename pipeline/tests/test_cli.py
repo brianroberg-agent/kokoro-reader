@@ -6,6 +6,7 @@ import pytest
 from narration_pipeline import __main__ as cli
 from narration_pipeline.__main__ import main, make_deps
 from narration_pipeline.discovery import Candidate
+from narration_pipeline.night import RunInProgress
 from narration_pipeline.record import Record
 from night_fakes import World, restore_record_clock, source
 
@@ -83,6 +84,51 @@ def test_status_prints_counts_and_recent_rows(env, capsys):
     out = capsys.readouterr().out
     assert "queued: 12" in out
     assert out.count("Status ") == 10
+
+
+def test_status_without_a_record_says_so_and_creates_nothing(env, capsys):
+    path = Path(env["PIPELINE_DATA"]) / "record.sqlite"
+    assert main(["status"], env=env) == 0
+    assert f"no record yet at {path}" in capsys.readouterr().out
+    assert not path.exists()
+
+
+def test_status_opens_read_only(env, capsys):
+    path = Path(env["PIPELINE_DATA"]) / "record.sqlite"
+    rec = Record(path)  # held open, so nothing else touches the file between the two stats
+    before = path.stat().st_mtime_ns
+    assert main(["status"], env=env) == 0
+    assert path.stat().st_mtime_ns == before
+    del rec
+
+
+def test_run_in_progress_exits_nonzero_with_the_message(tmp_path):
+    world = World(tmp_path)
+
+    def busy(deps, **kw):
+        raise RunInProgress("whatever the wording")
+    import narration_pipeline.__main__ as m
+    orig = m.run_night
+    m.run_night = busy
+    try:
+        with pytest.raises(SystemExit) as e:
+            main(["run"], env={}, deps_factory=lambda env: world.deps())
+    finally:
+        m.run_night = orig
+    assert isinstance(e.value.code, str) and "another run is in progress" in e.value.code
+
+
+def test_run_failure_is_not_swallowed(tmp_path):
+    world = World(tmp_path)
+    with pytest.raises(ValueError):
+        main(["run", "--only", "https://example.test/nope"], env={}, deps_factory=lambda env: world.deps())
+
+
+def test_http_loggers_are_quiet(env, capsys):
+    import logging
+    main(["status"], env=env)
+    assert logging.getLogger("httpx").level == logging.WARNING
+    assert logging.getLogger("httpx2").level == logging.WARNING
 
 
 def test_abs_check_needs_only_the_abs_variables(monkeypatch, capsys, tmp_path):

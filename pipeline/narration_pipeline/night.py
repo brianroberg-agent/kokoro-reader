@@ -25,6 +25,10 @@ SESSION_GRACE_S = 300   # wait for the session's result this long past its own t
 RECOVERY_WAIT_S = 1800  # an upload has this long to show before recovery uploads again (R16, R21)
 
 
+class RunInProgress(RuntimeError):
+    pass
+
+
 @dataclass
 class Deps:
     record: Record
@@ -101,7 +105,7 @@ def run_night(deps: Deps, dry_run: bool = False, only: str | None = None) -> Nig
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise RuntimeError("another run is in progress") from None
+            raise RunInProgress("another run is in progress") from None
         return _Night(deps, dry_run).run(only)
 
 

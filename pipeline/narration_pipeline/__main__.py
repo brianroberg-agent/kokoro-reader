@@ -15,7 +15,7 @@ from narration_pipeline.abs import Audiobookshelf, abs_check
 from narration_pipeline.config import load_settings, load_sources
 from narration_pipeline.fetch import fetch_text, run_article_assistant
 from narration_pipeline.narration_client import NarrationClient
-from narration_pipeline.night import Deps, NightReport, run_night
+from narration_pipeline.night import Deps, NightReport, RunInProgress, run_night
 from narration_pipeline.push import Push
 from narration_pipeline.record import Record
 
@@ -75,7 +75,10 @@ def status_text(counts: list[tuple[str, int]], recent: list[tuple[str, str, str]
 
 
 def _status(data: Path) -> str:
-    conn = sqlite3.connect(data / "record.sqlite")
+    path = data / "record.sqlite"
+    if not path.exists():
+        return f"no record yet at {path}"
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     counts = conn.execute("SELECT status, COUNT(*) FROM articles GROUP BY status ORDER BY status").fetchall()
     recent = conn.execute("SELECT updated_at, status, title FROM articles "
                           "ORDER BY updated_at DESC LIMIT 10").fetchall()
@@ -98,6 +101,8 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
     check.add_argument("--mp3", required=True, type=Path)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    for noisy in ("httpx", "httpx2"):  # one INFO line per MCP call buries the run's own output
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
     if args.command == "abs-check":
         v = require(env, ABS_VARS)
@@ -108,8 +113,8 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
         deps = deps_factory(env)
         try:
             report = run_night(deps, dry_run=args.dry_run, only=args.only)
-        except RuntimeError as e:
-            raise SystemExit(str(e)) from None
+        except RunInProgress as e:
+            raise SystemExit("another run is in progress") from None
         print(report_text(report, args.dry_run))
     else:
         deps = deps_factory(env)

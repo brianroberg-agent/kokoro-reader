@@ -1,25 +1,44 @@
 """Every push text and the morning summary. Plain text, built from values; no I/O."""
 
 import re
+from urllib.parse import urlsplit
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # night imports this module for its push texts
     from narration_pipeline.night import NightReport
 
-_URL_TAIL = re.compile(r"(https?://[^\s?#]+)[?#]\S*")
+_URL = re.compile(r"https?://[^\s]+", re.IGNORECASE)
+_TRAILING = ").,;:'\"]>"
 
 
-def _plain(text: str) -> str:
-    """Cut the query string and fragment off any URL in the text, where a token could ride."""
-    return _URL_TAIL.sub(r"\1", text)
+def _rebuild(match: re.Match) -> str:
+    raw = match.group(0)
+    tail = ""
+    while raw and raw[-1] in _TRAILING:
+        raw, tail = raw[:-1], raw[-1] + tail
+    try:
+        parts = urlsplit(raw)
+        host, port = parts.hostname, parts.port
+    except ValueError:
+        return "[link removed]" + tail
+    if not host:
+        return "[link removed]" + tail
+    host = f"[{host}]" if ":" in host else host
+    return f"{parts.scheme}://{host}{':' + str(port) if port else ''}{parts.path}{tail}"
+
+
+def plain(text: str) -> str:
+    """Rebuild every URL in the text as scheme://host[:port]/path: no userinfo, query or
+    fragment, where a secret could ride. Every outgoing text goes through this."""
+    return _URL.sub(_rebuild, text)
 
 
 def hold_message(row, reasons: list[str]) -> tuple[str, str]:
-    return f"Held: {row['title']}", _plain("\n".join(reasons))
+    return f"Held: {row['title']}", plain("\n".join(reasons))
 
 
 def discovery_failed_message(source_name: str, reason: str) -> tuple[str, str]:
-    return f"Discovery failed: {source_name}", _plain(reason)
+    return f"Discovery failed: {source_name}", plain(reason)
 
 
 def summary_text(report: "NightReport") -> str | None:
@@ -49,5 +68,5 @@ def summary_text(report: "NightReport") -> str | None:
         lines.append("Stopped at the 06:00 cutoff.")
     lines += [f"Discovery failed: {e}" for e in report.discovery_errors]
     if queued:
-        lines.append(f"{queued} new articles queued.")
-    return "\n".join(lines)
+        lines.append(f"{queued} new article{'' if queued == 1 else 's'} queued.")
+    return plain("\n".join(lines))

@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from narration_pipeline.config import Settings
-from narration_pipeline.night import ItemResult, NightReport
+from narration_pipeline.night import ItemResult, NightReport, RunInProgress
 from narration_pipeline.schedule import next_at, schedule_loop
 
 NY = "America/New_York"
@@ -111,12 +111,30 @@ def test_another_run_in_progress_is_logged_and_the_loop_goes_on(caplog):
     def run(deps, **kw):
         calls.append(1)
         if len(calls) == 1:
-            raise RuntimeError("another run is in progress")
+            raise RunInProgress("another run is in progress")
         return good(deps, **kw)
     with caplog.at_level(logging.INFO):
         loop(clock, push, run, nights=2)
     assert len(calls) == 2 and len(push.sent) == 1
     assert "another run is in progress" in caplog.text
+
+
+def test_run_in_progress_is_caught_by_class_not_message(caplog):
+    clock, push = Clock(datetime(2026, 11, 2, 12, 0, tzinfo=Z)), Push()
+
+    def run(deps, **kw):
+        raise RunInProgress("worded differently")
+    loop(clock, push, run)
+    assert push.sent == []
+
+
+def test_failure_push_is_sanitized():
+    clock, push = Clock(datetime(2026, 11, 2, 12, 0, tzinfo=Z)), Push()
+
+    def run(deps, **kw):
+        raise ValueError("GET https://u:p@h.test/x?token=abc#f failed")
+    loop(clock, push, run)
+    assert push.sent == [("Narration run failed", "ValueError: GET https://h.test/x failed")]
 
 
 def test_a_failed_run_is_pushed_once_with_its_traceback_logged(caplog):

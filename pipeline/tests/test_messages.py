@@ -1,4 +1,4 @@
-from narration_pipeline.messages import discovery_failed_message, hold_message, summary_text
+from narration_pipeline.messages import discovery_failed_message, hold_message, plain, summary_text
 from narration_pipeline.night import ItemResult, NightReport
 
 
@@ -64,4 +64,28 @@ def test_summary_lines_for_the_rest():
 
 
 def test_summary_when_only_new_articles_were_queued():
-    assert summary_text(NightReport(discovered={"a": 1})) == "1 new articles queued."
+    assert summary_text(NightReport(discovered={"a": 1})) == "1 new article queued."
+    assert summary_text(NightReport(discovered={"a": 1, "b": 1})) == "2 new articles queued."
+
+
+DIRTY = "GET HTTPS://user:pass@Example.test:8080/feed/x?token=abc123#frag failed"
+CLEAN = "GET https://Example.test:8080/feed/x failed"
+
+
+def test_plain_rebuilds_urls_without_userinfo_query_or_fragment():
+    out = plain(DIRTY)
+    assert out == CLEAN.replace("https://Example", "https://example")
+    for bad in ("user", "pass", "token", "abc123", "frag", "HTTPS"):
+        assert bad not in out
+    assert plain("see (http://a.test/p?q=1).") == "see (http://a.test/p)."
+
+
+def test_hold_body_is_sanitized():
+    _, body = hold_message(row(), [DIRTY])
+    assert "pass" not in body and "abc123" not in body and "frag" not in body
+
+
+def test_summary_discovery_line_is_sanitized():
+    text = summary_text(NightReport(discovery_errors=[DIRTY]))
+    assert "pass" not in text and "abc123" not in text and "frag" not in text and "HTTPS" not in text
+    assert "Discovery failed: GET https://example.test:8080/feed/x failed" in text

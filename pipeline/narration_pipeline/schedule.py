@@ -5,8 +5,8 @@ from collections.abc import Callable
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from narration_pipeline.messages import summary_text
-from narration_pipeline.night import Deps, NightReport, run_night
+from narration_pipeline.messages import plain, summary_text
+from narration_pipeline.night import Deps, NightReport, RunInProgress, run_night
 
 log = logging.getLogger(__name__)
 
@@ -39,11 +39,11 @@ def schedule_loop(make_deps: Callable[[], Deps], *, now: Callable[[], datetime],
         try:
             report: NightReport | None = run(deps)
         except Exception as e:
-            if isinstance(e, RuntimeError) and str(e) == "another run is in progress":
+            if isinstance(e, RunInProgress):
                 log.warning("skipping tonight: %s", e)
             else:
                 log.exception("the night's run failed")
-                push.send("Narration run failed", f"{type(e).__name__}: {e}")
+                push.send("Narration run failed", plain(f"{type(e).__name__}: {e}"))
             continue
         _sleep_until(next_at(started, s.summary_at, s.tz), now, sleep)
         text = summary_text(report)
