@@ -7,6 +7,8 @@ Each night the runner looks for new articles, has a Claude Code session record e
 
 The Mac runs the narration server (`docs/narration-server.md`). The files are `deploy/compose.yaml`, the two Dockerfiles in `deploy/narration-runner/` and `deploy/narration-agent/`, and the three examples `deploy/env.example`, `deploy/runner.env.example` and `deploy/agent.env.example`.
 
+Each source is a `[[source]]` entry in `pipeline/sources.toml`. Its `extractor` names the article-assistant extractor its site needs, and the runner refuses a name it doesn't know (`new-atlantis` is the one there is); article-assistant itself picks the extractor from each article's URL, so the key documents the source rather than choosing anything. A new site needs its extractor in article-assistant first, then its name added to `EXTRACTORS` in `pipeline/narration_pipeline/config.py`.
+
 The runner starts the night at 01:00 New York time, keeps trying to reach the Mac until 05:00, starts no new article after 06:00, and sends the summary at 07:00 (`pipeline/sources.toml`, `[settings]`). Then it exits, and compose's `restart: unless-stopped` starts it again (see "Name lookups" below for why).
 
 ## What each container may reach

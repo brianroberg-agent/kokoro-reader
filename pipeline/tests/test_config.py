@@ -114,3 +114,16 @@ def test_the_limits_are_the_services():
                         ("session_budget_usd", ss.MAX_BUDGET_USD + 0.01)):
         with pytest.raises(ValueError, match=name):
             load_settings(f"[settings]\n{name} = {limit}\n")
+
+
+def test_an_unknown_extractor_is_refused():
+    # article-assistant picks its extractor from the URL; the key documents the source,
+    # so a name nothing knows is a mistake in the entry
+    with pytest.raises(ValueError, match="extractor"):
+        load_sources(source_toml("[]").replace('extractor = "new-atlantis"', 'extractor = "generic"'))
+
+
+def test_the_known_extractors():
+    from narration_pipeline.config import EXTRACTORS
+    assert EXTRACTORS == frozenset({"new-atlantis"})
+    assert {s.extractor for s in load_sources(SOURCES_TOML.read_text())} <= EXTRACTORS

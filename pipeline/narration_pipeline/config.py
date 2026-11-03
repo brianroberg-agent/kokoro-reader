@@ -11,6 +11,11 @@ from narration_pipeline.session_service import (MAX_BUDGET_USD, MAX_RULE_CHARS, 
                                                 MIN_TIMEOUT_S)
 
 
+# article-assistant picks its extractor from the article's URL and has no option for it:
+# a source's `extractor` documents which one its site needs, checked against these names.
+EXTRACTORS = frozenset({"new-atlantis"})
+
+
 @dataclass(frozen=True)
 class Source:
     id: str
@@ -70,6 +75,9 @@ def load_sources(text: str) -> list[Source]:
         missing = _REQUIRED - set(entry)
         if missing:
             raise ValueError(f"missing source key(s): {', '.join(sorted(missing))}")
+        if entry["extractor"] not in EXTRACTORS:
+            raise ValueError(f"{entry['id']}: unknown extractor {entry['extractor']!r} "
+                             f"(article-assistant has {', '.join(sorted(EXTRACTORS))})")
         start = entry["start"]
         if set(start) != {"edition", "date"}:
             raise ValueError("start needs exactly edition and date")
