@@ -86,7 +86,7 @@ def test_agent_holds_only_the_claude_login(compose):
 def test_runner_egress_and_secrets(compose):
     s = compose["services"]["narration-runner"]
     env = environment(s)
-    assert env["AGENTBOX_BASE"] == "off"  # it never runs claude, and it holds the secrets (R28)
+    assert env["AGENTBOX_BASE"] == "off"  # the runner hands sessions to the agent, and it holds the secrets
     assert env["AGENTBOX_ALLOW"] == "${RUNNER_ALLOW:?set RUNNER_ALLOW in deploy/.env}"
     # the Mac's grant comes from MAC_HOST, so it can't disagree with NARRATION_URL;
     # RUNNER_LAN adds Audiobookshelf when it's reached by address
