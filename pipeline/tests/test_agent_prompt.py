@@ -43,7 +43,8 @@ def test_prompt_outcomes_follow_the_spec(text):
     assert "nothing you would address or note" in outcome_line(text, "clean")
     minor = outcome_line(text, "minor")
     assert "likely ignore" in minor and "couldn't fix" in minor and "`remaining_issues`" in minor
-    assert "only for missing or garbled content" in outcome_line(text, "hold")
+    hold = outcome_line(text, "hold")  # R24a: the spec's "garbled" includes speech the article doesn't have
+    assert "only for content that is missing, extra" in hold and "or garbled" in hold
     assert "noise" not in text
 
 

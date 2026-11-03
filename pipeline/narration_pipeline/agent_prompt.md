@@ -92,7 +92,7 @@ Choose the outcome:
 
 - **`clean`:** only when the last check reports nothing you would address or note.
 - **`minor`:** for everything you would likely ignore (the list in "Assessing the report", the verifier's over-granular flags included) and everything you couldn't fix in the rounds you had (a name still mispronounced). List each one in `remaining_issues`.
-- **`hold`:** only for missing or garbled content you couldn't fix. List what is wrong. Nothing held is published; the editor looks at it.
+- **`hold`:** only for content that is missing, extra (spoken words or sentences the article doesn't have) or garbled, and that you couldn't fix. List what is wrong. Nothing held is published; the editor looks at it.
 
 Each remaining issue has a `kind` (`mispronunciation`, `pacing`, `artifact`, `truncation` or `other`), a `where` (a timestamp in the whole recording, like 12:40) and a short `note` for the editor. The kind and the timestamp are published in the episode notes; the note isn't.
 
