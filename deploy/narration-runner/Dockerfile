@@ -21,8 +21,11 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
 # stale, and --locked fails (agentbox README, "uv in the image"). --no-dev leaves the
 # test tools out, and --no-cache keeps uv's download cache out of the image. Built as
 # root and left root's: node can read and run the code and its venvs, not change them.
+# The repository is a build argument so a test build can use a branch that isn't merged
+# yet (--build-arg ARTICLE_ASSISTANT_REPO=<a fork's URL>); compose takes the default.
+ARG ARTICLE_ASSISTANT_REPO=https://github.com/brianroberg/article-assistant.git
 ARG ARTICLE_ASSISTANT_REF=7fc4055
-RUN git clone --quiet https://github.com/brianroberg/article-assistant.git /opt/article-assistant \
+RUN git clone --quiet "$ARTICLE_ASSISTANT_REPO" /opt/article-assistant \
   && git -C /opt/article-assistant -c advice.detachedHead=false checkout --quiet "$ARTICLE_ASSISTANT_REF" \
   && cd /opt/article-assistant \
   && uv sync --frozen --no-dev --no-cache

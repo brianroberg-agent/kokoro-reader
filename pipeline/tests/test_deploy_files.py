@@ -129,6 +129,15 @@ def test_runner_pins_article_assistant():
     assert any(re.fullmatch(r"ARG ARTICLE_ASSISTANT_REF=[0-9a-f]{7,40}", i) for i in instructions("narration-runner"))
 
 
+def test_runner_clones_article_assistant_from_upstream_unless_told_otherwise():
+    # A build argument, so a test build can use a branch not merged yet; the image
+    # deployed from compose takes the default.
+    steps = instructions("narration-runner")
+    assert "ARG ARTICLE_ASSISTANT_REPO=https://github.com/brianroberg/article-assistant.git" in steps
+    [clone] = [i for i in steps if "git clone" in i]
+    assert 'git clone --quiet "$ARTICLE_ASSISTANT_REPO" /opt/article-assistant' in clone
+
+
 def test_agent_pins_claude_code_and_turns_off_its_updater():
     ins = instructions("narration-agent")
     assert any(re.fullmatch(r"ARG CLAUDE_CODE_VERSION=\d+\.\d+\.\d+", i) for i in ins)
