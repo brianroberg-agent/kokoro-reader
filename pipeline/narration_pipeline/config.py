@@ -1,8 +1,14 @@
 """Source list and run settings, read from one TOML file."""
 
+import math
 import tomllib
 from dataclasses import dataclass, fields
 from datetime import date, time
+
+# The session service's limits on a request: a setting outside them would fail every
+# article's session, so loading refuses it.
+from narration_pipeline.session_service import (MAX_BUDGET_USD, MAX_RULE_CHARS, MAX_RULES, MAX_TIMEOUT_S,
+                                                MIN_TIMEOUT_S)
 
 
 @dataclass(frozen=True)
@@ -36,6 +42,25 @@ _SOURCE_KEYS = {"id", "name", "podcast", "feed", "listing", "extractor", "start"
 _REQUIRED = _SOURCE_KEYS - {"listing", "text_rules"}
 
 
+def _check_rules(source_id: str, rules) -> tuple[str, ...]:
+    if not (isinstance(rules, list) and len(rules) <= MAX_RULES
+            and all(isinstance(r, str) and len(r) <= MAX_RULE_CHARS for r in rules)):
+        raise ValueError(f"{source_id}: text_rules must be a list of at most {MAX_RULES} strings "
+                         f"of at most {MAX_RULE_CHARS} characters")
+    return tuple(rules)
+
+
+def check_settings(s: "Settings") -> "Settings":
+    """The settings, or ValueError naming the first one outside the session service's limits."""
+    timeout, budget = s.session_timeout_s, s.session_budget_usd
+    if not (isinstance(timeout, int) and not isinstance(timeout, bool) and MIN_TIMEOUT_S <= timeout <= MAX_TIMEOUT_S):
+        raise ValueError(f"session_timeout_s must be an integer from {MIN_TIMEOUT_S} to {MAX_TIMEOUT_S}")
+    if not (isinstance(budget, (int, float)) and not isinstance(budget, bool) and math.isfinite(budget)
+            and 0 < budget <= MAX_BUDGET_USD):
+        raise ValueError(f"session_budget_usd must be a number above 0 and at most {MAX_BUDGET_USD:.2f}")
+    return s
+
+
 def load_sources(text: str) -> list[Source]:
     out = []
     for entry in tomllib.loads(text).get("source", []):
@@ -58,7 +83,7 @@ def load_sources(text: str) -> list[Source]:
                 extractor=entry["extractor"],
                 start_edition=start["edition"],
                 start_date=date.fromisoformat(start["date"]),
-                text_rules=tuple(entry.get("text_rules", ())),
+                text_rules=_check_rules(entry["id"], entry.get("text_rules", [])),
             )
         )
     return out
@@ -73,4 +98,4 @@ def load_settings(text: str) -> Settings:
     values = {
         k: time.fromisoformat(v) if known[k].type is time else v for k, v in table.items()
     }
-    return Settings(**values)
+    return check_settings(Settings(**values))

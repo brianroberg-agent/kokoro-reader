@@ -52,3 +52,65 @@ def test_settings_override_parses_times():
 def test_unknown_setting_is_refused():
     with pytest.raises(ValueError, match="capp"):
         load_settings("[settings]\ncapp = 1\n")
+
+
+# The session service refuses a request outside its limits (session_service.validate_request),
+# so a setting outside them would fail every article: it stops the start instead.
+
+@pytest.mark.parametrize("value", ["59", "7201", "600.0", "true", '"600"'])
+def test_session_timeout_outside_the_services_limits_is_refused(value):
+    with pytest.raises(ValueError, match="session_timeout_s"):
+        load_settings(f"[settings]\nsession_timeout_s = {value}\n")
+
+
+@pytest.mark.parametrize("value", ["60", "7200", "5400"])
+def test_session_timeout_inside_the_limits_loads(value):
+    assert load_settings(f"[settings]\nsession_timeout_s = {value}\n").session_timeout_s == int(value)
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "5.01", "nan", "inf", "true", '"2"'])
+def test_session_budget_outside_the_services_limits_is_refused(value):
+    with pytest.raises(ValueError, match="session_budget_usd"):
+        load_settings(f"[settings]\nsession_budget_usd = {value}\n")
+
+
+@pytest.mark.parametrize("value", ["5.00", "5", "0.01"])
+def test_session_budget_inside_the_limits_loads(value):
+    assert load_settings(f"[settings]\nsession_budget_usd = {value}\n").session_budget_usd == float(value)
+
+
+def source_toml(rules: str) -> str:
+    return f"""
+[[source]]
+id = "x"
+name = "X"
+podcast = "X"
+feed = "https://example.com/feed"
+extractor = "new-atlantis"
+start = {{ edition = 1, date = "2026-01-01" }}
+text_rules = {rules}
+"""
+
+
+@pytest.mark.parametrize("rules", [
+    "[" + ", ".join(['"a rule"'] * 21) + "]",  # more than 20
+    '["' + "x" * 301 + '"]',                    # one longer than 300 characters
+    "[5]", '"a rule"',
+])
+def test_text_rules_outside_the_services_limits_are_refused(rules):
+    with pytest.raises(ValueError, match="text_rules"):
+        load_sources(source_toml(rules))
+
+
+def test_text_rules_at_the_limits_load():
+    rules = "[" + ", ".join(['"' + "x" * 300 + '"'] * 20) + "]"
+    [s] = load_sources(source_toml(rules))
+    assert len(s.text_rules) == 20
+
+
+def test_the_limits_are_the_services():
+    from narration_pipeline import session_service as ss
+    for name, limit in (("session_timeout_s", ss.MAX_TIMEOUT_S + 1), ("session_timeout_s", ss.MIN_TIMEOUT_S - 1),
+                        ("session_budget_usd", ss.MAX_BUDGET_USD + 0.01)):
+        with pytest.raises(ValueError, match=name):
+            load_settings(f"[settings]\n{name} = {limit}\n")
