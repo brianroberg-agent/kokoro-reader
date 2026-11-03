@@ -52,3 +52,21 @@ def test_prompt_spells_out_abbreviations_beside_roman_numerals(text):
     lines = text.splitlines()
     roman = next(n for n, line in enumerate(lines) if line.startswith("- **Roman numerals:**"))
     assert lines[roman + 1].startswith("- **Abbreviations:**")
+
+
+def report_line(text, label):
+    lines = [line for line in text.splitlines() if line.startswith(f"- **{label}:**")]
+    assert len(lines) == 1, label
+    return lines[0]
+
+
+def test_prompt_has_fixable_issues_fixed_before_minor(text):
+    # E2E finding 1 (2026-11-03): three real sessions each stopped after one round of four,
+    # publishing as minor what the tools could fix: Tocqueville said "Tock-ville", a word
+    # left out. A mispronounced name was only "Likely fix", and minor read as "anything
+    # left after the rounds you used".
+    assert "mispronounced names" in report_line(text, "Fix")
+    assert "a word or two left out" in report_line(text, "Likely fix")
+    minor = outcome_line(text, "minor")
+    assert "While record rounds are left" in minor and "isn't `minor` yet" in minor
+    assert "A round spent fixing what a listener would hear is a turn you need." in text
