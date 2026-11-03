@@ -50,7 +50,7 @@ When the `[BREAK]` markers line up with the silences in the audio, each section 
 
 Use judgment. Not every flagged issue needs fixing:
 
-- **Fix:** garbled words, missing content, extra content, hallucinated sentences, mispronounced names and other proper nouns (a pronunciation override fixes most).
+- **Fix:** garbled words, missing content, extra content, hallucinated sentences, mispronounced names and other proper nouns (a pronunciation override fixes most), abbreviations and symbols the engine reads wrong (spell them out, and declare each as a substitution).
 - **Likely fix:** a word or two left out (a paragraph break or a pause before it usually brings it back), pacing problems in key passages.
 - **Likely ignore:** minor pronunciation variants of common words (a soft "t" in "Pontiac"), emphasis from capitals that the engine can't convey, and normal speech variation the verifier is being overly granular about.
 
@@ -84,7 +84,7 @@ You can't listen to a lookup before recording, so compare its phonemes with the 
 ### General principles
 
 - **Each round records the whole article.** Gather your fixes and make them together, so each round counts: there are 4 rounds and 8 checks.
-- **The engine is non-deterministic.** A new issue may appear that wasn't there before. If the text looks right where an issue was flagged, record again once before restructuring it.
+- **The engine is non-deterministic.** A new issue may appear that wasn't there before. If a passage came out garbled or dropped where its text looks right, record again once before restructuring it. A word the engine reads wrong the same way each time (a name, an abbreviation such as "St." or "v.", a symbol such as "1/2") won't change by recording again: fix it in the next round.
 - **Shorter sentences are safer.** When in doubt, add a paragraph break.
 
 ## Finishing
@@ -92,7 +92,7 @@ You can't listen to a lookup before recording, so compare its phonemes with the 
 Choose the outcome:
 
 - **`clean`:** only when the last check reports nothing you would address or note.
-- **`minor`:** for everything you would likely ignore (the list in "Assessing the report", the verifier's over-granular flags included) and everything you tried to fix and couldn't fix in the rounds you had (a name still mispronounced after its override). While record rounds are left, an issue in the Fix or Likely fix list isn't `minor` yet: fix it, record and check again. List each remaining one in `remaining_issues`.
+- **`minor`:** for everything you would likely ignore (the list in "Assessing the report", the verifier's over-granular flags included) and everything you tried to fix and couldn't fix in the rounds you had (a name still mispronounced after its override). While record rounds are left, an issue in the Fix or Likely fix list isn't `minor` yet: fix it, record and check again. Recording the same text again isn't a fix for a word the engine misreads. List each remaining one in `remaining_issues`.
 - **`hold`:** only for content that is missing, extra (spoken words or sentences the article doesn't have) or garbled, and that you couldn't fix. List what is wrong. Nothing held is published; the editor looks at it.
 
 Each remaining issue has a `kind` (`mispronunciation`; `omission`, a word or two left out without changing what the passage says, like a dropped "a"; `pacing`; `artifact`; `truncation`; or `other`), a `where` (a timestamp in the whole recording, like 12:40) and a short `note` for the editor. The kind and the timestamp are published in the episode notes; the note isn't.

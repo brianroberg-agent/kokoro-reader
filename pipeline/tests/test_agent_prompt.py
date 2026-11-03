@@ -76,3 +76,13 @@ def test_prompt_says_the_first_paragraph_is_the_title_and_byline(text):
     # The runner puts the spoken title first (Brian, 2026-11-03); the agent keeps it.
     line = report_line(text, "The opening line")
     assert "title and who wrote it" in line and "Keep it as it is" in line
+
+
+def test_prompt_says_recording_again_does_not_fix_a_word_misread_every_time(text):
+    # E2E finding 1, second run (2026-11-03): on "Zoning Alone" the agent's second round
+    # recorded the same text again, then finished minor with "St.", "v.", "1/2" and a name
+    # still misread: it took "record again once" as the fix for those too.
+    [principle] = [l for l in text.splitlines() if l.startswith("- **The engine is non-deterministic.**")]
+    assert "won't change by recording again" in principle
+    assert "abbreviations and symbols the engine reads wrong" in report_line(text, "Fix")
+    assert "Recording the same text again isn't a fix" in outcome_line(text, "minor")
