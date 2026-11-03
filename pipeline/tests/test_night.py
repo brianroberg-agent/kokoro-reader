@@ -1,10 +1,12 @@
 import fcntl
 import json
+import os
 from dataclasses import fields
 from datetime import date, datetime, time, timedelta
 
 import pytest
 
+from narration_pipeline import handoff as handoff_files
 from narration_pipeline.abs import AbsError, episode_filename
 from narration_pipeline.config import Settings
 from narration_pipeline.discovery import Candidate
@@ -182,6 +184,91 @@ def test_no_session_result_fails(world):
     assert "no session result" in world.record.row(url)["last_error"]
     item_id = only_item(world)
     assert world.narration.finalizes == [(item_id, False), (item_id, True)]
+    assert world.sessions.withdrawn == [item_id]  # no session runs later on an item given up
+
+
+def test_a_request_with_a_result_is_not_withdrawn(world):
+    world.add_article(1)
+    world.add_article(2, script=Script(session="no_finish"))
+    world.run()
+    assert world.sessions.withdrawn == []
+
+
+SERVICE_DOWN = "Narration session service not running"
+
+
+@pytest.mark.parametrize("age", [None, 61, 3600], ids=["no-heartbeat", "61s", "an-hour"])
+def test_a_stale_heartbeat_stops_the_night_before_any_item(world, age):
+    a, b = world.add_article(1), world.add_article(2)
+    world.sessions.heartbeat = age
+    report = world.run()
+    assert report.stopped_by == "service" and report.results == []
+    assert world.narration.items == {} and world.sessions.requests == []  # nothing opened or asked
+    for url in (a, b):
+        row = world.record.row(url)
+        assert (row["status"], row["failed_nights"]) == ("queued", 0)
+    [(title, body, _)] = world.push.sent
+    assert title == SERVICE_DOWN
+    assert body == ("the session service has written no heartbeat" if age is None
+                    else f"the session service's last heartbeat was {age} s ago")
+
+
+def test_a_fresh_heartbeat_lets_the_night_run(world):
+    world.add_article(1)
+    world.sessions.heartbeat = 59
+    report = world.run()
+    assert report.stopped_by is None and [r.status for r in report.results] == ["published"]
+
+
+def test_the_service_is_checked_after_the_mac_wait(world):
+    world.narration.down_until = datetime(2026, 11, 3, 2, 0, tzinfo=NY)
+    world.add_article(1)
+    checked = []
+    real = world.sessions.heartbeat_age
+    world.sessions.heartbeat_age = lambda handoff, now: checked.append(now) or real(handoff, now)
+    world.run()
+    assert checked and checked[0] >= datetime(2026, 11, 3, 2, 0, tzinfo=NY)
+
+
+def test_recovery_runs_while_the_service_is_down(world):
+    url = world.add_article(1)
+    world.crash_on = "abs.publish:uploaded"
+    with pytest.raises(Crash):
+        world.run()
+    world.add_article(2)
+    world.sessions.heartbeat = None
+    report = world.run()
+    assert [(r.url, r.status) for r in report.results] == [(url, "published")]  # recovery needs no session
+    assert report.stopped_by == "service" and len(world.narration.items) == 1
+
+
+def test_a_service_that_stops_mid_night_stops_it_and_spares_the_article(world):
+    # b's request gets no result, and the heartbeat has stopped: the service's failure,
+    # not b's, so b counts no failed night, and c doesn't start
+    a, b, c = (world.add_article(n) for n in (1, 2, 3))
+    world.sessions.stops_after = 1
+    report = world.run()
+    assert [(r.url, r.status) for r in report.results] == [(a, "published"), (b, "failed")]
+    assert report.stopped_by == "service" and world.record.row(c)["status"] == "queued"
+    row = world.record.row(b)
+    assert (row["failed_nights"], row["last_error"]) == (0, "the session service has written no heartbeat")
+    assert world.sessions.withdrawn == [row["item_id"]]
+    assert world.push.sent == [(SERVICE_DOWN, "the session service has written no heartbeat", "default")]
+
+
+def test_no_result_with_a_fresh_heartbeat_is_the_articles(world):
+    url = world.add_article(1, script=Script(session="no_result"))
+    world.add_article(2)
+    report = world.run()
+    assert report.stopped_by is None and [r.status for r in report.results] == ["failed", "published"]
+    assert world.record.row(url)["failed_nights"] == 1
+
+
+def test_a_stale_heartbeat_in_a_dry_run_stops_it_without_a_push(world):
+    world.add_article(1)
+    world.sessions.heartbeat = None
+    report = world.run(dry_run=True)
+    assert report.stopped_by == "service" and report.results == [] and world.push.sent == []
 
 
 def test_three_failed_nights_hold_and_push(world):
@@ -621,6 +708,9 @@ def test_default_handoff_is_the_request_and_result_files(world):
     url = world.add_article(1)
     handoff = world.root / "handoff"
     (handoff / "results").mkdir(parents=True)
+    beat = world.clock.now().timestamp() - 5  # the service touched its heartbeat 5 s ago
+    (handoff / "heartbeat").touch()
+    os.utime(handoff / "heartbeat", (beat, beat))
     item_id = f"{1:012x}"
     (handoff / "results" / f"{item_id}.json").write_text(json.dumps(
         {"item_id": item_id, "finished_ok": False, "cost_usd": 0.25, "num_turns": 3,
@@ -635,3 +725,12 @@ def test_default_handoff_is_the_request_and_result_files(world):
     row = world.record.row(url)
     assert "error_during_execution" in row["last_error"]
     assert row["claude_tokens"] is None  # this result has no tokens
+
+
+def test_default_handoff_reads_the_services_heartbeat(world, monkeypatch):
+    world.add_article(1)
+    monkeypatch.setattr(handoff_files, "wait_result", lambda *a, **kw: pytest.fail("a session was asked for"))
+    base = world.deps()
+    deps = Deps(**{f.name: getattr(base, f.name) for f in fields(Deps) if f.name != "handoff"})
+    report = run_night(deps)  # no heartbeat file in the handoff directory
+    assert report.stopped_by == "service" and report.results == []

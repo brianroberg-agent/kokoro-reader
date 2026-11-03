@@ -94,14 +94,16 @@ def test_summary_discovery_line_is_sanitized():
     assert "Discovery failed: GET https://example.test:8080/feed/x failed" in text
 
 
-@pytest.mark.parametrize("category,title", [("login", "Claude login failed"), ("api", "Claude API unreachable")])
+@pytest.mark.parametrize("category,title", [("login", "Claude login failed"), ("api", "Claude API unreachable"),
+                                            ("service", "Narration session service not running")])
 def test_stopped_message_goes_through_the_sanitizer(category, title):
     got = stopped_message(category, "not logged in; see https://u:pw@auth.example.test/x?code=abc#f")
     assert got == (title, "not logged in; see https://auth.example.test/x")
 
 
 @pytest.mark.parametrize("category,line", [("login", "Stopped: Claude login failed."),
-                                           ("api", "Stopped: Claude API unreachable.")])
+                                           ("api", "Stopped: Claude API unreachable."),
+                                           ("service", "Stopped: Narration session service not running.")])
 def test_summary_says_what_stopped_the_night(category, line):
     text = summary_text(NightReport(results=[result("failed", "A")], stopped_by=category))
     assert "1 failed" in text and line in text

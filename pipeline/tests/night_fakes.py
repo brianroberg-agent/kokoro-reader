@@ -182,6 +182,17 @@ class FakeSessions:
         self.w = world
         self.requests: list[dict] = []
         self.waits: list[tuple[str, float]] = []
+        self.withdrawn: list[str] = []
+        self.heartbeat: float | None = 1.0  # the heartbeat's age in seconds; None: no heartbeat file
+        self.stops_after: int | None = None  # the service stops after this many sessions
+
+    def heartbeat_age(self, handoff, now):
+        self.w.tick("handoff.heartbeat_age")
+        return self.heartbeat
+
+    def withdraw_request(self, handoff, item_id):
+        self.w.tick("handoff.withdraw_request")
+        self.withdrawn.append(item_id)
 
     def write_request(self, handoff, item_id, agent_token, text_rules, budget_usd, timeout_s):
         self.w.tick("handoff.write_request")
@@ -192,6 +203,10 @@ class FakeSessions:
     def wait_result(self, handoff, item_id, timeout_s, poll_s=5):
         self.w.tick("handoff.wait_result")
         self.waits.append((item_id, timeout_s))
+        if self.stops_after is not None and len(self.waits) > self.stops_after:
+            self.heartbeat = None  # the service is gone: no result, ever
+            self.w.clock.sleep(timeout_s)
+            return None
         item = self.w.narration.items[item_id]
         script, clock = item.script, self.w.clock
         if script.session == "no_result":

@@ -5,6 +5,9 @@ handoff directory. This service takes one request at a time: it moves the reques
 running/, runs `claude -p` with only the narration server's six agent tools, writes
 results/<item_id>.json, and removes the request. On startup, a request left in running/
 gets a result saying the service restarted; the runner's finalize then decides the item.
+The service touches <handoff>/heartbeat every POLL_S seconds, while a session runs too,
+so the runner can tell it is running; a request older than the runner waits for it
+(its timeout_s + RESULT_GRACE_S) gets a "stale request" result and no session.
 
 Standard library only, in one file: the agent image runs it as
 `python3 session_service.py` (Debian's Python 3.11) with nothing installed.
@@ -69,7 +72,10 @@ NOT_LOGGED_IN = "Not logged in"  # how Claude Code's own message starts when the
 TASK = ("Record the article in this work item with the narration tools, following your "
         "instructions for recording articles. Start with get_text and end with finish.")
 
-POLL_S = 2.0
+POLL_S = 2.0          # how often the service looks for a request, and touches its heartbeat
+HEARTBEAT = "heartbeat"
+HEARTBEAT_STALE_S = 60  # the runner starts no session when the heartbeat is older than this
+RESULT_GRACE_S = 300    # the runner waits this long past a request's timeout_s, then withdraws it
 EXIT_GRACE_S = 10.0  # how long claude may take to exit after its result event or closing stdout
 STDERR_LINES = 20    # the last lines of claude's stderr kept for a failure's error
 STDERR_LINE_CHARS = 200
@@ -187,6 +193,12 @@ def session_prompt(text_rules) -> str:
     if not rules:
         return TASK
     return TASK + "\n\nNotes for this source:\n" + "\n".join(f"- {rule}" for rule in rules)
+
+
+def stale_request(age_s: float, timeout_s: int) -> bool:
+    """Whether a request this old was given up by the runner: it waits for a result
+    for the request's timeout_s plus RESULT_GRACE_S, then withdraws the request."""
+    return age_s > timeout_s + RESULT_GRACE_S
 
 
 def _clip(text: str, limit: int) -> str:
@@ -362,17 +374,22 @@ def _event(line: str) -> dict | None:
 
 # -- one session --
 
-def run_session(req: Request, cfg: ServiceConfig) -> dict:
-    """Run one session to its end and return its result. The private directory (the MCP
-    config with the agent token, and the session's working directory) is removed and
-    claude's process group killed on the way out, whatever ends the session. The agent
-    and OAuth tokens are redacted from claude's output as it is read, before anything
-    clips it, so no fragment of one reaches the result."""
+def _no_beat() -> None:
+    pass
+
+
+def run_session(req: Request, cfg: ServiceConfig, beat=_no_beat) -> dict:
+    """Run one session to its end and return its result, calling beat() at least every
+    POLL_S seconds while it waits on claude. The private directory (the MCP config with
+    the agent token, and the session's working directory) is removed and claude's
+    process group killed on the way out, whatever ends the session. The agent and OAuth
+    tokens are redacted from claude's output as it is read, before anything clips it, so
+    no fragment of one reaches the result."""
     secrets = (req.agent_token, os.environ.get(OAUTH_VAR))
     private = Path(tempfile.mkdtemp(prefix="narration-session-"))
     started: list[subprocess.Popen] = []
     try:
-        result = _run(req, cfg, private, started, secrets)
+        result = _run(req, cfg, private, started, secrets, beat)
     except Exception as e:  # a valid request always gets a result
         result = failure("session service error: " + _redact(f"{type(e).__name__}: {e}", secrets))
     finally:
@@ -382,7 +399,7 @@ def run_session(req: Request, cfg: ServiceConfig) -> dict:
     return result
 
 
-def _run(req: Request, cfg: ServiceConfig, private: Path, started: list, secrets) -> dict:
+def _run(req: Request, cfg: ServiceConfig, private: Path, started: list, secrets, beat) -> dict:
     config = private / "mcp.json"
     _write_private(config, json.dumps(mcp_config(cfg.narration_url, req.agent_token)))
     argv = claude_argv(config, cfg.prompt, req.budget_usd, session_prompt(req.text_rules))
@@ -395,10 +412,10 @@ def _run(req: Request, cfg: ServiceConfig, private: Path, started: list, secrets
     except OSError as e:
         return failure(f"could not start claude: {e}")
     started.append(proc)
-    return _watch(proc, req.timeout_s, secrets)
+    return _watch(proc, req.timeout_s, secrets, beat)
 
 
-def _watch(proc: subprocess.Popen, timeout_s: int, secrets) -> dict:
+def _watch(proc: subprocess.Popen, timeout_s: int, secrets, beat) -> dict:
     """Read claude's stream-json events until its result, a failed tool check, the end of
     its output, or the deadline. stderr is drained all along, so it can't fill its pipe.
     Claude Code's own failure messages set the result's category on each of those
@@ -412,12 +429,15 @@ def _watch(proc: subprocess.Popen, timeout_s: int, secrets) -> dict:
     checked = False
     category, detail = "session", None
     while True:
+        beat()
         remaining = deadline - time.monotonic()
         try:
             if remaining <= 0:
                 raise queue.Empty
-            line = lines.get(timeout=remaining)
+            line = lines.get(timeout=min(remaining, POLL_S))
         except queue.Empty:
+            if deadline - time.monotonic() > 0:
+                continue  # no event yet: beat, and wait on
             _stop(proc)
             drain.join(timeout=2)
             return categorized(failure(f"timed out after {timeout_s} s", list(tail)), category, detail)
@@ -551,8 +571,28 @@ def recover(handoff: Path) -> None:
         path.unlink(missing_ok=True)
 
 
-def serve_once(handoff: Path, cfg: ServiceConfig) -> bool:
-    """Take the next request, if any, and see it through. Whether there was one."""
+class Heartbeat:
+    """Touches the heartbeat file. A failure is logged once until a touch works again,
+    and never stops the service: the runner, seeing the heartbeat go stale, says so."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.failing = False
+
+    def __call__(self) -> None:
+        try:
+            self.path.touch()
+        except OSError as e:
+            if not self.failing:
+                log.warning("cannot touch the heartbeat %s: %s", self.path, e)
+            self.failing = True
+        else:
+            self.failing = False
+
+
+def serve_once(handoff: Path, cfg: ServiceConfig, beat=_no_beat) -> bool:
+    """Take the next request, if any, and see it through, calling beat() while its
+    session runs. Whether there was one."""
     pending = _pending(handoff / "requests")
     if not pending:
         return False
@@ -562,11 +602,20 @@ def serve_once(handoff: Path, cfg: ServiceConfig) -> bool:
         os.replace(pending[0], running)
     except FileNotFoundError:
         return True
-    _handle(handoff, running, cfg)
+    _handle(handoff, running, cfg, beat)
     return True
 
 
-def _handle(handoff: Path, running: Path, cfg: ServiceConfig) -> None:
+def _age(path: Path) -> float:
+    """Seconds since the file was written (os.replace keeps its mtime)."""
+    try:
+        return time.time() - path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _handle(handoff: Path, running: Path, cfg: ServiceConfig, beat) -> None:
+    age = _age(running)
     body = _read_json(running)
     try:
         req = validate_request(body)
@@ -579,9 +628,14 @@ def _handle(handoff: Path, running: Path, cfg: ServiceConfig) -> None:
         write_result(handoff, item_id, failure(f"invalid request: {e}"))
         running.unlink(missing_ok=True)
         return
+    if stale_request(age, req.timeout_s):  # the runner has stopped waiting for it
+        log.warning("%s: stale request (%.0f s old)", req.item_id, age)
+        write_result(handoff, req.item_id, failure("stale request"))
+        running.unlink(missing_ok=True)
+        return
     log.info("%s: session started (budget %s USD, timeout %s s)", req.item_id, req.budget_usd, req.timeout_s)
     try:
-        result = run_session(req, cfg)
+        result = run_session(req, cfg, beat=beat)
     except Exception as e:  # run_session catches its own; this is the last line
         error = _redact(f"{type(e).__name__}: {e}", (req.agent_token, os.environ.get(OAUTH_VAR)))
         result = failure(f"session service error: {error}")
@@ -592,13 +646,17 @@ def _handle(handoff: Path, running: Path, cfg: ServiceConfig) -> None:
 
 
 def serve(handoff: Path, cfg: ServiceConfig, poll_s: float = POLL_S, until=None) -> None:
-    """One request at a time, polling requests/ every poll_s seconds. `until` (for tests)
-    is asked before each poll whether to stop."""
+    """One request at a time, polling requests/ every poll_s seconds and touching the
+    heartbeat each time (and while a session runs). `until` (for tests) is asked before
+    each poll whether to stop."""
     for sub in ("requests", "running", "results"):
         (handoff / sub).mkdir(mode=0o700, parents=True, exist_ok=True)
+    heartbeat = Heartbeat(handoff / HEARTBEAT)
+    heartbeat()
     recover(handoff)
     while until is None or not until():
-        if not serve_once(handoff, cfg):
+        heartbeat()
+        if not serve_once(handoff, cfg, heartbeat):
             time.sleep(poll_s)
 
 

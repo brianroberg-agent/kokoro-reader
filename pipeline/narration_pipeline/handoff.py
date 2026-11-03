@@ -3,7 +3,10 @@
 import json
 import os
 import time
+from datetime import datetime
 from pathlib import Path
+
+from narration_pipeline.session_service import HEARTBEAT
 
 class HandoffError(Exception):
     pass
@@ -51,3 +54,17 @@ def wait_result(handoff: Path, item_id: str, timeout_s: float, poll_s: float = 5
                 raise HandoffError(f"unreadable result for {item_id}")
             return None
         time.sleep(min(poll_s, remaining))
+
+
+def withdraw_request(handoff: Path, item_id: str) -> None:
+    """Remove a request the service hasn't taken yet, so no session runs later on a work
+    item the runner gave up on. One the service took already is left to it."""
+    (handoff / "requests" / f"{item_id}.json").unlink(missing_ok=True)
+
+
+def heartbeat_age(handoff: Path, now: datetime) -> float | None:
+    """Seconds since the session service last touched its heartbeat; None if it never did."""
+    try:
+        return now.timestamp() - (handoff / HEARTBEAT).stat().st_mtime
+    except FileNotFoundError:
+        return None

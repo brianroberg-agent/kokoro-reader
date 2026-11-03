@@ -600,7 +600,7 @@ def test_serve_once_moves_the_request_to_running_during_the_session(fake_claude,
     handoff.write_request(hand, ITEM, TOKEN, [], 2.0, 600)
     seen = {}
 
-    def session(req, cfg):
+    def session(req, cfg, beat):
         seen["requests"] = sorted(p.name for p in (hand / "requests").iterdir())
         seen["running"] = sorted(p.name for p in (hand / "running").iterdir())
         return ss.parse_result(RESULT)
@@ -614,7 +614,7 @@ def test_serve_once_writes_a_result_when_the_session_raises(cfg, tmp_path, monke
     hand = tmp_path / "handoff"
     handoff.write_request(hand, ITEM, TOKEN, [], 2.0, 600)
 
-    def broken(req, cfg):
+    def broken(req, cfg, beat):
         raise RuntimeError("a bug")
     monkeypatch.setattr(ss, "run_session", broken)
     ss.serve_once(hand, cfg)
@@ -626,7 +626,7 @@ def test_serve_once_writes_a_result_when_the_session_raises(cfg, tmp_path, monke
 def test_an_invalid_request_with_a_valid_id_gets_a_result(cfg, tmp_path, monkeypatch):
     hand = tmp_path / "handoff"
     handoff.write_request(hand, ITEM, TOKEN, [], 50.0, 600)
-    monkeypatch.setattr(ss, "run_session", lambda req, cfg: pytest.fail("no session for an invalid request"))
+    monkeypatch.setattr(ss, "run_session", lambda req, cfg, beat: pytest.fail("no session for an invalid request"))
     ss.serve_once(hand, cfg)
     out = json.loads((hand / "results" / f"{ITEM}.json").read_text())
     assert out["finished_ok"] is False and out["error"].startswith("invalid request: ")
@@ -639,10 +639,97 @@ def test_a_request_without_a_valid_id_is_rejected(cfg, tmp_path, monkeypatch, te
     hand = tmp_path / "handoff"
     handoff.write_request(hand, ITEM, TOKEN, [], 2.0, 600)
     (hand / "requests" / f"{ITEM}.json").write_text(text)
-    monkeypatch.setattr(ss, "run_session", lambda req, cfg: pytest.fail("no session for an invalid request"))
+    monkeypatch.setattr(ss, "run_session", lambda req, cfg, beat: pytest.fail("no session for an invalid request"))
     ss.serve_once(hand, cfg)
     assert [p.name for p in (hand / "rejected").iterdir()] == [f"{ITEM}.json"]
     assert not list((hand / "results").iterdir()) and not list((hand / "running").iterdir())
+
+
+# -- liveness: the heartbeat, and requests the runner gave up on --
+
+def age_of(path):
+    return time.time() - path.stat().st_mtime
+
+
+def test_serve_keeps_the_heartbeat_fresh_while_idle(cfg, tmp_path):
+    hand, loops = tmp_path / "handoff", []
+    ss.serve(hand, cfg, poll_s=0.01, until=lambda: loops.append(1) or len(loops) > 3)
+    assert age_of(hand / "heartbeat") < 5
+
+
+def test_a_session_beats_while_it_runs(fake_claude, cfg, monkeypatch):
+    monkeypatch.setattr(ss, "POLL_S", 0.1)
+    fake_claude({"out": init_event()}, {"sleep": 1.0}, {"out": RESULT})
+    beats = []
+    assert ss.run_session(request(), cfg, beat=lambda: beats.append(time.monotonic()))["finished_ok"] is True
+    assert len(beats) >= 5 and max(b - a for a, b in zip(beats, beats[1:])) < 0.5
+
+
+def test_a_session_that_times_out_beats_until_then(fake_claude, cfg, monkeypatch):
+    monkeypatch.setattr(ss, "POLL_S", 0.1)
+    fake_claude({"out": init_event()}, {"sleep": 60})
+    beats = []
+    assert ss.run_session(request(timeout_s=1), cfg, beat=lambda: beats.append(1))["error"].startswith("timed out")
+    assert len(beats) >= 5
+
+
+def test_serve_once_hands_its_heartbeat_to_the_session(cfg, tmp_path, monkeypatch):
+    hand = tmp_path / "handoff"
+    handoff.write_request(hand, ITEM, TOKEN, [], 2.0, 600)
+    heartbeat = ss.Heartbeat(hand / "heartbeat")
+
+    def session(req, cfg, beat):
+        assert not (hand / "heartbeat").exists()
+        beat()
+        assert age_of(hand / "heartbeat") < 5
+        return ss.parse_result(RESULT)
+    monkeypatch.setattr(ss, "run_session", session)
+    assert ss.serve_once(hand, cfg, heartbeat) is True
+    assert json.loads((hand / "results" / f"{ITEM}.json").read_text())["finished_ok"] is True
+
+
+def test_a_heartbeat_that_cannot_be_written_is_logged_once_per_outage(tmp_path, caplog):
+    hand = tmp_path / "handoff"
+    heartbeat = ss.Heartbeat(hand / "heartbeat")
+    with caplog.at_level("WARNING", logger="session_service"):
+        heartbeat(), heartbeat()  # no directory yet: one warning, and no exception
+        hand.mkdir()
+        heartbeat()
+        assert (hand / "heartbeat").exists()
+        (hand / "heartbeat").unlink()
+        hand.rmdir()
+        heartbeat()
+    assert len([r for r in caplog.records if "heartbeat" in r.getMessage()]) == 2
+
+
+@pytest.mark.parametrize("age_s, timeout_s, stale", [(900, 600, False), (901, 600, True), (0, 60, False),
+                                                    (5701, 5400, True), (5699, 5400, False)])
+def test_a_request_is_stale_once_the_runner_has_stopped_waiting_for_it(age_s, timeout_s, stale):
+    # the runner waits timeout_s + 300 s for a result, then withdraws the request
+    assert ss.stale_request(age_s, timeout_s) is stale
+
+
+def test_a_stale_request_gets_a_result_and_no_session(cfg, tmp_path, monkeypatch):
+    hand = tmp_path / "handoff"
+    handoff.write_request(hand, ITEM, TOKEN, [], 2.0, 600)
+    old = time.time() - 902
+    os.utime(hand / "requests" / f"{ITEM}.json", (old, old))
+    monkeypatch.setattr(ss, "run_session", lambda req, cfg, beat: pytest.fail("a session for a stale request"))
+    assert ss.serve_once(hand, cfg) is True
+    out = json.loads((hand / "results" / f"{ITEM}.json").read_text())
+    assert (out["finished_ok"], out["error"], out["category"]) == (False, "stale request", "session")
+    assert not list((hand / "running").iterdir()) and not list((hand / "requests").iterdir())
+
+
+def test_a_request_inside_its_window_runs(cfg, tmp_path, monkeypatch):
+    hand = tmp_path / "handoff"
+    handoff.write_request(hand, ITEM, TOKEN, [], 2.0, 600)
+    old = time.time() - 890
+    os.utime(hand / "requests" / f"{ITEM}.json", (old, old))
+    ran = []
+    monkeypatch.setattr(ss, "run_session", lambda req, cfg, beat: ran.append(req.item_id) or ss.parse_result(RESULT))
+    ss.serve_once(hand, cfg)
+    assert ran == [ITEM]
 
 
 def test_serve_once_ignores_temp_files(cfg, tmp_path):

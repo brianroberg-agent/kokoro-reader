@@ -87,6 +87,18 @@ class Nights(RuleBasedStateMachine):
     def rerun(self):
         self._run(False, None)
 
+    @rule(after=st.none() | st.integers(0, 3))
+    def the_service_stops(self, after):
+        # at once (its heartbeat goes), or after that many more sessions (mid-night)
+        if after is None:
+            self.world.sessions.heartbeat = None
+        else:
+            self.world.sessions.stops_after = len(self.world.sessions.waits) + after
+
+    @rule()
+    def the_service_starts(self):
+        self.world.sessions.heartbeat, self.world.sessions.stops_after = 1.0, None
+
     @rule(seconds=st.integers(60, 2 * 86400))
     def let_time_pass(self, seconds):
         self.world.clock.sleep(seconds)

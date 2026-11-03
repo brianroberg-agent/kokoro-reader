@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -147,6 +148,21 @@ def test_wait_result_reads_and_removes(tmp_path):
 
 def test_wait_result_times_out_to_none(tmp_path):
     assert wait_result(tmp_path, "nope", timeout_s=0.05, poll_s=0.01) is None
+
+
+def test_withdraw_request_removes_a_request_not_yet_taken(tmp_path):
+    write_request(tmp_path, "0123456789ab", "tok", [], 1.0, 60)
+    handoff.withdraw_request(tmp_path, "0123456789ab")
+    assert not list((tmp_path / "requests").iterdir())
+    handoff.withdraw_request(tmp_path, "0123456789ab")  # gone already (or taken): nothing to do
+
+
+def test_heartbeat_age_reads_the_files_mtime(tmp_path):
+    now = datetime(2026, 11, 3, 1, 0, tzinfo=UTC)
+    assert handoff.heartbeat_age(tmp_path, now) is None
+    (tmp_path / "heartbeat").touch()
+    os.utime(tmp_path / "heartbeat", (now.timestamp() - 42, now.timestamp() - 42))
+    assert handoff.heartbeat_age(tmp_path, now) == pytest.approx(42)
 
 
 class FakeMcp:

@@ -43,7 +43,8 @@ def discovery_failed_message(source_name: str, reason: str) -> tuple[str, str]:
 
 # What stopped the night, by NightReport.stopped_by: each push's title, and the
 # summary's and the run's line.
-STOPPED = {"login": "Claude login failed", "api": "Claude API unreachable"}
+STOPPED = {"login": "Claude login failed", "api": "Claude API unreachable",
+           "service": "Narration session service not running"}
 
 
 def stopped_message(category: str, detail: str) -> tuple[str, str]:
