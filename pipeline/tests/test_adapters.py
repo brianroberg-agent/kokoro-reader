@@ -12,7 +12,8 @@ import pytest
 import requests
 
 from narration_pipeline import fetch, handoff, narration_client, push
-from narration_pipeline.fetch import FetchError, fetch_text, run_article_assistant, spoken_title, with_spoken_title
+from narration_pipeline.fetch import (FetchError, fetch_text, podcast_metadata, run_article_assistant,
+                                      spoken_title, with_spoken_title)
 from narration_pipeline.handoff import HandoffError, wait_result, write_request
 from narration_pipeline.narration_client import NarrationClient, NarrationError, NarrationUnavailable
 from narration_pipeline.push import Push
@@ -442,3 +443,17 @@ def test_with_spoken_title_falls_back_to_the_records_title(meta):
 
 def test_with_spoken_title_without_any_title_is_the_text_alone():
     assert with_spoken_title("Body.", {"byline": ["Ada Quill"]}, "") == "Body."
+
+
+
+def test_podcast_metadata_leaves_the_podcasts_title_and_author_to_the_podcast():
+    # Brian, 2026-11-03: "There shouldn't be an author byline on the entire podcast."
+    # Audiobookshelf takes a podcast's author from its episodes' artist tag, and an empty
+    # podcast's title from its first episode's album tag; the Mac tags the MP3 from the
+    # metadata the work item is opened with. So: no authors (no artist tag), and the
+    # podcast's name as the publication with no edition (the album is the podcast).
+    meta = {"title": "T", "authors": ["Ada Quill"], "byline": ["Ada Quill"], "publication": "The Journal",
+            "issue_number": "86", "issue_season": "Fall 2026", "description": "D", "date_published": "2026-09-08"}
+    assert podcast_metadata(meta, "The Journal Podcast") == {
+        "title": "T", "authors": [], "byline": ["Ada Quill"], "publication": "The Journal Podcast",
+        "issue_number": "", "issue_season": "", "description": "D", "date_published": "2026-09-08"}

@@ -381,6 +381,15 @@ def test_mac_gone_mid_item_waits_for_it_and_recovers_next_night(world):
     assert [(r.url, r.status) for r in world.run().results] == [(a, "published")]
 
 
+def test_the_mac_is_given_metadata_that_tags_no_author_and_the_podcasts_name(world):
+    url = world.add_article(1)
+    world.run()
+    meta = world.narration.items[only_item(world)].metadata
+    assert meta["authors"] == [] and meta["publication"] == "Podcast tna"
+    assert meta["issue_number"] == "" and meta["issue_season"] == ""
+    assert meta["title"] == world.titles[url] and meta["date_published"] == "2026-10-01"
+
+
 def test_publish_gives_audiobookshelf_the_sources_cover(world):
     # Brian, 2026-11-03: a new podcast gets a cover made from the publication's logo.
     world.add_article(1)

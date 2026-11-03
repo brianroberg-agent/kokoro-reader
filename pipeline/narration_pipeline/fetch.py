@@ -96,3 +96,14 @@ def with_spoken_title(markdown: str, meta: dict, fallback_title: str = "") -> st
     """The article as the narration server gets it: the spoken title, then the text."""
     line = spoken_title(meta, fallback_title)
     return f"{line}\n\n{markdown}" if line else markdown
+
+
+def podcast_metadata(meta: dict, podcast: str) -> dict:
+    """The metadata a work item is opened with, which the Mac also writes into the MP3's
+    tags (title; artist from authors; album from publication and edition). Audiobookshelf
+    builds a podcast's author from its episodes' artist tag, refilling it at each scan
+    when empty, and an empty podcast's title from its first episode's album tag (both
+    seen on 2.37.2, 2026-11-03). Brian: "There shouldn't be an author byline on the
+    entire podcast." So no authors (no artist tag), and the podcast's name as the
+    publication with no edition (the album is the podcast's name)."""
+    return {**meta, "authors": [], "publication": podcast, "issue_number": "", "issue_season": ""}
