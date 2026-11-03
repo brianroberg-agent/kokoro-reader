@@ -207,8 +207,9 @@ def test_finish_validates_shapes(env):
 
 
 
-# While a record round and a check are left, a session that lists a mispronunciation
-# or an omission tries a fix before it settles for minor (Brian, 2026-11-03).
+# While two or more record rounds and checks are left, a session that lists a
+# mispronunciation or an omission tries a fix before it settles for minor (Brian,
+# 2026-11-03).
 MISSAID = {"kind": "mispronunciation", "where": "0:03", "note": "Ivo"}
 DROPPED = {"kind": "omission", "where": "0:05", "note": "well"}
 A_PAUSE = ("It went well.", "It went\n\nwell.")  # a change of pauses alone, words unchanged
@@ -241,7 +242,10 @@ def test_recording_the_same_text_again_is_not_a_fix_for_a_mispronunciation(env):
         tools.finish(item, "minor", [MISSAID], [])
 
 
-def test_a_change_undone_later_still_counts_as_a_fix_tried(env):
+def test_a_change_undone_later_still_counts_as_a_fix_tried(env, monkeypatch):
+    # At MAX_RECORDS = 4 the rule is off from round 3 on (two rounds must be left), so
+    # this runs with more rounds: it guards the comparison should the limit be raised.
+    monkeypatch.setattr(agent_tools, "MAX_RECORDS", 6)
     _, tools, *_, item, _ = env
     _round(tools, item)
     tools.replace_text(item, *A_PAUSE)
@@ -281,9 +285,11 @@ def test_the_first_check_is_what_a_fix_must_follow_not_round_one(env):
         tools.finish(item, "minor", [DROPPED], [])
 
 
-def test_a_fix_recorded_again_unchanged_still_counts_as_tried(env):
+def test_a_fix_recorded_again_unchanged_still_counts_as_tried(env, monkeypatch):
     # Fixed in round 2, then the fixed text recorded again for a dropped word: the latest
-    # two rounds have the same text, but round 2 tried a fix after the first check.
+    # two rounds have the same text, but round 2 tried a fix after the first check. With
+    # more rounds than MAX_RECORDS = 4, for the reason in the test above.
+    monkeypatch.setattr(agent_tools, "MAX_RECORDS", 6)
     _, tools, *_, item, _ = env
     _round(tools, item)
     tools.replace_text(item, *A_PAUSE)
