@@ -63,7 +63,8 @@ def summary_text(report: "NightReport") -> str | None:
     counts = [(by_status.get("published", 0), "published"),
               (by_status.get("published_with_notes", 0), "with notes"),
               (by_status.get("held", 0), "held"),
-              (by_status.get("failed", 0), "failed")]
+              (by_status.get("failed", 0), "failed"),
+              (by_status.get("in_progress", 0), "waiting for the next night")]  # left for recovery
     line = ", ".join(f"{n} {label}" for n, label in counts if n)
     if line:
         lines.append(line)

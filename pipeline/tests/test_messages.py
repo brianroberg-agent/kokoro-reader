@@ -46,6 +46,13 @@ def test_summary_counts():
     assert "Claude $0.41, Gemini about $0.18" in text
 
 
+def test_summary_counts_rows_waiting_for_the_next_night():
+    text = summary_text(NightReport(results=[result("in_progress", "Dropped", cost=0.4, gemini=0.09)]))
+    assert text.splitlines()[0] == "1 waiting for the next night"  # not a spend-only summary
+    report = NightReport(results=[result("published", "A"), result("in_progress", "B"), result("in_progress", "C")])
+    assert summary_text(report).splitlines()[0] == "1 published, 2 waiting for the next night"
+
+
 def test_summary_omits_zero_counts():
     text = summary_text(NightReport(results=[result("published", "A", cost=0.1)]))
     assert text.splitlines()[0] == "1 published"
