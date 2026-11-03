@@ -118,10 +118,27 @@ def test_run_in_progress_exits_nonzero_with_the_message(tmp_path):
     assert isinstance(e.value.code, str) and "another run is in progress" in e.value.code
 
 
-def test_run_failure_is_not_swallowed(tmp_path):
+@pytest.mark.parametrize("dry", [[], ["--dry-run"]])
+def test_an_only_run_that_cannot_run_exits_non_zero_with_its_reason(tmp_path, dry):
     world = World(tmp_path)
-    with pytest.raises(ValueError):
-        main(["run", "--only", "https://example.test/nope"], env={}, deps_factory=lambda env: world.deps())
+    url = world.add_article(1)
+    with pytest.raises(SystemExit) as e:
+        main(["run", *dry, "--only", "https://example.test/nope"], env={}, deps_factory=lambda env: world.deps())
+    assert e.value.code == "not discovered: https://example.test/nope"  # a message: exit status 1
+    world.narration.down_until = datetime(2026, 11, 4, 0, 0, tzinfo=NY)
+    with pytest.raises(SystemExit) as e:
+        main(["run", *dry, "--only", url], env={}, deps_factory=lambda env: world.deps())
+    assert e.value.code == "the narration server isn't reachable" and world.clock.sleeps == []
+
+
+def test_other_run_failures_are_not_swallowed(tmp_path, monkeypatch):
+    world = World(tmp_path)
+
+    def broken(deps, **kw):
+        raise ValueError("a bug")
+    monkeypatch.setattr(cli, "run_night", broken)
+    with pytest.raises(ValueError, match="a bug"):
+        main(["run"], env={}, deps_factory=lambda env: world.deps())
 
 
 def test_http_loggers_are_quiet(env, capsys):

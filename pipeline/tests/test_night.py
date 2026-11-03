@@ -10,7 +10,7 @@ from narration_pipeline import handoff as handoff_files
 from narration_pipeline.abs import AbsError, episode_filename
 from narration_pipeline.config import Settings
 from narration_pipeline.discovery import Candidate
-from narration_pipeline.night import Deps, deadlines, run_night
+from narration_pipeline.night import Deps, NotRunnable, deadlines, run_night
 from night_fakes import API_ERROR, HELD, ISSUES, NY, Crash, Script, World, restore_record_clock, source
 
 
@@ -762,6 +762,33 @@ def test_only_runs_one_url(world):
         world.run(only="https://example.test/elsewhere")
     with pytest.raises(ValueError, match="published"):
         world.run(only=b)
+
+
+def test_only_refusals_are_not_runnable(world):
+    url = world.add_article(1)
+    world.run(only=url)
+    for only, message in ((url, "published, not queued or failed"),
+                          ("https://example.test/elsewhere", "not discovered")):
+        with pytest.raises(NotRunnable, match=message):
+            world.run(only=only)
+
+
+def test_only_checks_the_mac_once_and_refuses_without_waiting(world):
+    world.narration.down_until = datetime(2026, 11, 4, 0, 0, tzinfo=NY)
+    url = world.add_article(1)
+    with pytest.raises(NotRunnable, match="the narration server isn't reachable"):
+        world.run(only=url)
+    assert world.narration.health_calls == 1 and world.clock.sleeps == [] and world.narration.items == {}
+    assert world.record.row(url)["status"] == "queued"
+    world.narration.down_until = None
+    assert [r.status for r in world.run(only=url).results] == ["published"]  # the lock was let go
+
+
+def test_only_does_not_wait_for_the_mac_after_its_article(world):
+    url = world.add_article(1, script=Script(mac="down_in_session"))  # the Mac goes for 30 minutes
+    report = world.run(only=url)
+    assert [r.status for r in report.results] == ["in_progress"] and report.mac_unreachable
+    assert world.clock.sleeps == [300, 300]  # the session's own: no waiting for the Mac after it
 
 
 def test_only_refuses_a_baseline_row(world):

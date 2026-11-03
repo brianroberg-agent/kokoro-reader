@@ -16,7 +16,7 @@ from narration_pipeline.config import load_settings, load_sources
 from narration_pipeline.fetch import fetch_text, run_article_assistant
 from narration_pipeline.messages import STOPPED
 from narration_pipeline.narration_client import NarrationClient
-from narration_pipeline.night import Deps, NightReport, RunInProgress, run_night
+from narration_pipeline.night import Deps, NightReport, NotRunnable, RunInProgress, run_night
 from narration_pipeline.push import Push
 from narration_pipeline.record import Record
 
@@ -130,8 +130,10 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
         deps = deps_factory(env)
         try:
             report = run_night(deps, dry_run=args.dry_run, only=args.only)
-        except RunInProgress as e:
+        except RunInProgress:
             raise SystemExit("another run is in progress") from None
+        except NotRunnable as e:  # --only: not discovered, not queued or failed, or no Mac
+            raise SystemExit(str(e)) from None
         print(report_text(report, args.dry_run))
     else:
         deps = deps_factory(env)

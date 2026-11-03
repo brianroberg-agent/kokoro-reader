@@ -34,6 +34,10 @@ class RunInProgress(RuntimeError):
     pass
 
 
+class NotRunnable(ValueError):
+    """An --only run refused before its article started: the message says why."""
+
+
 @dataclass
 class Deps:
     record: Record
@@ -124,6 +128,7 @@ class _Night:
         self.report = NightReport()
         self.sources = {s.id: s for s in deps.sources}
         self.unavailable = False  # an item saw NarrationUnavailable: ask whether the Mac is still there
+        self.patient = True       # wait for the Mac (until mac_wait_until), or ask once (--only)
         start = deps.now().astimezone(ZoneInfo(self.s.tz))
         self.mac_until, self.no_new = deadlines(start, self.s.mac_wait_until, self.s.no_new_after)
 
@@ -132,10 +137,13 @@ class _Night:
         if only is not None:
             row = self.rec.row(only)
             if row is None:
-                raise ValueError(f"not discovered: {only}")
+                raise NotRunnable(f"not discovered: {only}")
             if row["status"] not in ("queued", "failed"):
-                raise ValueError(f"{only} is {row['status']}, not queued or failed")
+                raise NotRunnable(f"{only} is {row['status']}, not queued or failed")
+            self.patient = False  # one article, run by hand: no waiting for the Mac
         if not self.wait_for_mac():
+            if only is not None:
+                raise NotRunnable("the narration server isn't reachable")
             return self.report
         if only is None and not self.dry_run:
             # After the Mac wait, not before: recovery needs the Mac (finalize, status, the MP3).
@@ -177,10 +185,11 @@ class _Night:
         return self.wait_for_mac()
 
     def wait_for_mac(self) -> bool:
-        """Ask every 5 minutes until mac_wait_until; past it, give up for the night."""
+        """Ask every 5 minutes until mac_wait_until; past it, give up for the night. An
+        --only run asks once."""
         while not self.d.narration.health():
             remaining = _seconds(self.d.now(), self.mac_until)
-            if remaining <= 0:
+            if remaining <= 0 or not self.patient:
                 self.report.mac_unreachable = True
                 return False
             self.d.sleep(min(MAC_POLL_S, remaining))

@@ -125,7 +125,7 @@ docker compose -f deploy/compose.yaml run --rm narration-runner \
   uv run --frozen python -m narration_pipeline run --dry-run --only <article URL>
 ```
 
-Check the Mac first (`docker compose -f deploy/compose.yaml exec -u node narration-runner curl -s http://<MAC_HOST>:8770/health`): a run that can't reach the Mac keeps asking every five minutes until 05:00 (the next morning, for a run started in the daytime). A real run of one article is the same command without `--dry-run`. Another run in progress makes it stop with `another run is in progress`.
+A run of one article asks the Mac once: if it doesn't answer, the run stops with `the narration server isn't reachable` (a run without `--only` keeps asking every five minutes until 05:00). A real run of one article is the same command without `--dry-run`. Another run in progress makes it stop with `another run is in progress`.
 
 **Reading the record.** The image has no `sqlite3` command; Python's module reads it, read-only:
 
