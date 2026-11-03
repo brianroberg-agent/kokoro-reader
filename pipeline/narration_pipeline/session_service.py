@@ -267,22 +267,24 @@ def _event(line: str) -> dict | None:
 def run_session(req: Request, cfg: ServiceConfig) -> dict:
     """Run one session to its end and return its result. The private directory (the MCP
     config with the agent token, and the session's working directory) is removed and
-    claude's process group killed on the way out, whatever ends the session."""
+    claude's process group killed on the way out, whatever ends the session. The agent
+    and OAuth tokens are redacted from claude's output as it is read, before anything
+    clips it, so no fragment of one reaches the result."""
+    secrets = (req.agent_token, os.environ.get(OAUTH_VAR))
     private = Path(tempfile.mkdtemp(prefix="narration-session-"))
     started: list[subprocess.Popen] = []
     try:
-        result = _run(req, cfg, private, started)
+        result = _run(req, cfg, private, started, secrets)
     except Exception as e:  # a valid request always gets a result
-        result = failure(f"session service error: {type(e).__name__}: {e}")
+        result = failure("session service error: " + _redact(f"{type(e).__name__}: {e}", secrets))
     finally:
         for proc in started:
             _stop(proc)
         shutil.rmtree(private, ignore_errors=True)
-    result["error"] = _redact(result["error"], (req.agent_token, os.environ.get(OAUTH_VAR)))
     return result
 
 
-def _run(req: Request, cfg: ServiceConfig, private: Path, started: list) -> dict:
+def _run(req: Request, cfg: ServiceConfig, private: Path, started: list, secrets) -> dict:
     config = private / "mcp.json"
     _write_private(config, json.dumps(mcp_config(cfg.narration_url, req.agent_token)))
     try:
@@ -298,17 +300,17 @@ def _run(req: Request, cfg: ServiceConfig, private: Path, started: list) -> dict
     except OSError as e:
         return failure(f"could not start claude: {e}")
     started.append(proc)
-    return _watch(proc, req.timeout_s)
+    return _watch(proc, req.timeout_s, secrets)
 
 
-def _watch(proc: subprocess.Popen, timeout_s: int) -> dict:
+def _watch(proc: subprocess.Popen, timeout_s: int, secrets) -> dict:
     """Read claude's stream-json events until its result, a failed tool check, the end of
     its output, or the deadline. stderr is drained all along, so it can't fill its pipe."""
     deadline = time.monotonic() + timeout_s
     lines: queue.Queue = queue.Queue()
     tail: collections.deque = collections.deque(maxlen=STDERR_LINES)
-    threading.Thread(target=_pump, args=(proc.stdout, lines), daemon=True).start()
-    drain = threading.Thread(target=_drain, args=(proc.stderr, tail), daemon=True)
+    threading.Thread(target=_pump, args=(proc.stdout, lines, secrets), daemon=True).start()
+    drain = threading.Thread(target=_drain, args=(proc.stderr, tail, secrets), daemon=True)
     drain.start()
     checked = False
     while True:
@@ -340,20 +342,22 @@ def _watch(proc: subprocess.Popen, timeout_s: int) -> dict:
     return failure(f"no result event (claude exited with status {status})", list(tail))
 
 
-def _pump(stream, lines: queue.Queue) -> None:
+def _pump(stream, lines: queue.Queue, secrets) -> None:
+    # Redacted as raw JSON text: both tokens are URL-safe characters, which JSON
+    # never escapes, so this catches them inside any string of the event.
     try:
         for line in stream:
-            lines.put(line)
+            lines.put(_redact(line, secrets))
     except (OSError, ValueError):
         pass
     finally:
         lines.put(None)
 
 
-def _drain(stream, tail: collections.deque) -> None:
+def _drain(stream, tail: collections.deque, secrets) -> None:
     try:
         for line in stream:
-            line = line.strip()
+            line = _redact(line, secrets).strip()
             if line:
                 tail.append(_clip(line, STDERR_LINE_CHARS))
     except (OSError, ValueError):

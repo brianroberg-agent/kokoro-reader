@@ -351,6 +351,28 @@ def test_run_session_without_a_result_event_reports_stderr(fake_claude, cfg):
     assert TOKEN not in out["error"]
 
 
+def leaked(secret, text):
+    """Whether any 6 characters of the secret appear in the text."""
+    return any(secret[i:i + 6] in text for i in range(len(secret) - 5))
+
+
+def test_run_session_redacts_before_clipping_stderr(fake_claude, cfg, monkeypatch):
+    oauth = "synthetic-oauth-token-" + "y" * 30
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", oauth)
+    fake_claude({"out": init_event()}, {"err": "a" * 188 + TOKEN + "\n"}, {"err": "c" * 190 + oauth + "\n"},
+                {"exit": 3})
+    error = ss.run_session(request(), cfg)["error"]
+    assert error.startswith("no result event") and "aaaa" in error and "cccc" in error
+    assert not leaked(TOKEN, error) and not leaked(oauth, error)
+
+
+def test_run_session_redacts_before_clipping_a_result(fake_claude, cfg):
+    fake_claude({"out": init_event()},
+                {"out": {"type": "result", "subtype": "success", "is_error": True, "result": "b" * 290 + TOKEN}})
+    error = ss.run_session(request(), cfg)["error"]
+    assert "bbbb" in error and not leaked(TOKEN, error)
+
+
 def test_run_session_survives_a_chatty_stderr(fake_claude, cfg):
     fake_claude({"err": "noise " * 20 + "\n", "times": 20000}, {"out": init_event()}, {"out": RESULT})
     started = time.monotonic()
