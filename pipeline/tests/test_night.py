@@ -286,6 +286,7 @@ def test_crash_after_upload_recovers_without_second_upload(world):
     assert world.record.row(url)["episode_id"] == ep.id
     assert ep.description == "Notes for Article 1"
     assert len(world.narration.items) == 1  # recorded once
+    assert world.narration.downloads == [only_item(world)]  # the episode is there: no second download
 
 
 def test_late_episode_after_crash_is_waited_for_not_uploaded_again(world):
@@ -298,6 +299,7 @@ def test_late_episode_after_crash_is_waited_for_not_uploaded_again(world):
     [ep] = world.abs.episodes
     assert world.abs.waits == [(ep.filename, 1800)]
     assert world.record.row(url)["episode_id"] == ep.id
+    assert len(world.narration.downloads) == 1
 
 
 def test_wait_ended_by_an_error_is_not_taken_for_absent(world):

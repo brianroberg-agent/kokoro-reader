@@ -216,8 +216,6 @@ class _Night:
             if self.dry_run:
                 return self.result(it, it.row["status"], it.fin.get("reasons") or [], it.fin["action"])
             self.save_costs(it)
-            if it.uploading and it.fin["action"] == "publish":
-                self.await_earlier_upload(it)
             return self.settle(it)
         except Exception as e:
             return self.after_error(it, e)
@@ -252,33 +250,36 @@ class _Night:
         title = meta["title"]
         filename = episode_filename(title, it.item_id)
         podcast = self.sources[it.row["source"]].podcast
+        located = self.earlier_upload(it, podcast, filename) if it.uploading else None
         with tempfile.TemporaryDirectory(dir=self.d.record_dir) as tmp:
-            mp3 = self.d.narration.download_mp3(it.item_id, Path(tmp) / filename)
-            self.rec.update(it.row["url"], publish_started=1)
-            it.uploading = True
+            mp3 = Path(tmp) / filename
+            if located is None:
+                self.d.narration.download_mp3(it.item_id, mp3)
+                self.rec.update(it.row["url"], publish_started=1)
+                it.uploading = True
+            # For a located episode publish finds it again and only sets its details, so
+            # the MP3 isn't fetched: publish opens it only to upload.
             episode_id = self.d.abs.publish(podcast, mp3, filename, title, it.fin.get("notes") or "",
                                             meta.get("date_published") or None)
         status = "published_with_notes" if it.fin["outcome"] == "minor" else "published"
         self.rec.transition(it.row["url"], status, episode_id=episode_id)
         return self.result(it, status, it.fin.get("reasons") or [])
 
-    def await_earlier_upload(self, it: _Item) -> None:
+    def earlier_upload(self, it: _Item, podcast: str, filename: str) -> str | None:
         """publish_started was set, so an upload may have reached Audiobookshelf without
-        showing yet. Look for it, then wait for what is left of RECOVERY_WAIT_S since the
-        row was last written (at or after publish_started), before publish may upload."""
-        podcast = self.sources[it.row["source"]].podcast
-        filename = episode_filename(it.st["metadata"]["title"], it.item_id)
-        if self.d.abs.find_episode(podcast, filename) is not None:
-            return
+        showing yet. Its episode id, looking first and then waiting for what is left of
+        RECOVERY_WAIT_S since the row was last written; None if it hasn't shown by then."""
+        episode_id = self.d.abs.find_episode(podcast, filename)
+        if episode_id is not None:
+            return episode_id
         age = _seconds(datetime.fromisoformat(it.row["updated_at"]), self.d.now())
         wait = min(RECOVERY_WAIT_S, RECOVERY_WAIT_S - age)
         if wait <= 0:
-            return
+            return None
         try:
-            self.d.abs.wait_episode(podcast, filename, timeout_s=wait)
+            return self.d.abs.wait_episode(podcast, filename, timeout_s=wait)
         except AbsTimeout:
-            pass  # not seen within the wait: publish uploads it. Any other AbsError propagates.
-        # It showed (publish then finds it), or the wait timed out (publish then uploads).
+            return None  # not seen within the wait: publish uploads it. Other AbsErrors propagate.
 
     def after_error(self, it: _Item, e: Exception) -> ItemResult:
         error = _error(e)
