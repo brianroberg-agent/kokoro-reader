@@ -63,7 +63,7 @@ def _names(meta: dict) -> list[str]:
 
 def spoken_title(meta: dict, fallback_title: str = "") -> str:
     """The line the reading opens with (Brian, 2026-11-03): the title and who wrote it,
-    "Is There Life on Mars, Pennsylvania? by Vladimir Snurenco.", or the title alone
+    "Where Did the Commons Go? by Ada Quill.", or the title alone
     when the page names no one. The metadata's title, else fallback_title (the
     record's, as the night names the episode); "" when there is neither."""
     raw = meta.get("title")
