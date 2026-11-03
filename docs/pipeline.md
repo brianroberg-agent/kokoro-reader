@@ -173,16 +173,19 @@ This stops and removes both containers. The `narration-data` and `narration-hand
 
 ## Verified
 
-To be filled in from the checks in Plan 3, Task 9 Step 4:
+**Still open: the home server.** Nothing here has run there yet: the deploy above end to end (the tailnet from both containers, Brian's Audiobookshelf and ntfy, the agent's login from `claude setup-token`), and the acceptance run with Brian's listen. Also not yet run: the spec's containment test of a real session asked to run a shell command, read a file and fetch a URL (each session's tool list is checked when it starts, and that check passed against the real init event in the sessions below).
 
-- **Egress from `narration-agent`:** _(not yet run)_
-- **A real session refuses built-ins:** _(not yet run)_
-- **The service refuses bad requests:** _(not yet run)_
-- **The narration tokens hold** (from inside `narration-runner`): _(not yet run)_
+**The containers on Docker Desktop on Brian's Mac (linux/amd64), 2026-11-02**, with `agentbox:latest` built from agentbox's `agentbox-base-switch` branch (agentbox PR #14), fake secrets, `MAC_HOST=host.docker.internal`, and a test narration server on the host:
 
-**Build and start on Docker Desktop on Brian's Mac (linux/amd64), 2026-11-02**, with `agentbox:latest` built from agentbox's `agentbox-base-switch` branch, fake secrets and `MAC_HOST=host.docker.internal`:
+- **Egress from `narration-agent`:** `example.com`, `sentry.io`, `statsig.com`, `api.github.com` and the host's other ports were blocked; `api.anthropic.com` and the Mac's narration port were reachable.
+- **A session without a Claude login:** with no `CLAUDE_CODE_OAUTH_TOKEN`, the session ended as a failed result within 5 seconds rather than hanging, and the result held no token.
+- **The service refuses bad requests:** a request with the item id `../../etc` went to `rejected/`, and no session started for it.
+- **The runner end to end:** the runner container, with the real `claude -p` through a session service run on the host and the local Audiobookshelf below, published an article with notes (41 turns, $0.42).
+- **The narration tokens hold** (from inside `narration-runner`): the narration server's runner endpoint refused a call without a token and a call with an agent token.
+- **Both containers together, sharing the handoff volume** (and again after the images were rebuilt): with no Claude token, and with a well-formed but invalid one, the session ended with "Claude Code could not authenticate (CLAUDE_CODE_OAUTH_TOKEN missing, expired or invalid)"; the runner sent one "Claude login failed" push, stopped the night, and counted no failed night against the article.
+- **Build and start:** both images built from `docker compose -f deploy/compose.yaml build` (Claude Code 2.1.316; Python 3.13 for the runner's two projects). `narration-agent` started with the firewall's `verified: example.com blocked`, `api.anthropic.com reachable`, `api.github.com blocked` and `base hosts blocked`, then `serving /handoff for http://host.docker.internal:8770/agent/mcp, prompt /opt/narration/agent_prompt.md`, as node. `narration-runner` resolved `www.thenewatlantis.com` and `ntfy.sh`, ran `schedule --nights 1` as node, created `/data/record.sqlite` and waited for 01:00; `status` worked through `exec -u node`. `/data` and `/handoff` were node's, mode 700, in both, and `docker compose stop` stopped each in under a second.
 
-- Both images built from `docker compose -f deploy/compose.yaml build` (Claude Code 2.1.316, Python 3.13.15 for the runner's two projects).
-- `narration-agent` started: firewall `verified: example.com blocked`, `api.anthropic.com reachable`, `api.github.com blocked`, `base hosts blocked`; then `serving /handoff for http://host.docker.internal:8770/agent/mcp, prompt /opt/narration/agent_prompt.md`, as node.
-- `narration-runner` started: firewall resolved `www.thenewatlantis.com` and `ntfy.sh` and verified `example.com` and `api.github.com` blocked; then `schedule --nights 1` ran as node, created `/data/record.sqlite`, and slept (`hrtimer_nanosleep`, its wait for 01:00). `status` worked through `exec -u node`.
-- `/data` and `/handoff` were node's, mode 700, in both containers. `docker compose stop` stopped each in under a second.
+**Real sessions and a real Audiobookshelf, on Brian's Mac, 2026-11-02:**
+
+- **Real agent sessions:** `run --only` through the session service with the real `claude -p` 2.1.316 (the S1 flags, stream-json), the test narration server (fake engines) and the local Audiobookshelf published two articles clean (15 turns, $0.16; and 11 turns, $0.11), each with its episode id saved.
+- **Audiobookshelf's API**, against Audiobookshelf 2.37.2 in a local container: an upload, the episode appearing, its title, description and date set and read back, and a second publish that found the episode and uploaded nothing.
