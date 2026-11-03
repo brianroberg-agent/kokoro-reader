@@ -1,8 +1,14 @@
+from datetime import time
+
 import pytest
 
 from narration_pipeline.messages import (discovery_failed_message, hold_message, plain, stopped_message,
                                          summary_text)
 from narration_pipeline.night import ItemResult, NightReport
+
+
+def summary(report):
+    return summary_text(report, time(6))
 
 
 def row(title="Article 1", url="https://example.test/tna/a1"):
@@ -40,42 +46,46 @@ def test_summary_counts():
         result("held", "Held One", cost=0.06, gemini=0.06),
         result("failed", "E"),
     ])
-    text = summary_text(report)
+    text = summary(report)
     assert text.splitlines()[0] == "2 published, 1 with notes, 1 held, 1 failed"
     assert "Held One" in text
     assert "Claude $0.41, Gemini about $0.18" in text
 
 
 def test_summary_counts_rows_waiting_for_the_next_night():
-    text = summary_text(NightReport(results=[result("in_progress", "Dropped", cost=0.4, gemini=0.09)]))
+    text = summary(NightReport(results=[result("in_progress", "Dropped", cost=0.4, gemini=0.09)]))
     assert text.splitlines()[0] == "1 waiting for the next night"  # not a spend-only summary
     report = NightReport(results=[result("published", "A"), result("in_progress", "B"), result("in_progress", "C")])
-    assert summary_text(report).splitlines()[0] == "1 published, 2 waiting for the next night"
+    assert summary(report).splitlines()[0] == "1 published, 2 waiting for the next night"
 
 
 def test_summary_omits_zero_counts():
-    text = summary_text(NightReport(results=[result("published", "A", cost=0.1)]))
+    text = summary(NightReport(results=[result("published", "A", cost=0.1)]))
     assert text.splitlines()[0] == "1 published"
 
 
 def test_summary_none_when_nothing_happened():
-    assert summary_text(NightReport()) is None
-    assert summary_text(NightReport(discovered={"tna": 0})) is None
+    assert summary(NightReport()) is None
+    assert summary(NightReport(discovered={"tna": 0})) is None
 
 
 def test_summary_lines_for_the_rest():
     report = NightReport(discovered={"a": 2, "b": 1}, discovery_errors=["feed: no items"],
                          mac_unreachable=True, stopped_at_cutoff=True)
-    lines = summary_text(report).splitlines()
+    lines = summary(report).splitlines()
     assert "The Mac wasn't reachable." in lines
     assert "Stopped at the 06:00 cutoff." in lines
     assert "Discovery failed: feed: no items" in lines
     assert "3 new articles queued." in lines
 
 
+def test_the_cutoff_line_names_the_settings_time():
+    assert summary_text(NightReport(stopped_at_cutoff=True), time(5, 30)) == "Stopped at the 05:30 cutoff."
+
+
 def test_summary_when_only_new_articles_were_queued():
-    assert summary_text(NightReport(discovered={"a": 1})) == "1 new article queued."
-    assert summary_text(NightReport(discovered={"a": 1, "b": 1})) == "2 new articles queued."
+    assert summary(NightReport(discovered={"a": 1})) == "1 new article queued."
+    assert summary(NightReport(discovered={"a": 1, "b": 1})) == "2 new articles queued."
 
 
 DIRTY = "GET HTTPS://user:pass@Example.test:8080/feed/x?token=abc123#frag failed"
@@ -96,7 +106,7 @@ def test_hold_body_is_sanitized():
 
 
 def test_summary_discovery_line_is_sanitized():
-    text = summary_text(NightReport(discovery_errors=[DIRTY]))
+    text = summary(NightReport(discovery_errors=[DIRTY]))
     assert "pass" not in text and "abc123" not in text and "frag" not in text and "HTTPS" not in text
     assert "Discovery failed: GET https://example.test:8080/feed/x failed" in text
 
@@ -112,6 +122,6 @@ def test_stopped_message_goes_through_the_sanitizer(category, title):
                                            ("api", "Stopped: Claude API unreachable."),
                                            ("service", "Stopped: Narration session service not running.")])
 def test_summary_says_what_stopped_the_night(category, line):
-    text = summary_text(NightReport(results=[result("failed", "A")], stopped_by=category))
+    text = summary(NightReport(results=[result("failed", "A")], stopped_by=category))
     assert "1 failed" in text and line in text
-    assert summary_text(NightReport(stopped_by=category)) == line
+    assert summary(NightReport(stopped_by=category)) == line

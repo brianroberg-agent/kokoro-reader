@@ -48,6 +48,6 @@ def schedule_loop(make_deps: Callable[[], Deps], *, now: Callable[[], datetime],
                 push.send("Narration run failed", plain(f"{type(e).__name__}: {e}"))
             continue
         _sleep_until(next_at(started, s.summary_at, s.tz), now, sleep)
-        text = summary_text(report)
+        text = summary_text(report, s.no_new_after)
         if text is not None:
             push.send(f"Narration: {now().astimezone(ZoneInfo(s.tz)).date().isoformat()}", text)

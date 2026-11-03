@@ -1,8 +1,9 @@
 """Every push text and the morning summary. Plain text, built from values; no I/O."""
 
 import re
-from urllib.parse import urlsplit
+from datetime import time
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 if TYPE_CHECKING:  # night imports this module for its push texts
     from narration_pipeline.night import NightReport
@@ -51,7 +52,9 @@ def stopped_message(category: str, detail: str) -> tuple[str, str]:
     return STOPPED[category], plain(detail)
 
 
-def summary_text(report: "NightReport") -> str | None:
+def summary_text(report: "NightReport", no_new_after: time) -> str | None:
+    """The morning summary, or None when nothing happened. no_new_after is the night's
+    cutoff (Settings.no_new_after), named when the night stopped at it."""
     queued = sum(report.discovered.values())
     if not (report.results or report.discovery_errors or report.mac_unreachable
             or report.stopped_at_cutoff or report.stopped_by or queued):
@@ -76,7 +79,7 @@ def summary_text(report: "NightReport") -> str | None:
     if report.mac_unreachable:
         lines.append("The Mac wasn't reachable.")
     if report.stopped_at_cutoff:
-        lines.append("Stopped at the 06:00 cutoff.")
+        lines.append(f"Stopped at the {no_new_after:%H:%M} cutoff.")
     if report.stopped_by:
         lines.append(f"Stopped: {STOPPED[report.stopped_by]}.")
     lines += [f"Discovery failed: {e}" for e in report.discovery_errors]

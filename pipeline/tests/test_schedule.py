@@ -155,6 +155,16 @@ def test_a_failed_run_is_pushed_once_with_its_traceback_logged(caplog):
     assert "Traceback" in caplog.text
 
 
+def test_the_summary_names_the_settings_cutoff():
+    class Late:
+        settings = Settings(no_new_after=time(5, 45))
+    clock, push = Clock(datetime(2026, 11, 2, 12, 0, tzinfo=Z)), Push()
+    run = ran(clock, NightReport(stopped_at_cutoff=True))
+    schedule_loop(lambda: Late(), now=clock.now, sleep=clock.sleep, push=push, run=run, nights=1)
+    [(_, body)] = push.sent
+    assert body == "Stopped at the 05:45 cutoff."
+
+
 def test_the_loop_logs_its_next_run_when_it_starts_waiting(caplog):
     # docker compose logs shows a runner that is waiting, not stuck (R28)
     clock, push = Clock(datetime(2026, 11, 2, 12, 0, tzinfo=Z)), Push()

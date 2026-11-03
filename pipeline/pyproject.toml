@@ -5,6 +5,7 @@ description = "Nightly runner that turns new articles into podcast episodes"
 requires-python = ">=3.11"
 dependencies = [
     "defusedxml>=0.7.1",
+    "httpx2>=2.16.0",  # imported directly (narration_client); mcp's own HTTP client
     "mcp==2.3.0",
     "requests>=2.34.2",
 ]

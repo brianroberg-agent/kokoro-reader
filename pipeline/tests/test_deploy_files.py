@@ -185,3 +185,23 @@ def test_the_build_stops_on_an_agentbox_image_without_the_switches(name, script,
                           capture_output=True, text=True, timeout=10)
     assert (done.returncode == 0) is ok
     assert (OLD_IMAGE in done.stderr) is not ok
+
+
+def test_every_third_party_import_is_declared():
+    # the image installs what pyproject.toml and uv.lock name; a module that only comes
+    # in through another package's dependencies can go when that package changes
+    import ast
+    import sys
+    import tomllib
+    package = DEPLOY.parent / "pipeline" / "narration_pipeline"
+    imported = set()
+    for path in package.glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Import):
+                imported |= {alias.name.split(".")[0] for alias in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                imported.add(node.module.split(".")[0])
+    third_party = imported - set(sys.stdlib_module_names) - {"narration_pipeline"}
+    project = tomllib.loads((DEPLOY.parent / "pipeline" / "pyproject.toml").read_text())["project"]
+    declared = {re.split(r"[<>=!~ ;\[]", d, maxsplit=1)[0] for d in project["dependencies"]}
+    assert third_party and third_party <= declared, third_party - declared
