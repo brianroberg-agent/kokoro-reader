@@ -30,3 +30,18 @@ def test_prompt_is_one_command_line_argument(text):
 
 def test_prompt_leaves_voice_and_speed_at_the_defaults(text):
     assert "Call `record` with no arguments: the podcast's voice and speed are the defaults." in text
+
+
+def outcome_line(text, outcome):
+    lines = [line for line in text.splitlines() if line.startswith(f"- **`{outcome}`:**")]
+    assert len(lines) == 1, outcome
+    return lines[0]
+
+
+def test_prompt_outcomes_follow_the_spec(text):
+    # Spec: "`minor` is for issues the skill would 'likely ignore' or couldn't fix" (ruling R24).
+    assert "nothing you would address or note" in outcome_line(text, "clean")
+    minor = outcome_line(text, "minor")
+    assert "likely ignore" in minor and "couldn't fix" in minor and "`remaining_issues`" in minor
+    assert "only for missing or garbled content" in outcome_line(text, "hold")
+    assert "noise" not in text

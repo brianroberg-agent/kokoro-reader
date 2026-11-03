@@ -89,9 +89,9 @@ You can't listen to a lookup before recording, so compare its phonemes with the 
 
 Choose the outcome:
 
-- **`clean`:** nothing remains that a listener would notice. Flags you judged to be the verifier's noise aren't remaining issues.
-- **`minor`:** small issues remain: ones you would likely ignore, or ones you couldn't fix in the rounds you had (a name still mispronounced). List each one.
-- **`hold`:** content is missing, extra or garbled and you couldn't fix it, or no checked round of the text as it is now can be had. List what is wrong. Nothing held is published; the editor looks at it.
+- **`clean`:** only when the last check reports nothing you would address or note.
+- **`minor`:** for everything you would likely ignore (the list in "Assessing the report", the verifier's over-granular flags included) and everything you couldn't fix in the rounds you had (a name still mispronounced). List each one in `remaining_issues`.
+- **`hold`:** only for missing or garbled content you couldn't fix. List what is wrong. Nothing held is published; the editor looks at it.
 
 Each remaining issue has a `kind` (`mispronunciation`, `pacing`, `artifact`, `truncation` or `other`), a `where` (a timestamp in the whole recording, like 12:40) and a short `note` for the editor. The kind and the timestamp are published in the episode notes; the note isn't.
 
