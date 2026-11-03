@@ -39,46 +39,58 @@ def parse_feed(xml: str) -> list[FeedItem]:
     root = ElementTree.fromstring(xml)
     items = []
     for item in root.iter("item"):
+        url = item.findtext("link", "").strip()
+        if not url:
+            raise DiscoveryError("feed", "an item has no link")
         items.append(
             FeedItem(
-                url=item.findtext("link", "").strip(),
+                url=url,
                 title=item.findtext("title", "").strip(),
                 published=parsedate_to_datetime(item.findtext("pubDate", "")).date(),
             )
         )
+    if not items:
+        raise DiscoveryError("feed", "no items in the feed")
     return items
 
 
 _ISSUES_RE = re.compile(r"TNA_ISSUES\s*=\s*(\[.*?\]);const TNA_INITIAL_SLUG", re.S)
 
 
-def parse_issue_index(html: str) -> dict[str, tuple[int, str]]:
+def parse_issue_index(html: str) -> dict[str, tuple[int, str, str]]:
     match = _ISSUES_RE.search(html)
     if not match:
         raise DiscoveryError("listing", "no TNA_ISSUES array in the page")
     try:
-        issues = json.loads(match.group(1))
-        return {
-            article["url"]: (issue["number"], issue["name"])
-            for issue in issues
-            for section in issue["sections"]
-            for article in section["articles"]
-        }
+        index = {}
+        for issue in json.loads(match.group(1)):
+            number, name = issue["number"], issue["name"]
+            if type(number) is not int or not isinstance(name, str):
+                raise TypeError(f"issue number/name has the wrong type: {number!r}, {name!r}")
+            for section in issue["sections"]:
+                for article in section["articles"]:
+                    title = article["title"]
+                    if not isinstance(title, str):
+                        raise TypeError(f"article title is not a string: {title!r}")
+                    index[article["url"]] = (number, name, title)
     except (ValueError, KeyError, TypeError) as e:
         raise DiscoveryError("listing", f"unreadable TNA_ISSUES: {e!r}") from e
+    if not index:
+        raise DiscoveryError("listing", "TNA_ISSUES holds no articles")
+    return index
 
 
 def candidates(
-    feed: list[FeedItem], index: dict[str, tuple[int, str]], source: Source
+    feed: list[FeedItem], index: dict[str, tuple[int, str, str]], source: Source
 ) -> list[Candidate]:
     out: dict[str, Candidate] = {}
     for item in feed:
-        edition, season = index.get(item.url, (None, None))
+        edition, season = index.get(item.url, (None, None, None))[:2]
         out[item.url] = Candidate(item.url, item.title, item.published, edition, season)
-    for url, (edition, season) in index.items():
+    for url, (edition, season, title) in index.items():
         if edition >= source.start_edition and url not in out:
-            # The index carries no titles or dates; the URL slug stands in for the title.
-            out[url] = Candidate(url, url.rstrip("/").rsplit("/", 1)[-1], None, edition, season)
+            # The index carries no publication dates.
+            out[url] = Candidate(url, title, None, edition, season)
     return list(out.values())
 
 
@@ -88,7 +100,7 @@ def in_scope(c: Candidate, source: Source) -> bool:
     return c.published is not None and c.published >= source.start_date
 
 
-LISTINGS: dict[str, tuple[str, Callable[[str], dict]]] = {
+LISTINGS: dict[str, tuple[str, Callable[[str], dict[str, tuple[int, str, str]]]]] = {
     "new-atlantis-issues": ("https://www.thenewatlantis.com/issues", parse_issue_index),
 }
 
@@ -96,7 +108,7 @@ LISTINGS: dict[str, tuple[str, Callable[[str], dict]]] = {
 def discover(source: Source, fetch_text: Callable[[str], str]) -> list[Candidate]:
     try:
         feed = parse_feed(fetch_text(source.feed))
-        index: dict[str, tuple[int, str]] = {}
+        index: dict[str, tuple[int, str, str]] = {}
         if source.listing:
             url, parser = LISTINGS[source.listing]
             index = parser(fetch_text(url))
