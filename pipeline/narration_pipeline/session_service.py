@@ -222,7 +222,8 @@ def _result_error(event: dict) -> str:
 def parse_result(event: dict) -> dict:
     """The service's result from claude's final `result` event. finished_ok means the
     session ended normally, not that the recording is good: the runner's finalize
-    decides that. tokens counts input, output and cache tokens (ruling R20)."""
+    decides that. tokens is the total volume: input_tokens + output_tokens +
+    cache_creation_input_tokens + cache_read_input_tokens, those present (spend is cost_usd)."""
     usage = event.get("usage") if isinstance(event.get("usage"), dict) else {}
     counts = [usage[key] for key in TOKEN_KEYS if _integer(usage.get(key))]
     cost, turns, reason = event.get("total_cost_usd"), event.get("num_turns"), event.get("terminal_reason")

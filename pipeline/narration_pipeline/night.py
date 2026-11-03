@@ -357,7 +357,7 @@ class _Night:
         if not it.recovered:
             fields["claude_cost_usd"] = self.claude_usd(it)
             fields["run_seconds"] = _seconds(it.started, self.d.now())
-            tokens = (it.session or {}).get("tokens")  # input + output, from the session (R20)
+            tokens = (it.session or {}).get("tokens")  # all four usage counts, from the session (R20a)
             if isinstance(tokens, int):
                 fields["claude_tokens"] = tokens
         issues = (it.st.get("finish") or {}).get("remaining_issues")
