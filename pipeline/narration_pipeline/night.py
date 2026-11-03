@@ -16,6 +16,7 @@ from narration_pipeline import handoff as handoff_files
 from narration_pipeline.abs import AbsTimeout, episode_filename
 from narration_pipeline.config import Settings, Source
 from narration_pipeline.discovery import DiscoveryError, discover
+from narration_pipeline.messages import discovery_failed_message, hold_message
 from narration_pipeline.narration_client import NarrationError, NarrationUnavailable, valid_item_id
 from narration_pipeline.record import Record, Row
 
@@ -149,7 +150,7 @@ class _Night:
                 cands = discover(source, self.d.fetch_text)
             except DiscoveryError as e:
                 self.report.discovery_errors.append(str(e))
-                self.notify(f"Discovery failed: {source.name}", e.reason)
+                self.notify(*discovery_failed_message(source.name, e.reason))
                 continue
             self.report.discovered[source.id] = self.rec.add_discovered(cands, source)[0]
 
@@ -241,7 +242,7 @@ class _Night:
         if action == "hold":
             reasons = it.fin.get("reasons") or ["held by the gate"]
             self.rec.transition(it.row["url"], "held")
-            self.notify(f"Held: {it.row['title']}", "\n".join(reasons))
+            self.notify(*hold_message(it.row, reasons))
             return self.result(it, "held", reasons)
         return self.fail(it, self.why(it))
 
@@ -330,7 +331,7 @@ class _Night:
         if nights >= self.s.failed_nights_to_hold:
             reasons = [f"failed {nights} nights: {error}"]
             self.rec.transition(url, "held", failed_nights=nights, last_error=error)
-            self.notify(f"Held: {it.row['title']}", reasons[0])
+            self.notify(*hold_message(it.row, reasons))
             return self.result(it, "held", reasons)
         if to is None:
             self.rec.update(url, failed_nights=nights, last_error=error)
