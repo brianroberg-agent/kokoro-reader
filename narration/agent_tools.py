@@ -516,12 +516,14 @@ def fix_not_tried(state: dict, issues: list[dict]) -> str | None:
     count. This asks for one fix tried, not one per issue: the check flags new places
     in each round, so a rule per issue would spend every round on most articles. The
     gate doesn't run it: it is about what the session tried, not about whether what it
-    claims of the recording holds."""
+    claims of the recording holds. An item opened before the server kept recorded_texts
+    has no record of its rounds' texts, so the rule isn't applied to it."""
     kinds = {i["kind"] for i in issues}
     if (state["records"] >= MAX_RECORDS or _checks_used(state) >= MAX_CHECKS
-            or not kinds & {"mispronunciation", "omission"} or not state["checks"]):
+            or not kinds & {"mispronunciation", "omission"} or not state["checks"]
+            or "recorded_texts" not in state):
         return None
-    texts = {r["round"]: r["sha256"] for r in state.get("recorded_texts", [])}
+    texts = {r["round"]: r["sha256"] for r in state["recorded_texts"]}
     first = min(c["record"] for c in state["checks"])
     later = [h for n, h in texts.items() if n > first]
     left = "while record rounds and checks are left"

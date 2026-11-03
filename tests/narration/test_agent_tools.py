@@ -290,6 +290,19 @@ def test_a_fix_recorded_again_unchanged_still_counts_as_tried(env):
     _round(tools, item); _round(tools, item)
     assert tools.finish(item, "minor", [MISSAID], [])["ok"]
 
+def test_an_item_from_before_recorded_texts_is_not_refused_on_a_guess(env):
+    # An item opened before the server kept recorded_texts has no record of its rounds'
+    # texts, so the rule can't say truly whether a fix was tried; it isn't applied.
+    store, tools, *_, item, _ = env
+    _round(tools, item)
+    tools.replace_text(item, *A_PAUSE)
+    _round(tools, item)  # a fix tried after the first check
+    state = store.load_state(item)
+    del state["recorded_texts"]
+    store.save_state(item, state)
+    assert tools.finish(item, "minor", [MISSAID], [])["ok"]
+
+
 def test_a_change_made_before_the_first_check_is_not_a_fix_tried(env):
     # The prompt has speech_warnings fixed and recorded again before a check is spent,
     # so two texts are often recorded before any check has heard a word.
