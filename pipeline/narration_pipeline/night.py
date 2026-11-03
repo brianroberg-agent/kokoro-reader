@@ -232,7 +232,7 @@ class _Night:
                                          self.s.session_budget_usd, self.s.session_timeout_s)
             it.session = self.d.handoff.wait_result(self.d.handoff_dir, it.item_id,
                                                     timeout_s=self.s.session_timeout_s + SESSION_GRACE_S)
-            if it.session is None:  # given up on: no session may start on it later
+            if it.session is None:  # given up on: if the service hasn't taken it, it won't
                 self.d.handoff.withdraw_request(self.d.handoff_dir, it.item_id)
             self.classify(it)
             if it.outside:
