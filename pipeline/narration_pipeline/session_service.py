@@ -11,9 +11,11 @@ Standard library only, in one file: the agent image runs it as
 
 The session's whole process group is killed when its init event (its first event
 other than another system event) lists any tool but the six, or the narration server
-isn't connected, and when it runs past the request's timeout. A session in which
-Claude Code couldn't authenticate ends with LOGIN_ERROR, so the runner can tell it from
-the others. A request whose item id is valid gets a result, failures included;
+isn't connected, and when it runs past the request's timeout. Each result has a
+category: "login" when Claude Code couldn't authenticate (its error is then LOGIN_ERROR),
+"api" when Claude Code reported any other failed API request, and "session" otherwise,
+so the runner can tell a failure outside the article from the article's own. A request
+whose item id is valid gets a result, failures included;
 one without a valid id is moved to rejected/ instead. The MCP config file holds the
 item's agent token: it lives in a private temporary directory, which is removed when
 the session ends, however it ends.
@@ -221,6 +223,59 @@ def authentication_failed(event: dict) -> bool:
         and block["text"].startswith(NOT_LOGGED_IN) for block in content)
 
 
+def _synthetic(event: dict) -> bool:
+    message = event.get("message")
+    return (event.get("type") == "assistant" and isinstance(message, dict)
+            and message.get("model") == "<synthetic>")
+
+
+def _text_of(message: dict) -> str:
+    content = message.get("content")
+    if not isinstance(content, list):
+        return ""
+    return " ".join(block["text"].strip() for block in content if isinstance(block, dict)
+                    and block.get("type") == "text" and isinstance(block.get("text"), str)).strip()
+
+
+def api_failure(event: dict) -> str | None:
+    """Claude Code's own message (model <synthetic>) that an API request failed for a
+    reason other than authentication (overloaded, rate-limited, unreachable): marked
+    with an "error" other than authentication_failed, or "is_api_error_message": true.
+    What it says, or None. As for a login failure, the model can't write it."""
+    if not _synthetic(event) or authentication_failed(event):
+        return None
+    error = event.get("error")
+    code = error if isinstance(error, str) and error else None
+    if code is None and event.get("is_api_error_message") is not True:
+        return None
+    text = _clip(_text_of(event["message"]), 300)
+    said = f"Claude Code's API request failed ({_clip(code, 40)})" if code else "Claude Code's API request failed"
+    return f"{said}: {text}" if text else said
+
+
+def outside_failure(event: dict, category: str, detail: str | None) -> tuple[str, str | None]:
+    """The session's category and its API failure's description, after this event. A
+    login failure outranks an API failure: it needs Brian, and it explains the rest."""
+    if authentication_failed(event):
+        return "login", None
+    if category == "session":
+        said = api_failure(event)
+        if said:
+            return "api", said
+    return category, detail
+
+
+def categorized(result: dict, category: str, detail: str | None = None) -> dict:
+    """The result with its category. A login failure's error is LOGIN_ERROR; an API
+    failure keeps the session's own error, or else says what Claude Code said. Neither
+    finished the session's work."""
+    if category == "login":
+        return {**result, "finished_ok": False, "error": LOGIN_ERROR, "category": "login"}
+    if category == "api":
+        return {**result, "finished_ok": False, "error": result["error"] or detail, "category": "api"}
+    return {**result, "category": "session"}
+
+
 def check_init(event: dict) -> str | None:
     """Why the session must be stopped, or None: the event must be the init event, list
     exactly EXPECTED_TOOLS, and show the narration server connected."""
@@ -258,34 +313,34 @@ def _result_error(event: dict) -> str:
     return "; ".join(parts) or "the session ended with an error"
 
 
-def parse_result(event: dict, auth_failed: bool = False) -> dict:
-    """The service's result from claude's final `result` event. finished_ok means the
-    session ended normally, not that the recording is good: the runner's finalize
-    decides that. tokens is the total volume: input_tokens + output_tokens +
-    cache_creation_input_tokens + cache_read_input_tokens, those present (spend is cost_usd).
-    auth_failed (Claude Code said so before its result): LOGIN_ERROR."""
+def parse_result(event: dict) -> dict:
+    """The service's result from claude's final `result` event, category "session"
+    (categorized() sets another). finished_ok means the session ended normally, not
+    that the recording is good: the runner's finalize decides that. tokens is the total
+    volume: input_tokens + output_tokens + cache_creation_input_tokens +
+    cache_read_input_tokens, those present (spend is cost_usd)."""
     usage = event.get("usage") if isinstance(event.get("usage"), dict) else {}
     counts = [usage[key] for key in TOKEN_KEYS if _integer(usage.get(key))]
     cost, turns, reason = event.get("total_cost_usd"), event.get("num_turns"), event.get("terminal_reason")
     ok = (event.get("type") == "result" and event.get("is_error") is not True
           and event.get("subtype") in (None, "success"))
     error = None if ok else _result_error(event)
-    if auth_failed:
-        ok, error = False, LOGIN_ERROR
     return {"finished_ok": ok,
             "cost_usd": float(cost) if _number(cost) and math.isfinite(cost) else None,
             "num_turns": turns if _integer(turns) else None,
             "terminal_reason": _clip(reason, 200) if isinstance(reason, str) else None,
             "error": error,
-            "tokens": sum(counts) if counts else None}
+            "tokens": sum(counts) if counts else None,
+            "category": "session"}
 
 
 def failure(error: str, stderr=()) -> dict:
-    """A result for a session that didn't end normally (or never started)."""
+    """A result for a session that didn't end normally (or never started), category
+    "session" (categorized() sets another)."""
     if stderr:
         error += "; stderr: " + " | ".join(stderr)
     return {"finished_ok": False, "cost_usd": None, "num_turns": None, "terminal_reason": None,
-            "error": _clip(error, MAX_ERROR), "tokens": None}
+            "error": _clip(error, MAX_ERROR), "tokens": None, "category": "session"}
 
 
 def _redact(text: str | None, secrets) -> str | None:
@@ -345,14 +400,17 @@ def _run(req: Request, cfg: ServiceConfig, private: Path, started: list, secrets
 
 def _watch(proc: subprocess.Popen, timeout_s: int, secrets) -> dict:
     """Read claude's stream-json events until its result, a failed tool check, the end of
-    its output, or the deadline. stderr is drained all along, so it can't fill its pipe."""
+    its output, or the deadline. stderr is drained all along, so it can't fill its pipe.
+    Claude Code's own failure messages set the result's category on each of those
+    endings but the tool check (which comes before any of them)."""
     deadline = time.monotonic() + timeout_s
     lines: queue.Queue = queue.Queue()
     tail: collections.deque = collections.deque(maxlen=STDERR_LINES)
     threading.Thread(target=_pump, args=(proc.stdout, lines, secrets), daemon=True).start()
     drain = threading.Thread(target=_drain, args=(proc.stderr, tail, secrets), daemon=True)
     drain.start()
-    checked = auth_failed = False
+    checked = False
+    category, detail = "session", None
     while True:
         remaining = deadline - time.monotonic()
         try:
@@ -362,7 +420,7 @@ def _watch(proc: subprocess.Popen, timeout_s: int, secrets) -> dict:
         except queue.Empty:
             _stop(proc)
             drain.join(timeout=2)
-            return failure(f"timed out after {timeout_s} s", list(tail))
+            return categorized(failure(f"timed out after {timeout_s} s", list(tail)), category, detail)
         if line is None:  # stdout closed: claude is exiting
             break
         event = _event(line)
@@ -378,12 +436,13 @@ def _watch(proc: subprocess.Popen, timeout_s: int, secrets) -> dict:
             checked = True
         elif event.get("type") == "result":
             _finish(proc)
-            return parse_result(event, auth_failed)
+            return categorized(parse_result(event), category, detail)
         else:
-            auth_failed = auth_failed or authentication_failed(event)
+            category, detail = outside_failure(event, category, detail)
     status = _finish(proc)
     drain.join(timeout=2)
-    return failure(f"no result event (claude exited with status {status})", list(tail))
+    return categorized(failure(f"no result event (claude exited with status {status})", list(tail)),
+                       category, detail)
 
 
 def _pump(stream, lines: queue.Queue, secrets) -> None:

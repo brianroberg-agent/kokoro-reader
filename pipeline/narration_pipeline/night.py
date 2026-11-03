@@ -16,7 +16,7 @@ from narration_pipeline import handoff as handoff_files
 from narration_pipeline.abs import AbsTimeout, episode_filename
 from narration_pipeline.config import Settings, Source
 from narration_pipeline.discovery import DiscoveryError, discover
-from narration_pipeline.messages import discovery_failed_message, hold_message, login_failed_message
+from narration_pipeline.messages import discovery_failed_message, hold_message, stopped_message
 from narration_pipeline.narration_client import NarrationError, NarrationUnavailable, valid_item_id
 from narration_pipeline.record import Record, Row
 from narration_pipeline.session_service import LOGIN_ERROR
@@ -24,6 +24,9 @@ from narration_pipeline.session_service import LOGIN_ERROR
 MAC_POLL_S = 300        # how often to ask whether the Mac is back
 SESSION_GRACE_S = 300   # wait for the session's result this long past its own timeout
 RECOVERY_WAIT_S = 1800  # an upload has this long to show before recovery uploads again (R16, R21)
+# Session categories for a failure outside the article: every later session would fail
+# the same way, so the night stops, and the article doesn't count a failed night.
+OUTSIDE = ("login", "api")
 
 
 class RunInProgress(RuntimeError):
@@ -67,7 +70,7 @@ class NightReport:
     discovery_errors: list[str] = field(default_factory=list)
     mac_unreachable: bool = False
     stopped_at_cutoff: bool = False
-    login_failed: bool = False  # a session found Claude Code logged out: the night stopped
+    stopped_by: str | None = None  # "login" or "api": a failure outside the articles stopped the night
 
 
 def deadlines(start: datetime, mac_wait_until: time, no_new_after: time) -> tuple[datetime, datetime]:
@@ -145,7 +148,7 @@ class _Night:
                 self.report.stopped_at_cutoff = True
                 break
             self.report.results.append(self.process(row))
-            if self.report.login_failed or not self.mac_still_there():
+            if self.report.stopped_by or not self.mac_still_there():
                 break
         return self.report
 
@@ -196,9 +199,10 @@ class _Night:
                                          self.s.session_budget_usd, self.s.session_timeout_s)
             it.session = self.d.handoff.wait_result(self.d.handoff_dir, it.item_id,
                                                     timeout_s=self.s.session_timeout_s + SESSION_GRACE_S)
-            if self.login_lost(it):
-                self.report.login_failed = True  # every later session would fail the same way
-                self.notify(*login_failed_message(LOGIN_ERROR))
+            outside = self.outside(it)
+            if outside:
+                self.report.stopped_by = outside
+                self.notify(*stopped_message(outside, self.outside_error(it)))
         except Exception as e:
             return self.after_error(it, e)
         return self.conclude(it)
@@ -222,8 +226,8 @@ class _Night:
         try:
             if it.fin is None:
                 it.fin = self.finalize(it)
-            if self.login_lost(it) and it.fin["action"] == "retry" and not self.dry_run:
-                return self.logged_out(it)
+            if self.outside(it) and it.fin["action"] == "retry" and not self.dry_run:
+                return self.not_the_articles(it)
             it.st = self.d.narration.status(it.item_id)
             if self.dry_run:
                 return self.result(it, it.row["status"], it.fin.get("reasons") or [], it.fin["action"])
@@ -257,15 +261,25 @@ class _Night:
             return self.result(it, "held", reasons)
         return self.fail(it, self.why(it))
 
-    def login_lost(self, it: _Item) -> bool:
-        return (it.session or {}).get("error") == LOGIN_ERROR
+    def outside(self, it: _Item) -> str | None:
+        """The session's category when it failed for a reason outside the article: Claude
+        Code couldn't authenticate ("login") or its API requests failed ("api")."""
+        category = (it.session or {}).get("category")
+        return category if category in OUTSIDE else None
 
-    def logged_out(self, it: _Item) -> ItemResult:
-        """The session couldn't authenticate, which says nothing about the article (the
-        push went when its result came in): the row is failed, so it comes first next
-        night, without a failed night."""
-        self.rec.transition(it.row["url"], "failed", last_error=LOGIN_ERROR)
-        return self.result(it, "failed", [LOGIN_ERROR])
+    def outside_error(self, it: _Item) -> str:
+        if self.outside(it) == "login":
+            return LOGIN_ERROR
+        error = it.session.get("error")
+        return error if isinstance(error, str) and error else "Claude Code's API requests failed"
+
+    def not_the_articles(self, it: _Item) -> ItemResult:
+        """The session failed for a reason outside the article, which says nothing about
+        it (the push went when its result came in): the row is failed, so it comes first
+        next night, without a failed night."""
+        error = self.outside_error(it)
+        self.rec.transition(it.row["url"], "failed", last_error=error)
+        return self.result(it, "failed", [error])
 
     def publish(self, it: _Item) -> ItemResult:
         meta = it.st["metadata"]  # the server's copy, so recovery computes the same file name
@@ -323,7 +337,7 @@ class _Night:
                     return self.conclude(it)
                 if self.dry_run:
                     return self.leave(it, error)
-                return self.logged_out(it) if self.login_lost(it) else self.fail(it, error)
+                return self.not_the_articles(it) if self.outside(it) else self.fail(it, error)
         if self.dry_run or (unavailable and it.item_id is not None):
             # The Mac went away after the forced finalize or after a decision: the next
             # run's recovery takes the row from there, without recording again.

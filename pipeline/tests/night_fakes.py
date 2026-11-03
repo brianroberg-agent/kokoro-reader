@@ -22,6 +22,7 @@ NY = ZoneInfo("America/New_York")
 START = datetime(2026, 11, 3, 1, 0, tzinfo=NY)
 ISSUES = [{"kind": "mispronunciation", "where": "12:40", "note": "Zounk"}]
 HELD = [{"kind": "garbled", "where": "03:10", "note": "a paragraph is missing"}]
+API_ERROR = "API error status 529; API Error: Repeated 529 Overloaded errors"
 
 
 def source(id: str = "tna") -> Source:
@@ -47,7 +48,7 @@ class Crash(BaseException):
 @dataclass
 class Script:
     fetch: str = "ok"        # ok | error
-    session: str = "clean"   # clean | minor | hold | gate_hold | no_finish | no_result | no_login
+    session: str = "clean"   # clean | minor | hold | gate_hold | no_finish | no_result | no_login | api_down
     session_s: int = 1200    # how long the session takes
     mac: str | None = None   # None | blip_<call> (that call fails once) | down_in_session
     abs: str = "ok"          # ok | error_before_upload | error_after_upload | error_in_wait (once each)
@@ -197,7 +198,7 @@ class FakeSessions:
             clock.sleep(timeout_s)
             return None
         result = {"item_id": item_id, "finished_ok": False, "cost_usd": 0.4, "num_turns": 30,
-                  "tokens": 51000, "terminal_reason": None, "error": None}
+                  "tokens": 51000, "terminal_reason": None, "error": None, "category": "session"}
         if script.mac == "down_in_session":
             clock.sleep(300)
             self.w.narration.down_until = clock.now() + timedelta(minutes=30)
@@ -207,7 +208,11 @@ class FakeSessions:
         if script.session == "no_login":  # Claude Code isn't logged in: it stops at once
             clock.sleep(5)
             return {**result, "cost_usd": 0.0, "num_turns": 1, "tokens": 0, "terminal_reason": "api_error",
-                    "error": LOGIN_ERROR}
+                    "error": LOGIN_ERROR, "category": "login"}
+        if script.session == "api_down":  # Claude Code gave up on the API after its retries
+            clock.sleep(60)
+            return {**result, "cost_usd": 0.01, "num_turns": 1, "tokens": 0, "terminal_reason": "api_error",
+                    "error": API_ERROR, "category": "api"}
         clock.sleep(script.session_s)
         if script.session == "no_finish":
             item.records, item.checks = 4, 8

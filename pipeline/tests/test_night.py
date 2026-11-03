@@ -9,7 +9,7 @@ from narration_pipeline.abs import AbsError, episode_filename
 from narration_pipeline.config import Settings
 from narration_pipeline.discovery import Candidate
 from narration_pipeline.night import Deps, deadlines, run_night
-from night_fakes import HELD, ISSUES, NY, Crash, Script, World, restore_record_clock, source
+from night_fakes import API_ERROR, HELD, ISSUES, NY, Crash, Script, World, restore_record_clock, source
 
 
 @pytest.fixture(autouse=True)
@@ -105,52 +105,74 @@ def test_no_finish_fails_and_retries_next_night(world):
 
 LOGIN_ERROR = "Claude Code could not authenticate (CLAUDE_CODE_OAUTH_TOKEN missing, expired or invalid)"
 
+# A session that failed for a reason outside the article: its category, the push it
+# sends (title, body), and the row's last_error.
+OUTSIDE = pytest.mark.parametrize("session,category,title,error", [
+    ("no_login", "login", "Claude login failed", LOGIN_ERROR),
+    ("api_down", "api", "Claude API unreachable", API_ERROR),
+], ids=["login", "api"])
 
-def test_a_lost_claude_login_pushes_once_and_stops_the_night(world):
-    a = world.add_article(1, script=Script(session="no_login"))
+
+@OUTSIDE
+def test_an_outside_failure_pushes_once_and_stops_the_night(world, session, category, title, error):
+    a = world.add_article(1, script=Script(session=session))
     b = world.add_article(2)
     report = world.run()
     [r] = report.results  # the second article isn't started
-    assert report.login_failed and (r.url, r.status) == (a, "failed")
+    assert report.stopped_by == category and (r.url, r.status) == (a, "failed")
     item_id = only_item(world)
     assert world.narration.finalizes == [(item_id, False), (item_id, True)]  # finalized as usual
     row = world.record.row(a)
-    assert (row["status"], row["failed_nights"], row["last_error"]) == ("failed", 0, LOGIN_ERROR)
+    assert (row["status"], row["failed_nights"], row["last_error"]) == ("failed", 0, error)
     assert world.record.row(b)["status"] == "queued"
-    assert world.push.sent == [("Claude login failed", LOGIN_ERROR, "default")]
+    assert world.push.sent == [(title, error, "default")]
     assert world.abs.episodes == []
 
 
+@OUTSIDE
 @pytest.mark.parametrize("call", ["status", "finalize"])
-def test_a_lost_login_still_pushes_once_and_counts_no_night_after_a_mac_blip(world, call):
-    a = world.add_article(1, script=Script(session="no_login", mac=f"blip_{call}"))
+def test_an_outside_failure_still_pushes_once_and_counts_no_night_after_a_mac_blip(
+        world, call, session, category, title, error):
+    a = world.add_article(1, script=Script(session=session, mac=f"blip_{call}"))
     world.add_article(2)
     report = world.run()
-    assert report.login_failed and len(report.results) == 1
+    assert report.stopped_by == category and len(report.results) == 1
     row = world.record.row(a)
-    assert (row["status"], row["failed_nights"], row["last_error"]) == ("failed", 0, LOGIN_ERROR)
-    assert world.push.sent == [("Claude login failed", LOGIN_ERROR, "default")]
+    assert (row["status"], row["failed_nights"], row["last_error"]) == ("failed", 0, error)
+    assert world.push.sent == [(title, error, "default")]
 
 
-def test_a_lost_login_never_holds_the_article(world):
-    url = world.add_article(1, script=Script(session="no_login"))
+@OUTSIDE
+def test_an_outside_failure_never_holds_the_article(world, session, category, title, error):
+    url = world.add_article(1, script=Script(session=session))
     for night in range(4):
         [r] = world.run().results
         assert r.status == "failed"
         world.next_night()
     row = world.record.row(url)
     assert (row["status"], row["failed_nights"]) == ("failed", 0)
-    assert [title for title, _, _ in world.push.sent] == ["Claude login failed"] * 4
-    world.scripts[url] = Script()  # the login is renewed
+    assert [t for t, _, _ in world.push.sent] == [title] * 4
+    world.scripts[url] = Script()  # the login is renewed, the API is back
     [r] = world.run().results
     assert r.status == "published"
 
 
-def test_a_lost_login_in_a_dry_run_stops_it_without_a_push(world):
-    world.add_article(1, script=Script(session="no_login"))
+@OUTSIDE
+def test_an_outside_failure_in_a_dry_run_stops_it_without_a_push(world, session, category, title, error):
+    world.add_article(1, script=Script(session=session))
     world.add_article(2)
     report = world.run(dry_run=True)
-    assert report.login_failed and len(report.results) == 1 and world.push.sent == []
+    assert report.stopped_by == category and len(report.results) == 1 and world.push.sent == []
+
+
+def test_a_session_failure_is_the_articles(world):
+    # category "session": the night goes on, and the failed night counts against the article
+    a = world.add_article(1, script=Script(session="no_finish"))
+    b = world.add_article(2)
+    report = world.run()
+    assert report.stopped_by is None
+    assert [(r.url, r.status) for r in report.results] == [(a, "failed"), (b, "published")]
+    assert world.record.row(a)["failed_nights"] == 1 and world.push.sent == []
 
 
 def test_no_session_result_fails(world):

@@ -41,14 +41,19 @@ def discovery_failed_message(source_name: str, reason: str) -> tuple[str, str]:
     return f"Discovery failed: {source_name}", plain(reason)
 
 
-def login_failed_message(error: str) -> tuple[str, str]:
-    return "Claude login failed", plain(error)
+# What stopped the night, by NightReport.stopped_by: each push's title, and the
+# summary's and the run's line.
+STOPPED = {"login": "Claude login failed", "api": "Claude API unreachable"}
+
+
+def stopped_message(category: str, detail: str) -> tuple[str, str]:
+    return STOPPED[category], plain(detail)
 
 
 def summary_text(report: "NightReport") -> str | None:
     queued = sum(report.discovered.values())
     if not (report.results or report.discovery_errors or report.mac_unreachable
-            or report.stopped_at_cutoff or report.login_failed or queued):
+            or report.stopped_at_cutoff or report.stopped_by or queued):
         return None
     lines = []
     by_status = {}
@@ -70,8 +75,8 @@ def summary_text(report: "NightReport") -> str | None:
         lines.append("The Mac wasn't reachable.")
     if report.stopped_at_cutoff:
         lines.append("Stopped at the 06:00 cutoff.")
-    if report.login_failed:
-        lines.append("Stopped: Claude login failed.")
+    if report.stopped_by:
+        lines.append(f"Stopped: {STOPPED[report.stopped_by]}.")
     lines += [f"Discovery failed: {e}" for e in report.discovery_errors]
     if queued:
         lines.append(f"{queued} new article{'' if queued == 1 else 's'} queued.")

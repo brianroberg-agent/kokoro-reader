@@ -169,7 +169,8 @@ def test_check_init_refuses_anything_but_an_init_event_with_a_tool_list(event):
 
 def test_parse_result_reads_a_successful_session():
     assert ss.parse_result(RESULT) == {"finished_ok": True, "cost_usd": 0.42, "num_turns": 7,
-                                       "terminal_reason": "completed", "error": None, "tokens": 100}
+                                       "terminal_reason": "completed", "error": None, "tokens": 100,
+                                       "category": "session"}
 
 
 def test_parse_result_reads_an_error_subtype():
@@ -189,7 +190,7 @@ def test_parse_result_tolerates_missing_and_odd_keys():
     out = ss.parse_result({"type": "result", "usage": {"input_tokens": 5, "output_tokens": "x"},
                            "total_cost_usd": True, "num_turns": "7"})
     assert out == {"finished_ok": True, "cost_usd": None, "num_turns": None, "terminal_reason": None,
-                   "error": None, "tokens": 5}
+                   "error": None, "tokens": 5, "category": "session"}
 
 
 # -- validate_request --
@@ -441,6 +442,83 @@ def test_auth_failure_is_read_only_from_claude_codes_own_messages():
         assert not ss.authentication_failed(event)
 
 
+# Claude Code's own message that an API request failed for another reason (overloaded,
+# rate-limited, unreachable). Built in the shape of the captured authentication events
+# above; the error codes Claude Code uses for these were not captured, so the tests
+# take any code but authentication_failed, as the service does.
+API_TEXT = "API Error: Repeated 529 Overloaded errors"
+API_ASSISTANT = synthetic(API_TEXT, error="server_error", is_api_error_message=True)
+API_RESULT = auth_result(API_TEXT, api_error_status=529)
+
+
+@pytest.mark.parametrize("ending", ["result", "no result", "timeout"])
+@pytest.mark.parametrize("failure, category", [(LOGIN_ASSISTANT, "login"), (BAD_TOKEN_ASSISTANT, "login"),
+                                               (API_ASSISTANT, "api")], ids=["no-login", "bad-token", "api"])
+def test_claude_codes_own_failure_is_categorized_on_every_exit_path(fake_claude, cfg, failure, category, ending):
+    end = {"result": [{"out": API_RESULT if category == "api" else LOGIN_RESULT}],
+           "no result": [{"exit": 1}], "timeout": [{"sleep": 60}]}[ending]
+    fake_claude({"out": UI_INVALIDATE}, {"out": init_event()}, {"out": failure}, *end)
+    out = ss.run_session(request(timeout_s=2), cfg)
+    assert out["category"] == category and out["finished_ok"] is False
+    if category == "login":
+        assert out["error"] == LOGIN_ERROR
+    else:
+        assert out["error"]
+
+
+def test_an_api_failure_keeps_the_sessions_own_error(fake_claude, cfg):
+    fake_claude({"out": init_event()}, {"out": API_ASSISTANT}, {"out": API_RESULT})
+    out = ss.run_session(request(), cfg)
+    assert out == {**ss.parse_result(API_RESULT), "category": "api"}
+    assert "API error status 529" in out["error"]
+
+
+@pytest.mark.parametrize("ending", ["no result", "timeout", "success"])
+def test_an_api_failure_without_an_error_of_its_own_says_what_claude_code_said(fake_claude, cfg, ending):
+    end = {"no result": {"exit": 1}, "timeout": {"sleep": 60},
+           "success": {"out": {**API_RESULT, "is_error": False, "result": ""}}}[ending]
+    fake_claude({"out": init_event()}, {"out": API_ASSISTANT}, end)
+    out = ss.run_session(request(timeout_s=2), cfg)
+    assert out["category"] == "api" and out["finished_ok"] is False
+    if ending == "success":  # nothing else to go on: Claude Code's message is the error
+        assert "server_error" in out["error"] and API_TEXT in out["error"]
+    else:                    # the session's own error, as for any other session
+        assert out["error"].startswith(("no result event", "timed out after 2 s"))
+
+
+def test_api_failure_is_read_only_from_claude_codes_own_messages():
+    assert ss.api_failure(API_ASSISTANT) and API_TEXT in ss.api_failure(API_ASSISTANT)
+    assert ss.api_failure(synthetic("Rate limited", error="rate_limit"))
+    assert ss.api_failure(synthetic("API Error: Connection error.", is_api_error_message=True))  # flag, no code
+    for event in (LOGIN_ASSISTANT, BAD_TOKEN_ASSISTANT,                  # those are login failures
+                  synthetic("No response requested."),                   # Claude Code's, but no error
+                  {**API_ASSISTANT, "message": {**API_ASSISTANT["message"], "model": "a-model"}},  # the model's
+                  API_RESULT, API_RETRY, UI_INVALIDATE):
+        assert ss.api_failure(event) is None
+
+
+def test_a_login_failure_outranks_an_api_failure(fake_claude, cfg):
+    fake_claude({"out": init_event()}, {"out": API_ASSISTANT}, {"out": BAD_TOKEN_ASSISTANT}, {"out": BAD_TOKEN_RESULT})
+    out = ss.run_session(request(), cfg)
+    assert (out["category"], out["error"]) == ("login", LOGIN_ERROR)
+
+
+@pytest.mark.parametrize("steps", [
+    [{"out": RESULT}],                                                        # success
+    [{"out": {"type": "result", "subtype": "error_max_budget_usd", "is_error": True}}],  # an error result
+    [{"exit": 3}],                                                            # no result event
+    [{"sleep": 60}],                                                          # timeout
+    [{"out": {**API_ASSISTANT, "message": {**API_ASSISTANT["message"], "model": "a-model"}}}, {"out": RESULT}],
+], ids=["success", "error-result", "no-result", "timeout", "model-wrote-it"])
+def test_every_other_session_is_category_session(fake_claude, cfg, steps):
+    fake_claude({"out": init_event()}, *steps)
+    assert ss.run_session(request(timeout_s=2), cfg)["category"] == "session"
+
+
+def test_results_the_service_writes_itself_are_category_session():
+    assert ss.failure("service restarted during the session")["category"] == "session"
+
+
 def test_run_session_timeout_kills(fake_claude, cfg):
     bindir = fake_claude({"child": True}, {"out": init_event()}, {"sleep": 60}, {"out": RESULT})
     started = time.monotonic()
@@ -494,7 +572,7 @@ def test_run_session_without_claude(cfg, monkeypatch, tmp_path):
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     out = ss.run_session(request(), cfg)
     assert out == {"finished_ok": False, "cost_usd": None, "num_turns": None, "terminal_reason": None,
-                   "error": "claude not found", "tokens": None}
+                   "error": "claude not found", "tokens": None, "category": "session"}
 
 
 # -- serve --

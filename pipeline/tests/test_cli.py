@@ -188,10 +188,12 @@ def test_schedule_nights_must_be_at_least_one(tmp_path, capsys, value, message):
     assert e.value.code == 2 and message in capsys.readouterr().err
 
 
-def test_run_says_when_a_lost_login_stopped_it(tmp_path, capsys):
+@pytest.mark.parametrize("session,line", [("no_login", "stopped: Claude login failed"),
+                                          ("api_down", "stopped: Claude API unreachable")])
+def test_run_says_when_an_outside_failure_stopped_it(tmp_path, capsys, session, line):
     world = World(tmp_path)
-    world.add_article(1, script=Script(session="no_login"))
+    world.add_article(1, script=Script(session=session))
     world.add_article(2)
     assert main(["run"], env={}, deps_factory=lambda env: world.deps()) == 0
     out = capsys.readouterr().out
-    assert "stopped: Claude login failed" in out and "Article 2" not in out
+    assert line in out and "Article 2" not in out

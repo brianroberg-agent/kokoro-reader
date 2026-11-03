@@ -14,6 +14,7 @@ from narration_pipeline import schedule
 from narration_pipeline.abs import Audiobookshelf, abs_check
 from narration_pipeline.config import load_settings, load_sources
 from narration_pipeline.fetch import fetch_text, run_article_assistant
+from narration_pipeline.messages import STOPPED
 from narration_pipeline.narration_client import NarrationClient
 from narration_pipeline.night import Deps, NightReport, RunInProgress, run_night
 from narration_pipeline.push import Push
@@ -65,8 +66,8 @@ def report_text(report: NightReport, dry_run: bool) -> str:
         lines.append("the Mac wasn't reachable")
     if report.stopped_at_cutoff:
         lines.append("stopped at the cutoff")
-    if report.login_failed:
-        lines.append("stopped: Claude login failed")
+    if report.stopped_by:
+        lines.append(f"stopped: {STOPPED[report.stopped_by]}")
     return "\n".join(lines) or "nothing to do"
 
 
