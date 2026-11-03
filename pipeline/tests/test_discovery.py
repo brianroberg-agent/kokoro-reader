@@ -8,7 +8,9 @@ from narration_pipeline.discovery import (
     LISTINGS,
     Candidate,
     DiscoveryError,
+    FeedItem,
     candidates,
+    canonical_url,
     discover,
     in_scope,
     parse_feed,
@@ -196,3 +198,44 @@ def test_listing_with_wrong_types_raises(number, name):
     issue = {"number": number, "name": name, "sections": [{"articles": [{"url": "u", "title": "t"}]}]}
     with pytest.raises(DiscoveryError):
         parse_issue_index(_page(json.dumps([issue])))
+
+
+def feed_item(url, title="Feed title"):
+    return FeedItem(url, title, date(2026, 10, 1))
+
+
+def test_one_article_under_two_spellings_is_one_candidate():
+    # R35: the same article, spelled two ways in the feed and the index, would otherwise be
+    # recorded, and published, twice
+    feed = [feed_item("http://WWW.thenewatlantis.com/publications/x/")]
+    index = {"https://www.thenewatlantis.com/publications/x": (86, "Fall 2026", "Index title")}
+    [c] = candidates(feed, index, SOURCE)
+    assert (c.url, c.edition, c.season, c.title) == (BASE + "x", 86, "Fall 2026", "Feed title")
+
+
+@pytest.mark.parametrize("raw", [
+    "https://www.thenewatlantis.com/publications/x",
+    "http://www.thenewatlantis.com/publications/x",
+    "https://WWW.TheNewAtlantis.com/publications/x/",
+    "https://www.thenewatlantis.com/publications/x?utm_source=rss#comments",
+    "https://www.thenewatlantis.com:443/publications/x",
+    " https://www.thenewatlantis.com/publications/x ",
+])
+def test_canonical_url(raw):
+    assert canonical_url(raw) == BASE + "x"
+
+
+def test_canonical_url_keeps_the_paths_case_and_another_port():
+    assert canonical_url("http://Example.test:8080/A/b/") == "https://example.test:8080/A/b"
+
+
+def test_index_only_candidates_are_canonical_too():
+    index = {"http://www.thenewatlantis.com/publications/y/?p=1": (86, "Fall 2026", "Y")}
+    assert [c.url for c in candidates([], index, SOURCE)] == [BASE + "y"]
+
+
+def test_a_url_with_a_bad_port_is_a_discovery_error():
+    feed = FEED.replace("https://www.thenewatlantis.com/publications/are-we-really-on-the-path-to-agi",
+                        "https://www.thenewatlantis.com:99999/publications/agi", 1)
+    with pytest.raises(DiscoveryError, match="new-atlantis"):
+        discover(Source(**{**SOURCE.__dict__, "listing": None}), {SOURCE.feed: feed}.__getitem__)

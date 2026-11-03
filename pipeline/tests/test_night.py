@@ -791,6 +791,17 @@ def test_only_does_not_wait_for_the_mac_after_its_article(world):
     assert world.clock.sleeps == [300, 300]  # the session's own: no waiting for the Mac after it
 
 
+@pytest.mark.parametrize("spelling", ["{url}/", "{url}?utm_source=rss", "http://EXAMPLE.test/tna/a1"])
+def test_only_takes_another_spelling_of_the_url(world, spelling):
+    url = world.add_article(1)
+    assert [r.url for r in world.run(only=spelling.format(url=url)).results] == [url]
+
+
+def test_only_refuses_what_is_not_a_url(world):
+    with pytest.raises(NotRunnable, match="not a URL: https://example.test:99999/a"):
+        world.run(only="https://example.test:99999/a")
+
+
 def test_only_refuses_a_baseline_row(world):
     old = world.add_article(1, published=date(2026, 9, 7))  # the day before the start date
     with pytest.raises(ValueError, match="baseline"):

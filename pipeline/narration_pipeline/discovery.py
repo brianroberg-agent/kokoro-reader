@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from email.utils import parsedate_to_datetime
+from urllib.parse import urlsplit, urlunsplit
 
 from defusedxml import ElementTree
 
@@ -33,6 +34,17 @@ class DiscoveryError(Exception):
         super().__init__(f"{source_id}: {reason}")
         self.source_id = source_id
         self.reason = reason
+
+
+def canonical_url(url: str) -> str:
+    """One spelling per article: https, the host lower-cased, no default port, no
+    trailing slash, no query or fragment (R35). The feed and the index can spell one
+    article two ways, and the record keys rows by URL, so two spellings would be two
+    rows, each recorded and published. ValueError for an unreadable port."""
+    parts = urlsplit(url.strip())
+    port = parts.port
+    host = (parts.hostname or "") + ("" if port in (None, 80, 443) else f":{port}")
+    return urlunsplit(("https", host, parts.path.rstrip("/"), "", ""))
 
 
 def parse_feed(xml: str) -> list[FeedItem]:
@@ -84,9 +96,11 @@ def candidates(
     feed: list[FeedItem], index: dict[str, tuple[int, str, str]], source: Source
 ) -> list[Candidate]:
     out: dict[str, Candidate] = {}
+    index = {canonical_url(url): entry for url, entry in index.items()}
     for item in feed:
-        edition, season = index.get(item.url, (None, None, None))[:2]
-        out[item.url] = Candidate(item.url, item.title, item.published, edition, season)
+        url = canonical_url(item.url)
+        edition, season = index.get(url, (None, None, None))[:2]
+        out[url] = Candidate(url, item.title, item.published, edition, season)
     for url, (edition, season, title) in index.items():
         if edition >= source.start_edition and url not in out:
             # The index carries no publication dates.
@@ -112,10 +126,10 @@ def discover(source: Source, fetch_text: Callable[[str], str]) -> list[Candidate
         if source.listing:
             url, parser = LISTINGS[source.listing]
             index = parser(fetch_text(url))
+        return candidates(feed, index, source)
     except DiscoveryError as e:
         raise DiscoveryError(source.id, e.reason) from e
     except KeyError as e:
         raise DiscoveryError(source.id, f"unknown listing {e}") from e
     except Exception as e:
         raise DiscoveryError(source.id, f"{type(e).__name__}: {e}") from e
-    return candidates(feed, index, source)

@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 from narration_pipeline import handoff as handoff_files
 from narration_pipeline.abs import AbsError, AbsTimeout, episode_filename
 from narration_pipeline.config import Settings, Source
-from narration_pipeline.discovery import DiscoveryError, discover
+from narration_pipeline.discovery import DiscoveryError, canonical_url, discover
 from narration_pipeline.messages import discovery_failed_message, hold_message, plain, stopped_message
 from narration_pipeline.narration_client import NarrationError, NarrationUnavailable, valid_item_id
 from narration_pipeline.record import Record, Row
@@ -135,6 +135,10 @@ class _Night:
     def run(self, only: str | None) -> NightReport:
         self.discover()
         if only is not None:
+            try:
+                only = canonical_url(only)  # as discovery wrote it
+            except ValueError:
+                raise NotRunnable(f"not a URL: {only}") from None
             row = self.rec.row(only)
             if row is None:
                 raise NotRunnable(f"not discovered: {only}")
