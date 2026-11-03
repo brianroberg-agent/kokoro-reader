@@ -37,6 +37,7 @@ Edit the prepared text only with `replace_text`. Its `old` must appear exactly o
 - **Paragraph length:** Break any paragraph longer than about 4 or 5 sentences into several. Dense paragraphs with many quoted phrases are especially prone to garbling.
 - **Quotes within quotes:** Simplify nested quotes (`"'economy.'"` becomes `"economy."`). Nested punctuation confuses the engine.
 - **Roman numerals:** Spell them out ("Pope Leo XIV" as "Pope Leo the Fourteenth", "World War I" as "World War One"): the engine reads the letters literally. This changes words, so declare each one (`original` `XIV`, `spoken` `the Fourteenth`). Substitutions together may add only a few words, so spend them where the engine would otherwise be wrong.
+- **Abbreviations:** The engine reads these as written too. Spell out an abbreviation it would read letter by letter or wrongly, and declare it the same way (`original` `approx.`, `spoken` `approximately`).
 - **Em dashes:** Write them as `--`. The engine turns `--` into a longer pause.
 - **Links:** Leave them. The engine drops a link's address and reads its text; a pronunciation override (`[word](/phonemes/)`) is kept.
 

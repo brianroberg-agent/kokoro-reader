@@ -45,3 +45,9 @@ def test_prompt_outcomes_follow_the_spec(text):
     assert "likely ignore" in minor and "couldn't fix" in minor and "`remaining_issues`" in minor
     assert "only for missing or garbled content" in outcome_line(text, "hold")
     assert "noise" not in text
+
+
+def test_prompt_spells_out_abbreviations_beside_roman_numerals(text):
+    lines = text.splitlines()
+    roman = next(n for n, line in enumerate(lines) if line.startswith("- **Roman numerals:**"))
+    assert lines[roman + 1].startswith("- **Abbreviations:**")
