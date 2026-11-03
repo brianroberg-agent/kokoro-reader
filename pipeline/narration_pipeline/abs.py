@@ -1,9 +1,8 @@
 """Publish finished MP3s as episodes in an Audiobookshelf podcast.
 
 The endpoint paths and JSON field names below were written from the Audiobookshelf
-API docs and are UNVERIFIED against a real server (see the plan's live check). Each
-one is a module-level constant or a one-line function, so a correction is a one-line
-change.
+API docs and verified against Audiobookshelf 2.37.2 (2026-11-02). Each one is a
+module-level constant or a one-line function, so a correction is a one-line change.
 """
 from __future__ import annotations
 
@@ -14,7 +13,7 @@ from pathlib import Path
 
 import requests
 
-# --- endpoints and field names (unverified) ---------------------------------
+# --- endpoints and field names (verified against Audiobookshelf 2.37.2, 2026-11-02) ---------------------------------
 LIBRARIES_PATH = "/api/libraries"
 UPLOAD_PATH = "/api/upload"
 
@@ -76,7 +75,7 @@ class Audiobookshelf:
         self._sleep = sleep
         self._clock = clock
 
-    def _call(self, method: str, path: str, **kw) -> dict:
+    def _call(self, method: str, path: str, empty_ok: bool = False, **kw) -> dict:
         try:
             resp = self._session.request(method, self.base_url + path,
                                          headers=self._headers, timeout=300, **kw)
@@ -85,9 +84,14 @@ class Audiobookshelf:
         if resp.status_code != 200:
             raise AbsError(f"{method} {path} returned {resp.status_code}")
         try:
-            return resp.json()
+            body = resp.json()
         except ValueError:
+            body = None
+        if isinstance(body, dict):
+            return body
+        if empty_ok:
             return {}
+        raise AbsError(f"{method} {path} returned a body that is not a JSON object")
 
     def _libraries(self) -> list[dict]:
         return podcast_libraries(self._call("GET", LIBRARIES_PATH))
@@ -125,7 +129,7 @@ class Audiobookshelf:
             raise AbsError(f"library {lib['id']} has no folders")
         data = {"title": podcast, "library": lib["id"], "folder": lib["folders"][0]["id"]}
         with open(mp3, "rb") as f:
-            self._call("POST", UPLOAD_PATH, data=data,
+            self._call("POST", UPLOAD_PATH, empty_ok=True, data=data,
                        files={"0": (filename, f, "audio/mpeg")})
 
     def _wait_locate(self, podcast, filename, timeout_s, poll_s) -> tuple[str, str]:
@@ -145,15 +149,16 @@ class Audiobookshelf:
 
     def set_episode(self, item_id: str, episode_id: str, title: str,
                     description: str, pub_date: str | None) -> None:
-        self._call("PATCH", episode_path(item_id, episode_id),
+        self._call("PATCH", episode_path(item_id, episode_id), empty_ok=True,
                    json=details_body(title, description, pub_date))
 
     def publish(self, podcast: str, mp3: Path, filename: str, title: str,
-                description: str, pub_date: str | None) -> str:
+                description: str, pub_date: str | None,
+                wait_timeout_s: float = 600, poll_s: float = 15) -> str:
         found = self._locate(podcast, filename)
         if found is None:
             self.upload(podcast, mp3, filename)
-            found = self._wait_locate(podcast, filename, 600, 15)
+            found = self._wait_locate(podcast, filename, wait_timeout_s, poll_s)
         item_id, episode_id = found
         self.set_episode(item_id, episode_id, title, description, pub_date)
         return episode_id

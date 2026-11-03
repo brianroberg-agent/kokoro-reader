@@ -174,3 +174,30 @@ def test_abs_check_publishes_test_episode(mp3):
     assert abs_check(a, PODCAST, mp3) == "ep-0"
     assert s.paths("POST") == ["/api/upload"]
     assert s.calls[-1]["json"]["description"]
+
+
+class HtmlResponse(FakeResponse):
+    def json(self):
+        raise ValueError("not json")
+
+
+@pytest.mark.parametrize("bad", ["libraries", "items", "item"])
+def test_non_json_200_on_lookup_raises_and_does_not_upload(mp3, bad):
+    routes = base_routes(FakeResponse(200, item_with([])))
+    key = {"libraries": ("GET", "/api/libraries"),
+           "items": ("GET", "/api/libraries/lib-pod/items"),
+           "item": ("GET", "/api/items/it1")}[bad]
+    routes[key] = HtmlResponse(200, {})
+    a, s, _ = make(routes)
+    with pytest.raises(AbsError):
+        a.publish(PODCAST, mp3, "x.mp3", "T", "D", None)
+    assert s.paths("POST") == []
+
+
+def test_publish_passes_wait_values_to_the_wait(mp3):
+    t = {"now": 0.0}
+    a, s, sleeps = make(base_routes(FakeResponse(200, item_with([]))), clock=lambda: t["now"])
+    a._sleep = lambda x: (sleeps.append(x), t.__setitem__("now", t["now"] + x))
+    with pytest.raises(AbsError, match="within 30s"):
+        a.publish(PODCAST, mp3, "x.mp3", "T", "D", None, wait_timeout_s=30, poll_s=10)
+    assert sleeps == [10, 10, 10]
