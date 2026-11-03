@@ -12,17 +12,18 @@ ENV UV_PYTHON=3.13
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
 
 # --frozen, not --locked: the image's dependency cooldown makes a committed uv.lock look
-# stale, and --locked fails (agentbox README, "uv in the image"). --no-cache keeps uv's
-# download cache out of the image. Built as root; node owns what it runs and writes.
+# stale, and --locked fails (agentbox README, "uv in the image"). --no-dev leaves the
+# test tools out, and --no-cache keeps uv's download cache out of the image. Built as
+# root; node owns what it runs and writes.
 ARG ARTICLE_ASSISTANT_REF=7fc4055
 RUN git clone --quiet https://github.com/brianroberg/article-assistant.git /opt/article-assistant \
   && git -C /opt/article-assistant -c advice.detachedHead=false checkout --quiet "$ARTICLE_ASSISTANT_REF" \
   && cd /opt/article-assistant \
-  && uv sync --frozen --no-cache \
+  && uv sync --frozen --no-dev --no-cache \
   && chown -R node:node /opt/article-assistant
 
 COPY pipeline/ /app/
-RUN cd /app && uv sync --frozen --no-cache && chown -R node:node /app
+RUN cd /app && uv sync --frozen --no-dev --no-cache && chown -R node:node /app
 
 # `uv run` runs what the build installed, without syncing first. Otherwise, at every
 # start, uv finds narration-pipeline "modified" (it compares ctimes, which the chown and

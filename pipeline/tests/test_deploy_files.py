@@ -142,3 +142,9 @@ def test_runner_runs_what_the_build_installed():
     ins = instructions("narration-runner")
     last_sync = max(n for n, i in enumerate(ins) if "uv sync --frozen" in i)
     assert "ENV UV_NO_SYNC=1" in ins[last_sync + 1:]
+
+
+def test_runner_leaves_the_dev_tools_out():
+    # pytest, hypothesis and pyyaml have no place in the image that holds the secrets
+    syncs = [i for i in instructions("narration-runner") if "uv sync" in i]
+    assert len(syncs) == 2 and all("uv sync --frozen --no-dev" in i for i in syncs)
