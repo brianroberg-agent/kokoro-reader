@@ -15,8 +15,8 @@ def text():
 
 
 def test_prompt_names_every_tool_and_no_shell(text):
-    for tool in ss.EXPECTED_TOOLS:
-        assert tool.removeprefix("mcp__narration__") in text, tool
+    for tool in ss.EXPECTED_TOOLS:  # backticked: record, check and finish are also plain words
+        assert f"`{tool.removeprefix('mcp__narration__')}`" in text, tool
     for shell in ("uv run", "python ", ".py", "cd "):
         assert shell not in text, shell
 
