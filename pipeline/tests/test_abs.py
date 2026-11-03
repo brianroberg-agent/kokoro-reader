@@ -444,3 +444,12 @@ def test_a_failed_title_reset_leaves_the_episode_published(mp3, caplog):
     a, s, _ = make(routes)
     assert a.publish(PODCAST, mp3, "x-1.mp3", "Title", "Notes", None) == "ep-0"
     assert "title" in caplog.text
+
+
+def test_a_podcast_just_created_gets_its_cover_without_being_read_first(mp3, cover):
+    # Review finding 7: it can't have a cover yet.
+    a, s, _ = make(new_podcast_routes({"yes": False}))
+    a.publish(PODCAST, mp3, "x-1.mp3", "Title", "Notes", None, wait_timeout_s=1, cover=cover)
+    order = [(c["method"], c["path"]) for c in s.calls]
+    created, covered = order.index(("POST", "/api/podcasts")), order.index(("POST", "/api/items/it1/cover"))
+    assert covered == created + 1

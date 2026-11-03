@@ -238,7 +238,7 @@ class Audiobookshelf:
         if not isinstance(item.get("id"), str):
             raise AbsError("POST /api/podcasts returned no item id")
         if cover is not None:
-            self.ensure_cover(item["id"], cover)
+            self._upload_cover(item["id"], cover)  # just created: it has none
         return item["id"]
 
     def _upload_cover(self, item_id: str, cover: Path) -> None:
@@ -248,17 +248,6 @@ class Audiobookshelf:
                 self._call("POST", cover_path(item_id), empty_ok=True, files={"cover": (cover.name, f, kind)})
         except (AbsError, OSError) as e:  # AbsError carries no key; OSError: the file
             log.warning("the podcast's cover was not set: %s", e)
-
-    def ensure_cover(self, item_id: str, cover: Path) -> None:
-        """Upload cover as the podcast's when it has none; a cover already set is left
-        as it is. Best effort, like _upload_cover."""
-        try:
-            if item_cover(self._call("GET", item_path(item_id))):
-                return
-        except AbsError as e:
-            log.warning("the podcast's cover was not set: %s", e)
-            return
-        self._upload_cover(item_id, cover)
 
     def settle_podcast(self, item_id: str, podcast: str, cover: Path | None) -> None:
         """After an episode is published: the podcast's title back to `podcast` if the
