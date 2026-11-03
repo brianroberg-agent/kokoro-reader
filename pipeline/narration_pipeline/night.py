@@ -16,7 +16,7 @@ from narration_pipeline import handoff as handoff_files
 from narration_pipeline.abs import AbsError, episode_filename
 from narration_pipeline.config import Settings, Source
 from narration_pipeline.discovery import DiscoveryError, discover
-from narration_pipeline.narration_client import NarrationError, NarrationUnavailable
+from narration_pipeline.narration_client import NarrationError, NarrationUnavailable, valid_item_id
 from narration_pipeline.record import Record, Row
 
 MAC_POLL_S = 300        # how often to ask whether the Mac is back
@@ -178,7 +178,10 @@ class _Night:
         try:
             source = self.sources[row["source"]]
             markdown, metadata = self.d.article_assistant(row["url"])
-            it.item_id, token = self.d.narration.open(markdown, metadata)
+            item_id, token = self.d.narration.open(markdown, metadata)
+            if not valid_item_id(item_id):  # it goes into handoff paths and the MP3's URL
+                raise NarrationError(f"open returned a bad work item id: {item_id!r}")
+            it.item_id = item_id
             if not self.dry_run:
                 self.rec.transition(row["url"], "in_progress", item_id=it.item_id)
             self.d.handoff.write_request(self.d.handoff_dir, it.item_id, token, list(source.text_rules),
@@ -195,6 +198,8 @@ class _Night:
                    uploading=bool(row["publish_started"]))
         if it.item_id is None:
             return self.fail(it, "the run stopped before its work item was opened")
+        if not valid_item_id(it.item_id):
+            return self.fail(it, f"the record holds a bad work item id: {it.item_id!r}")
         try:
             it.fin = self.force(it)  # on a finished or finalized item, the same as a plain finalize
         except Exception as e:

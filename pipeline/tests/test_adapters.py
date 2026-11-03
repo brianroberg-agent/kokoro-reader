@@ -180,14 +180,21 @@ def test_tool_error_becomes_narration_error():
 
 
 def test_open_finalize_status_call_the_tools():
-    c, fake = _client(_res(json.dumps({"item_id": "i9", "agent_token": "at"})))
-    assert c.open("text", {"title": "T"}) == ("i9", "at")
+    c, fake = _client(_res(json.dumps({"item_id": "0123456789ab", "agent_token": "at"})))
+    assert c.open("text", {"title": "T"}) == ("0123456789ab", "at")
     assert fake.calls == [("open", {"article_text": "text", "metadata": {"title": "T"}})]
     assert (fake.url, fake.token) == ("http://h:1/runner/mcp", "rtok")
     c, fake = _client(_res(json.dumps({"ok": 1})))
     assert c.finalize("i9", force=True) == {"ok": 1}
     assert fake.calls == [("finalize", {"item_id": "i9", "force": True})]
     assert c.status("i9") == {"ok": 1}
+
+
+@pytest.mark.parametrize("item_id", ["../../etc", "0123456789AB", "0123456789a", "0123456789ab\n", 12])
+def test_open_refuses_a_bad_item_id(item_id):
+    c, _ = _client(_res(json.dumps({"item_id": item_id, "agent_token": "at"})))
+    with pytest.raises(NarrationError, match="item_id"):
+        c.open("text", {"title": "T"})
 
 
 def _stream_resp(chunks, status=200, fail_after=None):

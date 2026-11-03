@@ -1,11 +1,12 @@
 import fcntl
 import json
 from dataclasses import fields
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 
 import pytest
 
 from narration_pipeline.abs import episode_filename
+from narration_pipeline.discovery import Candidate
 from narration_pipeline.night import Deps, deadlines, run_night
 from night_fakes import HELD, ISSUES, NY, Crash, Script, World, source
 
@@ -325,6 +326,25 @@ def test_crash_after_finish_recovers_by_finalizing(world):
     [r] = world.run().results
     assert r.status == "published_with_notes"
     assert len(world.narration.items) == 1 and len(world.abs.episodes) == 1
+
+
+def test_a_bad_item_id_from_the_record_reaches_no_call(world):
+    url = world.add_article(1)
+    world.record.add_discovered([Candidate(url, "Article 1", date(2026, 10, 1), None, None)],
+                                world.sources[0])
+    world.record.transition(url, "in_progress", item_id="../../x")
+    [r] = world.run().results
+    assert r.status == "failed" and "work item id" in r.reasons[0]
+    assert world.narration.finalizes == [] and world.sessions.requests == []
+
+
+def test_a_bad_item_id_from_open_reaches_no_call(world, monkeypatch):
+    url = world.add_article(1)
+    monkeypatch.setattr(world.narration, "open", lambda text, meta: ("../x", "tok"))
+    [r] = world.run().results
+    assert r.status == "failed" and "work item id" in r.reasons[0]
+    assert world.record.row(url)["item_id"] is None
+    assert world.narration.finalizes == [] and world.sessions.requests == []
 
 
 def test_dry_run_publishes_nothing_and_requeues(tmp_path):
