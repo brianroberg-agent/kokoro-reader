@@ -28,6 +28,7 @@ def test_clean_publishes(world):
     assert (r.url, r.title, r.status, r.outcome, r.dry_run_action) == (
         url, "Article 1", "published", "clean", None)
     assert r.cost_usd == 0.4 and r.gemini_usd == pytest.approx(3 * 0.03)
+    assert r.notes == "Notes for Article 1"
     item_id = only_item(world)
     [ep] = world.abs.episodes
     assert ep.filename == episode_filename("Article 1", item_id)
@@ -356,6 +357,7 @@ def test_dry_run_publishes_nothing_and_requeues(tmp_path):
     report = world.run(dry_run=True)
     assert [(r.url, r.status, r.dry_run_action) for r in report.results] == [
         (a, "queued", "publish"), (b, "queued", "hold")]
+    assert report.results[0].notes == "Notes for Article 1"  # the dry run shows the would-be notes
     assert report.results[1].reasons == ["the agent held it (03:10 garbled: a paragraph is missing)"]
     assert world.abs.episodes == [] and world.narration.downloads == [] and world.push.sent == []
     assert len(report.discovery_errors) == 1

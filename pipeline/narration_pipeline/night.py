@@ -51,6 +51,7 @@ class ItemResult:
     cost_usd: float
     gemini_usd: float
     dry_run_action: str | None = None
+    notes: str = ""  # finalize's episode notes, also in a dry run
 
 
 @dataclass
@@ -351,4 +352,4 @@ class _Night:
         return ItemResult(url=it.row["url"], title=it.row["title"], status=status,
                           outcome=(it.fin or {}).get("outcome"), reasons=list(reasons),
                           cost_usd=self.claude_usd(it) or 0.0, gemini_usd=self.gemini_usd(it) or 0.0,
-                          dry_run_action=dry)
+                          dry_run_action=dry, notes=(it.fin or {}).get("notes") or "")
