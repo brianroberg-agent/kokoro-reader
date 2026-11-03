@@ -75,17 +75,22 @@ def check_settings(s: "Settings") -> "Settings":
     return s
 
 
-# What Audiobookshelf drops from a folder name (the upload names the podcast's folder
-# after it), or a name it trims: such a podcast would be created in one folder and
-# uploaded to in another.
-_FOLDER_UNSAFE = re.compile(r'[/\\?<>:*|"\x00-\x1f]')
+# What Audiobookshelf changes in a folder name (the upload names the podcast's folder
+# after it): characters a file name can't hold, control characters (C1 too), whitespace
+# other than single spaces, a space or dot at either end, Windows' reserved names, and
+# length. Such a podcast would be created in one folder and uploaded to in another.
+_FOLDER_UNSAFE = re.compile(r'[/\\?<>:*|"\x00-\x1f\x7f-\x9f]|[^\S ]|  ')
+_RESERVED = re.compile(r"(?i)CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9]")
+MAX_PODCAST_BYTES = 200
 
 
 def _check_podcast(source_id: str, name) -> str:
     if (not isinstance(name, str) or not name or name != name.strip() or name.endswith(".")
-            or _FOLDER_UNSAFE.search(name)):
+            or _FOLDER_UNSAFE.search(name) or _RESERVED.fullmatch(name)
+            or len(name.encode()) > MAX_PODCAST_BYTES):
         raise ValueError(f"{source_id}: podcast {name!r} can't be its folder's name as written "
-                         '(no / \\ ? < > : * | ", no space or dot at either end)')
+                         '(no / \\ ? < > : * | " or control characters, single spaces only and none '
+                         f"at either end, no dot at the end, not a reserved name, at most {MAX_PODCAST_BYTES} bytes)")
     return name
 
 

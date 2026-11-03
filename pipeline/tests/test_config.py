@@ -194,3 +194,12 @@ def test_a_podcast_name_a_folder_name_would_change_is_refused(name):
 def test_a_podcast_name_a_folder_can_hold_loads(name):
     [s] = load_sources(source_toml("[]").replace('podcast = "X"', f'podcast = "{name}"'))
     assert s.podcast == name
+
+
+@pytest.mark.parametrize("name", ["The  New Atlantis", "A\\u00a0B", "A\\tB", "A\\u0085B", "CON", "nul", "Com1",
+                                  "LPT9", "A" * 201])
+def test_a_podcast_name_a_folder_name_would_change_in_other_ways_is_refused(name):
+    # Review finding 3: Audiobookshelf's folder names also collapse runs of spaces, drop
+    # C1 control characters and Windows' reserved names, and cut long names.
+    with pytest.raises(ValueError, match="podcast"):
+        load_sources(source_toml("[]").replace('podcast = "X"', f'podcast = "{name}"'))
