@@ -6,13 +6,14 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx2 as httpx
 import pytest
 import requests
 
 from narration_pipeline import fetch, handoff, narration_client, push
 from narration_pipeline.fetch import FetchError, fetch_text, run_article_assistant
-from narration_pipeline.handoff import wait_result, write_request
-from narration_pipeline.narration_client import NarrationClient, NarrationError
+from narration_pipeline.handoff import HandoffError, wait_result, write_request
+from narration_pipeline.narration_client import NarrationClient, NarrationError, NarrationUnavailable
 from narration_pipeline.push import Push
 
 
@@ -189,6 +190,16 @@ def test_open_finalize_status_call_the_tools():
     assert c.status("i9") == {"ok": 1}
 
 
+def _stream_resp(chunks, status=200, fail_after=None):
+    def it(chunk_size=None):
+        for i, c in enumerate(chunks):
+            if fail_after is not None and i >= fail_after:
+                raise requests.ConnectionError("cut")
+            yield c
+
+    return SimpleNamespace(status_code=status, iter_content=it, close=lambda: None, text="{}")
+
+
 def test_health_and_download(monkeypatch, tmp_path):
     seen = []
 
@@ -196,7 +207,7 @@ def test_health_and_download(monkeypatch, tmp_path):
         seen.append((url, kw.get("headers")))
         if url.endswith("/health"):
             return SimpleNamespace(status_code=200, json=lambda: {"ok": True})
-        return SimpleNamespace(status_code=200, content=b"MP3DATA", text="")
+        return _stream_resp([b"MP3", b"DATA"])
 
     monkeypatch.setattr(requests, "get", get)
     c = NarrationClient("http://h:1/", "rtok")
@@ -211,6 +222,119 @@ def test_health_and_download(monkeypatch, tmp_path):
     monkeypatch.setattr(requests, "get", down)
     assert c.health() is False
 
-    monkeypatch.setattr(requests, "get", lambda u, **kw: SimpleNamespace(status_code=404, content=b"", text="{}"))
+    monkeypatch.setattr(requests, "get", lambda u, **kw: _stream_resp([], status=404))
     with pytest.raises(NarrationError):
         c.download_mp3("i9", tmp_path / "x.mp3")
+
+
+def _raising_client(exc):
+    @contextlib.asynccontextmanager
+    async def factory(url, token):
+        raise exc
+        yield
+
+    return NarrationClient("http://h:1", "rtok", client_factory=factory)
+
+
+@pytest.mark.parametrize("exc", [
+    ExceptionGroup("unhandled errors", [RuntimeError("401")]),
+    httpx.ConnectError("refused"),
+    TimeoutError("slow"),
+])
+def test_transport_failures_become_narration_unavailable(exc):
+    with pytest.raises(NarrationUnavailable):
+        _raising_client(exc).status("i1")
+
+
+def test_tool_refusal_is_not_unavailable():
+    c, _ = _client(_res("nope", is_error=True))
+    with pytest.raises(NarrationError) as ei:
+        c.status("i1")
+    assert not isinstance(ei.value, NarrationUnavailable)
+
+
+def test_malformed_replies_are_narration_errors():
+    c, _ = _client(_res(json.dumps({"item_id": "x"})))
+    with pytest.raises(NarrationError):
+        c.open("t", {})
+    c, _ = _client(SimpleNamespace(is_error=False, content=[SimpleNamespace()]))
+    with pytest.raises(NarrationError):
+        c.status("i1")
+
+
+def test_download_transport_failure_is_unavailable(monkeypatch, tmp_path):
+    def down(url, **kw):
+        raise requests.ConnectionError("x")
+
+    monkeypatch.setattr(requests, "get", down)
+    with pytest.raises(NarrationUnavailable):
+        NarrationClient("http://h:1", "t").download_mp3("i", tmp_path / "a.mp3")
+    monkeypatch.setattr(requests, "get", lambda u, **kw: _stream_resp([], status=503))
+    with pytest.raises(NarrationUnavailable):
+        NarrationClient("http://h:1", "t").download_mp3("i", tmp_path / "a.mp3")
+
+
+def test_download_failure_midstream_leaves_no_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(requests, "get", lambda u, **kw: _stream_resp([b"a", b"b"], fail_after=1))
+    dest = tmp_path / "a.mp3"
+    with pytest.raises(NarrationUnavailable):
+        NarrationClient("http://h:1", "t").download_mp3("i", dest)
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("payload", ['["ok"]', "true", "{}", '{"ok": false}'])
+def test_health_false_for_non_ok_shapes(monkeypatch, payload):
+    monkeypatch.setattr(requests, "get", lambda u, **kw: SimpleNamespace(
+        status_code=200, json=lambda: json.loads(payload)))
+    assert NarrationClient("http://h:1", "t").health() is False
+
+
+def test_missing_uv_is_a_fetch_error(monkeypatch, tmp_path):
+    def run(*a, **kw):
+        raise FileNotFoundError("uv")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    with pytest.raises(FetchError):
+        run_article_assistant("https://example.org/a", tmp_path)
+
+
+def test_handoff_modes_and_cleanup(monkeypatch, tmp_path):
+    write_request(tmp_path / "h", "i1", "tok", [], 1.0, 10)
+    for sub in ("requests", "running", "results"):
+        assert (tmp_path / "h" / sub).stat().st_mode & 0o777 == 0o700
+    assert (tmp_path / "h" / "requests" / "i1.json").stat().st_mode & 0o777 == 0o600
+
+    def boom(*a, **kw):
+        raise OSError("disk")
+
+    monkeypatch.setattr(json, "dumps", boom)
+    with pytest.raises(OSError):
+        write_request(tmp_path / "h", "i2", "tok", [], 1.0, 10)
+    assert sorted(p.name for p in (tmp_path / "h" / "requests").iterdir()) == ["i1.json"]
+
+
+def test_wait_result_polls_past_a_partial_file(tmp_path):
+    (tmp_path / "results").mkdir()
+    f = tmp_path / "results" / "i1.json"
+    f.write_text('{"item_')
+    sleeps = []
+
+    def fix(s):
+        sleeps.append(s)
+        f.write_text(json.dumps({"item_id": "i1", "finished_ok": True}))
+
+    import time as _t
+    orig = _t.sleep
+    _t.sleep = fix
+    try:
+        assert wait_result(tmp_path, "i1", timeout_s=5, poll_s=0.01)["finished_ok"] is True
+    finally:
+        _t.sleep = orig
+    assert sleeps
+
+
+def test_wait_result_corrupt_at_timeout_raises(tmp_path):
+    (tmp_path / "results").mkdir()
+    (tmp_path / "results" / "i1.json").write_text("{nope")
+    with pytest.raises(HandoffError, match="unreadable result for i1"):
+        wait_result(tmp_path, "i1", timeout_s=0.05, poll_s=0.01)

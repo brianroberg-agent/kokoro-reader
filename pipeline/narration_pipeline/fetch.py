@@ -22,6 +22,8 @@ def _run(args: list[str], checkout: Path) -> str:
     cmd = ["uv", "run", "--frozen", "python", "article_assistant.py", *args]
     try:
         proc = subprocess.run(cmd, cwd=checkout, capture_output=True, text=True, timeout=120)
+    except FileNotFoundError as e:
+        raise FetchError("uv not found") from e
     except subprocess.TimeoutExpired as e:
         raise FetchError(f"article_assistant timed out after {e.timeout}s") from e
     if proc.returncode != 0:
