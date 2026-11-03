@@ -330,21 +330,38 @@ def test_run_session_refuses_a_first_event_that_is_not_init(fake_claude, cfg):
 
 
 # Claude Code 2.1.316's stream-json, with the service's flags (captured in the agent
-# container, 2026-11-02): a ui_invalidate event can come before init, and with no login
-# it writes its own "Not logged in" message (model <synthetic>, nothing spent).
+# container, 2026-11-02): a ui_invalidate event can come before init, and when it can't
+# authenticate it writes its own assistant message (model <synthetic>, event-level
+# "error": "authentication_failed", nothing spent), with no token and with a bad one.
 UI_INVALIDATE = {"type": "system", "subtype": "ui_invalidate", "event": "ui.render", "uuid": "u-1",
                  "session_id": "s-1"}
 NOT_LOGGED_IN = "Not logged in \u00b7 Please run /login"
+BAD_TOKEN_TEXT = "Failed to authenticate. API Error: 401 OAuth access token is invalid."
 ZERO_USAGE = {"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0,
               "cache_read_input_tokens": 0}
-LOGIN_ASSISTANT = {"type": "assistant", "session_id": "s-1", "parent_tool_use_id": None,
-                   "message": {"model": "<synthetic>", "role": "assistant", "type": "message",
-                               "stop_reason": "stop_sequence", "usage": ZERO_USAGE,
-                               "content": [{"type": "text", "text": NOT_LOGGED_IN}]}}
-LOGIN_RESULT = {"type": "result", "subtype": "success", "is_error": True, "result": NOT_LOGGED_IN,
-                "num_turns": 1, "total_cost_usd": 0, "duration_api_ms": 0, "api_error_status": None,
-                "terminal_reason": "api_error", "usage": ZERO_USAGE}
-LOGIN_ERROR = "Claude Code is not logged in (CLAUDE_CODE_OAUTH_TOKEN missing or expired)"
+
+
+def synthetic(text, **event):
+    return {"type": "assistant", "session_id": "s-1", "parent_tool_use_id": None, **event,
+            "message": {"model": "<synthetic>", "role": "assistant", "type": "message",
+                        "stop_reason": "stop_sequence", "usage": ZERO_USAGE,
+                        "content": [{"type": "text", "text": text}]}}
+
+
+def auth_result(text, **event):
+    return {"type": "result", "subtype": "success", "is_error": True, "result": text, "num_turns": 1,
+            "total_cost_usd": 0, "duration_api_ms": 0, "terminal_reason": "api_error",
+            "usage": ZERO_USAGE, **event}
+
+
+LOGIN_ASSISTANT = synthetic(NOT_LOGGED_IN, error="authentication_failed", is_api_error_message=True)
+LOGIN_RESULT = auth_result(NOT_LOGGED_IN, api_error_status=None)
+API_RETRY = {"type": "system", "subtype": "api_retry", "attempt": 1, "max_retries": 10, "retry_delay_ms": 504,
+             "error_status": 401, "error": "authentication_failed", "session_id": "s-1"}
+BAD_TOKEN_ASSISTANT = synthetic(BAD_TOKEN_TEXT, error="authentication_failed", is_api_error_message=True,
+                                api_error_status=401, api_error_origin="first_party", request_id="req_1")
+BAD_TOKEN_RESULT = auth_result(BAD_TOKEN_TEXT, api_error_status=401)
+LOGIN_ERROR = "Claude Code could not authenticate (CLAUDE_CODE_OAUTH_TOKEN missing, expired or invalid)"
 
 
 def test_run_session_reads_past_system_events_before_init(fake_claude, cfg):
@@ -384,30 +401,44 @@ def test_run_session_reports_a_missing_login(fake_claude, cfg, is_error):
     assert out["cost_usd"] == 0.0 and out["num_turns"] == 1
 
 
-def test_run_session_reports_a_missing_login_from_the_assistant_message_alone(fake_claude, cfg):
-    fake_claude({"out": init_event()}, {"out": LOGIN_ASSISTANT},
+def test_run_session_reports_an_invalid_token(fake_claude, cfg):
+    fake_claude({"out": UI_INVALIDATE}, {"out": init_event()}, {"out": API_RETRY}, {"out": {**API_RETRY, "attempt": 2}},
+                {"out": BAD_TOKEN_ASSISTANT}, {"out": BAD_TOKEN_RESULT})
+    out = ss.run_session(request(), cfg)
+    assert out["finished_ok"] is False and out["error"] == LOGIN_ERROR
+
+
+def test_run_session_reads_not_logged_in_text_from_a_synthetic_message(fake_claude, cfg):
+    # the second route: Claude Code's own "Not logged in" message, without the error field
+    fake_claude({"out": init_event()}, {"out": synthetic(NOT_LOGGED_IN)},
                 {"out": {**LOGIN_RESULT, "result": "", "is_error": False}})
     out = ss.run_session(request(), cfg)
     assert out["finished_ok"] is False and out["error"] == LOGIN_ERROR
 
 
-def test_a_model_writing_not_logged_in_is_not_a_login_failure(fake_claude, cfg):
-    # An article could steer the agent into these words; its message has a real model and
-    # its session a cost, so it ends as any other session does.
+@pytest.mark.parametrize("text", [NOT_LOGGED_IN, BAD_TOKEN_TEXT])
+def test_a_model_writing_an_auth_failure_is_not_one(fake_claude, cfg, text):
+    # An article could steer the agent into these words; its message has a real model
+    # (only Claude Code writes <synthetic> ones), so the session ends as any other does.
     steered = {**LOGIN_ASSISTANT, "message": {**LOGIN_ASSISTANT["message"], "model": "a-model"}}
-    result = {**RESULT, "result": NOT_LOGGED_IN}
+    steered["message"]["content"] = [{"type": "text", "text": text}]
+    result = {**RESULT, "result": text}
     fake_claude({"out": init_event()}, {"out": steered}, {"out": result})
     assert ss.run_session(request(), cfg) == ss.parse_result(result)
     assert ss.parse_result(result)["finished_ok"] is True
 
 
-def test_not_logged_in_is_read_only_from_claude_codes_own_messages():
-    assert ss.says_not_logged_in(LOGIN_ASSISTANT) and ss.says_not_logged_in(LOGIN_RESULT)
-    assert not ss.says_not_logged_in({**LOGIN_ASSISTANT, "message": {**LOGIN_ASSISTANT["message"], "model": "m"}})
-    assert not ss.says_not_logged_in({**LOGIN_RESULT, "total_cost_usd": 0.05})
-    assert not ss.says_not_logged_in({**LOGIN_RESULT, "result": "Logged in fine"})
-    assert not ss.says_not_logged_in({"type": "assistant", "message": {"model": "<synthetic>", "content": "x"}})
-    assert not ss.says_not_logged_in(UI_INVALIDATE)
+def test_auth_failure_is_read_only_from_claude_codes_own_messages():
+    assert ss.authentication_failed(LOGIN_ASSISTANT) and ss.authentication_failed(BAD_TOKEN_ASSISTANT)
+    assert ss.authentication_failed(synthetic(NOT_LOGGED_IN))                 # the text route
+    assert ss.authentication_failed(synthetic("anything", error="authentication_failed"))  # the error route
+    assert not ss.authentication_failed(synthetic("Rate limited", error="rate_limit"))
+    model = {"model": "a-model"}
+    assert not ss.authentication_failed({**LOGIN_ASSISTANT, "message": {**LOGIN_ASSISTANT["message"], **model}})
+    assert not ss.authentication_failed({**BAD_TOKEN_ASSISTANT, "message": {**BAD_TOKEN_ASSISTANT["message"], **model}})
+    assert not ss.authentication_failed({"type": "assistant", "message": {"model": "<synthetic>", "content": "x"}})
+    for event in (LOGIN_RESULT, BAD_TOKEN_RESULT, API_RETRY, UI_INVALIDATE):
+        assert not ss.authentication_failed(event)
 
 
 def test_run_session_timeout_kills(fake_claude, cfg):

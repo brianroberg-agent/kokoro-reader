@@ -103,7 +103,7 @@ def test_no_finish_fails_and_retries_next_night(world):
     assert r.status == "published" and len(world.narration.items) == 2
 
 
-LOGIN_ERROR = "Claude Code is not logged in (CLAUDE_CODE_OAUTH_TOKEN missing or expired)"
+LOGIN_ERROR = "Claude Code could not authenticate (CLAUDE_CODE_OAUTH_TOKEN missing, expired or invalid)"
 
 
 def test_a_lost_claude_login_pushes_once_and_stops_the_night(world):

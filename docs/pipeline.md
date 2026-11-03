@@ -43,7 +43,7 @@ Each goes into one of two files on the home server, not into the repo or an imag
 
 - Claude token created: _(date)_. Reminder set for: _(date)_.
 
-If it lapses anyway, the first session of the night can't log in: the runner pushes "Claude login failed" and stops the night. The article goes back to `failed` without a failed night counted against it, so it comes first the next night, and the push comes again each night until the login is renewed.
+If it lapses anyway, or the token in `agent.env` is wrong, the first session of the night can't authenticate. The runner then pushes "Claude login failed", with "Claude Code could not authenticate (CLAUDE_CODE_OAUTH_TOKEN missing, expired or invalid)", and stops the night. The article goes back to `failed` with that as its `last_error` and without a failed night counted against it, so it comes first the next night, and the push comes again each night until the token is fixed.
 
 To renew it, run `claude setup-token` again, put the new value in `/srv/narration/agent.env`, and recreate the agent so it reads the file again (a plain `restart` keeps the old environment): `docker compose -f deploy/compose.yaml up -d --force-recreate narration-agent`. Then update the date above.
 
