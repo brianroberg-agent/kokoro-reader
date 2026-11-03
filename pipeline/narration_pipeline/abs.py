@@ -12,7 +12,7 @@ import re
 import time
 import unicodedata
 from collections.abc import Callable
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import requests
 
@@ -30,6 +30,11 @@ def items_path(library_id: str) -> str:
 
 def item_path(item_id: str) -> str:
     return f"/api/items/{item_id}"
+
+
+def media_path(item_id: str) -> str:
+    """PATCH {"metadata": {...}} updates the item's media (verified against 2.37.2, 2026-11-03)."""
+    return f"/api/items/{item_id}/media"
 
 
 def cover_path(item_id: str) -> str:
@@ -52,6 +57,12 @@ def podcast_libraries(body: dict) -> list[dict]:
 
 def item_title(item: dict) -> str | None:
     return ((item.get("media") or {}).get("metadata") or {}).get("title")
+
+
+def is_podcast(item: dict, podcast: str) -> bool:
+    """A library item is the podcast when it has its title, or, since the scanner can
+    retitle it, when its folder has the podcast's name (create_podcast makes it so)."""
+    return item_title(item) == podcast or PurePosixPath(item.get("path") or "").name == podcast
 
 
 def item_episodes(item: dict) -> list[dict]:
@@ -128,11 +139,11 @@ class Audiobookshelf:
         return podcast_libraries(self._call("GET", LIBRARIES_PATH))
 
     def _podcast_items(self, podcast: str) -> list[str]:
-        """The ids of the library items titled `podcast` (normally one), in library order."""
+        """The ids of the library items that are `podcast` (normally one), in library order."""
         ids = []
         for lib in self._libraries():
             results = self._call("GET", items_path(lib["id"]), params={"limit": 0}).get("results", [])
-            ids += [it["id"] for it in results if item_title(it) == podcast]
+            ids += [it["id"] for it in results if is_podcast(it, podcast)]
         return ids
 
     def _episode_in(self, item_id: str, wanted: Callable[[str | None], bool]) -> str | None:
@@ -166,7 +177,7 @@ class Audiobookshelf:
             raise AbsError("no podcast library on the server")
         for lib in libs:
             results = self._call("GET", items_path(lib["id"]), params={"limit": 0}).get("results", [])
-            if any(item_title(it) == podcast for it in results):
+            if any(is_podcast(it, podcast) for it in results):
                 return lib
         return libs[0]
 
@@ -230,18 +241,43 @@ class Audiobookshelf:
             self.ensure_cover(item["id"], cover)
         return item["id"]
 
-    def ensure_cover(self, item_id: str, cover: Path) -> None:
-        """Upload cover as the podcast's when it has none: the first upload creates a
-        podcast without one. A cover already set is left as it is. Best effort: the
-        episode is live by now, and the next publish tries again."""
+    def _upload_cover(self, item_id: str, cover: Path) -> None:
         try:
-            if item_cover(self._call("GET", item_path(item_id))):
-                return
             kind = mimetypes.guess_type(cover.name)[0] or "application/octet-stream"
             with open(cover, "rb") as f:
                 self._call("POST", cover_path(item_id), empty_ok=True, files={"cover": (cover.name, f, kind)})
         except (AbsError, OSError) as e:  # AbsError carries no key; OSError: the file
             log.warning("the podcast's cover was not set: %s", e)
+
+    def ensure_cover(self, item_id: str, cover: Path) -> None:
+        """Upload cover as the podcast's when it has none; a cover already set is left
+        as it is. Best effort, like _upload_cover."""
+        try:
+            if item_cover(self._call("GET", item_path(item_id))):
+                return
+        except AbsError as e:
+            log.warning("the podcast's cover was not set: %s", e)
+            return
+        self._upload_cover(item_id, cover)
+
+    def settle_podcast(self, item_id: str, podcast: str, cover: Path | None) -> None:
+        """After an episode is published: the podcast's title back to `podcast` if the
+        scanner changed it (a podcast's first episode's album tag becomes its title,
+        Audiobookshelf 2.37.2), and its cover if it has none. Best effort: the episode
+        is live by now, the podcast is found by its folder meanwhile (is_podcast), and
+        the next publish tries again."""
+        try:
+            item = self._call("GET", item_path(item_id))
+        except AbsError as e:
+            log.warning("the podcast's title and cover were not checked: %s", e)
+            return
+        if item_title(item) != podcast:
+            try:
+                self._call("PATCH", media_path(item_id), empty_ok=True, json={"metadata": {"title": podcast}})
+            except AbsError as e:
+                log.warning("the podcast's title was not set back: %s", e)
+        if cover is not None and not item_cover(item):
+            self._upload_cover(item_id, cover)
 
     def publish(self, podcast: str, mp3: Path, filename: str, title: str,
                 description: str, pub_date: str | None,
@@ -255,8 +291,7 @@ class Audiobookshelf:
             found = self._wait_locate(podcast, _named(filename), f"episode {filename}", wait_timeout_s, poll_s)
         item_id, episode_id = found
         self.set_episode(item_id, episode_id, title, description, pub_date)
-        if cover is not None:
-            self.ensure_cover(item_id, cover)
+        self.settle_podcast(item_id, podcast, cover)
         return episode_id
 
 

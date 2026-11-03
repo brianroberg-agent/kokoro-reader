@@ -48,7 +48,8 @@ ITEMS = {"results": [{"id": "it1", "media": {"metadata": {"title": PODCAST}}}]}
 
 
 def item_with(filenames):
-    return {"media": {"episodes": [
+    # A real item carries its title; publish reads it afterwards (settle_podcast).
+    return {"media": {"metadata": {"title": PODCAST}, "episodes": [
         {"id": f"ep-{i}", "audioFile": {"metadata": {"filename": n}}}
         for i, n in enumerate(filenames)]}}
 
@@ -182,7 +183,8 @@ def test_abs_check_publishes_test_episode(mp3):
     a, s, _ = make(base_routes(item))
     assert abs_check(a, PODCAST, mp3) == "ep-0"
     assert s.paths("POST") == ["/api/upload"]
-    assert s.calls[-1]["json"]["description"]
+    [details] = [c for c in s.calls if c["method"] == "PATCH"]
+    assert details["path"] == "/api/podcasts/it1/episode/ep-0" and details["json"]["description"]
 
 
 class HtmlResponse(FakeResponse):
@@ -255,9 +257,10 @@ def test_publish_waits_on_the_item_alone_after_its_upload(mp3):
 
     a, s, sleeps = make(base_routes(item))
     assert a.publish(PODCAST, mp3, "x-1.mp3", "T", "D", None, poll_s=5) == "ep-0"
-    # the look before the upload (1, 1, 1), the upload's library pick (1, 1, 0), then
-    # the wait: resolved once, and one item read for each of its three polls
-    assert sleeps == [5, 5] and lookups(s) == (3, 3, 4)
+    # the look before the upload (1, 1, 1), the upload's library pick (1, 1, 0), the
+    # wait: resolved once, and one item read for each of its three polls, then the
+    # podcast's title and cover read once (0, 0, 1)
+    assert sleeps == [5, 5] and lookups(s) == (3, 3, 5)
 
 
 def test_find_upload_finds_a_work_items_episode_under_any_title():
@@ -389,3 +392,55 @@ def test_a_failed_podcast_creation_fails_the_publish_before_any_upload(mp3, cove
     with pytest.raises(AbsError, match="POST /api/podcasts returned 500"):
         a.publish(PODCAST, mp3, "x-1.mp3", "Title", "Notes", None, wait_timeout_s=1, cover=cover)
     assert "/api/upload" not in s.paths("POST")
+
+
+# ---- the scanner retitles a new podcast (Audiobookshelf 2.37.2, 2026-11-03) ----
+# The first episode's album tag ("The New Atlantis, No. 86 (Fall 2026)") becomes the
+# title of the podcast it lands in, if the podcast had no episode before.
+RETITLED = "Test Podcast, No. 86 (Fall 2026)"
+
+
+def test_a_podcast_the_scanner_retitled_is_found_by_its_folder():
+    items = {"results": [{"id": "it1", "path": "/podcasts/Test Podcast", "media": {"metadata": {"title": RETITLED}}}]}
+    routes = base_routes(FakeResponse(200, item_with(["x-0123456789ab.mp3"])))
+    routes[("GET", "/api/libraries/lib-pod/items")] = FakeResponse(200, items)
+    a, s, _ = make(routes)
+    assert a.find_upload(PODCAST, "0123456789ab") == ("it1", "ep-0")
+
+
+def test_an_item_in_another_folder_is_not_taken_for_the_podcast():
+    items = {"results": [{"id": "it1", "path": "/podcasts/Test Podcast 2", "media": {"metadata": {"title": "Other"}}}]}
+    routes = base_routes(FakeResponse(200, item_with(["x-0123456789ab.mp3"])))
+    routes[("GET", "/api/libraries/lib-pod/items")] = FakeResponse(200, items)
+    a, s, _ = make(routes)
+    assert a.find_upload(PODCAST, "0123456789ab") is None
+
+
+def retitled_routes(title):
+    body = item_with(["x-1.mp3"])
+    body["media"]["metadata"] = {"title": title}
+    body["media"]["coverPath"] = "/metadata/items/it1/cover.png"
+    routes = base_routes(lambda call: FakeResponse(200, body))
+    routes[("PATCH", "/api/items/it1/media")] = FakeResponse(200, {})
+    return routes
+
+
+def test_publish_sets_the_podcasts_title_back_when_the_scanner_changed_it(mp3):
+    a, s, _ = make(retitled_routes(RETITLED))
+    a.publish(PODCAST, mp3, "x-1.mp3", "Title", "Notes", None)
+    [patch] = [c for c in s.calls if c["path"] == "/api/items/it1/media"]
+    assert patch["method"] == "PATCH" and patch["json"] == {"metadata": {"title": PODCAST}}
+
+
+def test_publish_leaves_a_podcast_title_that_is_right(mp3):
+    a, s, _ = make(retitled_routes(PODCAST))
+    a.publish(PODCAST, mp3, "x-1.mp3", "Title", "Notes", None)
+    assert "/api/items/it1/media" not in s.paths("PATCH")
+
+
+def test_a_failed_title_reset_leaves_the_episode_published(mp3, caplog):
+    routes = retitled_routes(RETITLED)
+    routes[("PATCH", "/api/items/it1/media")] = FakeResponse(500, {})
+    a, s, _ = make(routes)
+    assert a.publish(PODCAST, mp3, "x-1.mp3", "Title", "Notes", None) == "ep-0"
+    assert "title" in caplog.text
