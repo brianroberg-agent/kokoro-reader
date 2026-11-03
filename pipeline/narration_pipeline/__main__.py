@@ -1,4 +1,4 @@
-"""python -m narration_pipeline run | schedule | status | abs-check"""
+"""python -m narration_pipeline run | schedule [--nights N] | status | abs-check"""
 
 import argparse
 import logging
@@ -86,6 +86,18 @@ def _status(data: Path) -> str:
     return status_text(counts, recent)
 
 
+def nights_arg(value: str) -> int:
+    """--nights N, a whole number from 1. With 0 the loop would return at once, and compose's
+    restart policy would start the container again and again without a night's run."""
+    try:
+        n = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"--nights must be a whole number, not {value!r}") from None
+    if n < 1:
+        raise argparse.ArgumentTypeError(f"--nights must be at least 1, not {n}")
+    return n
+
+
 def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
          deps_factory: Callable[[Mapping[str, str]], Deps] = make_deps) -> int:
     env = os.environ if env is None else env
@@ -94,7 +106,9 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
     run = sub.add_parser("run")
     run.add_argument("--dry-run", action="store_true")
     run.add_argument("--only", metavar="URL")
-    sub.add_parser("schedule")
+    sched = sub.add_parser("schedule")
+    sched.add_argument("--nights", type=nights_arg, metavar="N",
+                       help="run N nights (each with its summary), then exit; default: until stopped")
     sub.add_parser("status")
     check = sub.add_parser("abs-check")
     check.add_argument("--podcast", required=True)
@@ -118,7 +132,7 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
         print(report_text(report, args.dry_run))
     else:
         deps = deps_factory(env)
-        schedule.schedule_loop(lambda: deps, now=deps.now, sleep=deps.sleep, push=deps.push)
+        schedule.schedule_loop(lambda: deps, now=deps.now, sleep=deps.sleep, push=deps.push, nights=args.nights)
     return 0
 
 

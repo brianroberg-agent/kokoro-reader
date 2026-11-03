@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -8,7 +8,7 @@ from narration_pipeline.__main__ import main, make_deps
 from narration_pipeline.discovery import Candidate
 from narration_pipeline.night import RunInProgress
 from narration_pipeline.record import Record
-from night_fakes import World, restore_record_clock, source
+from night_fakes import NY, START, World, restore_record_clock, source
 
 REQUIRED = ["NARRATION_URL", "NARRATION_RUNNER_TOKEN", "AUDIOBOOKSHELF_URL", "AUDIOBOOKSHELF_API_KEY",
             "NTFY_TOPIC_URL", "NTFY_TOKEN"]
@@ -157,3 +157,32 @@ def test_schedule_hands_the_loop_its_clock_and_push(tmp_path, monkeypatch):
     monkeypatch.setattr(cli.schedule, "schedule_loop", lambda make, **kw: got.update(deps=make(), **kw))
     assert main(["schedule"], env={}, deps_factory=lambda env: world.deps()) == 0
     assert got["now"] == world.clock.now and got["push"] is world.push and got["sleep"] == world.clock.sleep
+    assert got["nights"] is None  # without --nights the loop runs until the process is stopped
+
+
+class Overslept(Exception):
+    """The fake clock ran past the nights the test asked for."""
+
+
+def test_schedule_nights_1_runs_one_night_and_its_summary_then_returns(tmp_path):
+    # The runner container runs `schedule --nights 1` and is restarted by compose.
+    world = World(tmp_path)
+    url = world.add_article(1)
+
+    def sleep(seconds):  # a loop that ignored --nights would run night after night: stop it
+        world.clock.sleep(seconds)
+        if world.clock.now() > START + timedelta(days=2):
+            raise Overslept(world.clock.now())
+    assert main(["schedule", "--nights", "1"], env={}, deps_factory=lambda env: world.deps(sleep=sleep)) == 0
+    assert world.record.row(url)["status"] == "published"
+    assert [title for title, _, _ in world.push.sent] == ["Narration: 2026-11-04"]
+    assert world.clock.now() == datetime(2026, 11, 4, 7, 0, tzinfo=NY)  # the summary's time, then it returned
+
+
+@pytest.mark.parametrize("value, message", [("0", "--nights must be at least 1"), ("-1", "--nights must be at least 1"),
+                                            ("one", "--nights must be a whole number")])
+def test_schedule_nights_must_be_at_least_one(tmp_path, capsys, value, message):
+    world = World(tmp_path)
+    with pytest.raises(SystemExit) as e:
+        main(["schedule", "--nights", value], env={}, deps_factory=lambda env: world.deps())
+    assert e.value.code == 2 and message in capsys.readouterr().err
