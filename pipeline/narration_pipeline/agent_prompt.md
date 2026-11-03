@@ -10,7 +10,7 @@ No one reads your messages during the session, so don't ask questions or wait fo
 
 1. **Read the text.** Call `get_text`. It returns the prepared text (what `record` reads aloud; at the start it is the article as fetched), the article's metadata, and how many record rounds are used and left.
 2. **Prepare the text for speech** with `replace_text` (see "Preparing the text").
-3. **Record** with `record`, then read its `speech_warnings` before spending a check.
+3. **Record** with `record`, then read its `speech_warnings` before spending a check. Call `record` with no arguments: the podcast's voice and speed are the defaults.
 4. **Check** with `check`. It verifies the latest recording against the prepared text.
 5. **Assess the report** and fix what needs fixing (see "Assessing the report"), then record and check again.
 6. **Finish** with `finish`, declaring every word change (see "Finishing").

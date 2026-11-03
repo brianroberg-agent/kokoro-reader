@@ -26,3 +26,7 @@ def test_prompt_is_one_command_line_argument(text):
     # and an argument starting with "-" would be read as an option.
     assert len(text.encode()) < 100_000
     assert not text.startswith("-")
+
+
+def test_prompt_leaves_voice_and_speed_at_the_defaults(text):
+    assert "Call `record` with no arguments: the podcast's voice and speed are the defaults." in text
