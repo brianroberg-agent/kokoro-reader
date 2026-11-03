@@ -234,6 +234,18 @@ def test_no_new_item_after_0600(world):
     assert len(world.narration.items) == 3
 
 
+@pytest.mark.parametrize("first_s,started", [(5 * 3600, 1), (5 * 3600 - 1, 2)])
+def test_no_item_starts_at_exactly_0600(world, first_s, started):
+    a = world.add_article(1, script=Script(session_s=first_s))  # 01:00 to 06:00, or one second less
+    b = world.add_article(2)
+    report = world.run()
+    assert [r.url for r in report.results] == [a, b][:started]
+    assert report.stopped_at_cutoff == (started == 1)
+    if started == 1:
+        assert world.clock.now() == datetime(2026, 11, 3, 6, 0, tzinfo=NY)
+        assert world.record.row(b)["status"] == "queued"
+
+
 def test_daytime_run_is_not_past_the_cutoff(tmp_path):
     world = World(tmp_path, start=datetime(2026, 11, 3, 14, 0, tzinfo=NY))
     world.add_article(1)
@@ -491,6 +503,23 @@ def test_only_runs_one_url(world):
         world.run(only="https://example.test/elsewhere")
     with pytest.raises(ValueError, match="published"):
         world.run(only=b)
+
+
+def test_only_refuses_a_baseline_row(world):
+    old = world.add_article(1, published=date(2026, 9, 7))  # the day before the start date
+    with pytest.raises(ValueError, match="baseline"):
+        world.run(only=old)
+    assert world.record.row(old)["status"] == "baseline" and world.narration.items == {}
+
+
+def test_recovery_of_a_row_with_no_item_id_fails_it(world):
+    url = world.add_article(1)
+    world.record.add_discovered([Candidate(url, "Article 1", date(2026, 10, 1), None, None)],
+                                world.sources[0])
+    world.record.transition(url, "in_progress")  # the run stopped before open answered
+    [r] = world.run().results
+    assert (r.status, r.reasons) == ("failed", ["the run stopped before its work item was opened"])
+    assert world.record.row(url)["failed_nights"] == 1 and world.narration.finalizes == []
 
 
 def test_second_run_is_refused_while_one_holds_the_lock(world):
