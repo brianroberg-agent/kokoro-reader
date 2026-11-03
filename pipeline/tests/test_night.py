@@ -398,6 +398,27 @@ def test_a_row_recovery_cannot_settle_counts_nights_then_is_held(world):
     assert world.abs.episodes == [] and len(world.narration.items) == 1
 
 
+def test_a_missing_title_falls_back_to_the_records(world, monkeypatch):
+    world.add_article(1)
+    real = world.article_assistant
+
+    def untitled(url):
+        text, meta = real(url)
+        del meta["title"]
+        return text, meta
+
+    monkeypatch.setattr(world, "article_assistant", untitled)
+    world.crash_on = "abs.publish:uploaded"
+    with pytest.raises(Crash):
+        world.run()
+    [ep] = world.abs.episodes
+    assert ep.filename == episode_filename("Article 1", only_item(world))
+    [r] = world.run().results  # recovery computes the same file name and finds the upload
+    assert r.status == "published"
+    [ep] = world.abs.episodes
+    assert ep.title == "Article 1"
+
+
 def test_crash_after_finish_recovers_by_finalizing(world):
     url = world.add_article(1, script=Script(session="minor"))
     world.crash_on = "narration.finalize"

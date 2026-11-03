@@ -85,7 +85,7 @@ class FakeItem:
     checks: int = 0
 
     def decision(self) -> dict:
-        title = self.metadata["title"]
+        title = self.metadata.get("title") or "?"
         kind = self.finish["kind"]
         if kind == "clean":
             return {"action": "publish", "outcome": "clean", "reasons": [],
@@ -156,7 +156,7 @@ class FakeNarration:
 
     def status(self, item_id: str) -> dict:
         item = self._item("status", item_id)
-        meta = {"title": item.metadata["title"].strip(),
+        meta = {"title": (item.metadata.get("title") or "").strip(),  # as the server's _text
                 "date_published": item.metadata.get("date_published") or "", "authors": []}
         return {"exists": True, "metadata": meta, "status": item.status, "records": item.records,
                 "recorded_round": item.records or None, "checks_used": item.checks,

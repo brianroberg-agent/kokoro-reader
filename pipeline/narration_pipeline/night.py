@@ -247,7 +247,7 @@ class _Night:
 
     def publish(self, it: _Item) -> ItemResult:
         meta = it.st["metadata"]  # the server's copy, so recovery computes the same file name
-        title = meta["title"]
+        title = meta.get("title") or it.row["title"]
         filename = episode_filename(title, it.item_id)
         podcast = self.sources[it.row["source"]].podcast
         located = self.earlier_upload(it, podcast, filename) if it.uploading else None
