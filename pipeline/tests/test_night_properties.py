@@ -25,7 +25,7 @@ SCRIPTS = st.builds(
     Script,
     fetch=st.sampled_from(["ok"] * 5 + ["error"]),
     session=st.sampled_from(["clean", "clean", "minor", "hold", "gate_hold", "no_finish", "no_result",
-                             "no_login", "api_down"]),
+                             "no_login", "api_down", "api_after_text"]),
     session_s=st.sampled_from([60, 600, 7200]),  # few values: the windows between them matter
     mac=st.sampled_from([None] * 5 + ["blip_open", "blip_finalize", "blip_status", "blip_download",
                                       "down_in_session"]),

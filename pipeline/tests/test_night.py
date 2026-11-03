@@ -167,6 +167,23 @@ def test_an_outside_failure_in_a_dry_run_stops_it_without_a_push(world, session,
     assert report.stopped_by == category and len(report.results) == 1 and world.push.sent == []
 
 
+def test_an_article_whose_sessions_always_fail_on_the_api_is_held_not_the_night_stopped(world):
+    # R31a: the API failure comes after get_text, so the service calls it the session's;
+    # the night goes on, and the article is held after three failed nights
+    url = world.add_article(1, script=Script(session="api_after_text"))
+    for night in (1, 2, 3):
+        other = world.add_article(10 + night)
+        report = world.run()
+        assert report.stopped_by is None
+        assert [(r.url, r.status) for r in report.results] == [
+            (url, "failed" if night < 3 else "held"), (other, "published")]
+        world.next_night()
+    row = world.record.row(url)
+    assert (row["status"], row["failed_nights"]) == ("held", 3) and "(session: api_error)" in row["last_error"]
+    [(title, body, _)] = world.push.sent
+    assert title == "Held: Article 1" and body.startswith("failed 3 nights: ")
+
+
 def test_a_session_failure_is_the_articles(world):
     # category "session": the night goes on, and the failed night counts against the article
     a = world.add_article(1, script=Script(session="no_finish"))

@@ -16,8 +16,10 @@ The session's whole process group is killed when its init event (its first event
 other than another system event) lists any tool but the six, or the narration server
 isn't connected, and when it runs past the request's timeout. Each result has a
 category: "login" when Claude Code couldn't authenticate (its error is then LOGIN_ERROR),
-"api" when Claude Code reported any other failed API request, and "session" otherwise,
-so the runner can tell a failure outside the article from the article's own. A request
+"api" when Claude Code reported any other failed API request before the session's first
+narration tool call (after it, the article's text is in the session, and the failure
+counts as the article's), and "session" otherwise, so the runner can tell a failure
+outside the article from the article's own. A request
 whose item id is valid gets a result, failures included;
 one without a valid id is moved to rejected/ instead. The MCP config file holds the
 item's agent token: it lives in a private temporary directory, which is removed when
@@ -265,12 +267,26 @@ def api_failure(event: dict) -> str | None:
     return f"{said}: {text}" if text else said
 
 
-def outside_failure(event: dict, category: str, detail: str | None) -> tuple[str, str | None]:
+def uses_a_narration_tool(event: dict) -> bool:
+    """An assistant message calling one of the narration tools. From the first (get_text),
+    the article's text is in the session."""
+    message = event.get("message")
+    content = message.get("content") if event.get("type") == "assistant" and isinstance(message, dict) else None
+    return isinstance(content, list) and any(
+        isinstance(block, dict) and block.get("type") == "tool_use" and isinstance(block.get("name"), str)
+        and block["name"].startswith(PREFIX) for block in content)
+
+
+def outside_failure(event: dict, category: str, detail: str | None,
+                    tool_used: bool) -> tuple[str, str | None]:
     """The session's category and its API failure's description, after this event. A
-    login failure outranks an API failure: it needs Brian, and it explains the rest."""
+    login failure outranks an API failure: it needs Brian, and it explains the rest. An
+    API failure counts only before the first narration tool call (R31a): after it, an
+    article that makes every request fail would otherwise stop every night and never
+    count a failed night."""
     if authentication_failed(event):
         return "login", None
-    if category == "session":
+    if category == "session" and not tool_used:
         said = api_failure(event)
         if said:
             return "api", said
@@ -426,7 +442,7 @@ def _watch(proc: subprocess.Popen, timeout_s: int, secrets, beat) -> dict:
     threading.Thread(target=_pump, args=(proc.stdout, lines, secrets), daemon=True).start()
     drain = threading.Thread(target=_drain, args=(proc.stderr, tail, secrets), daemon=True)
     drain.start()
-    checked = False
+    checked = tool_used = False
     category, detail = "session", None
     while True:
         beat()
@@ -458,7 +474,8 @@ def _watch(proc: subprocess.Popen, timeout_s: int, secrets, beat) -> dict:
             _finish(proc)
             return categorized(parse_result(event), category, detail)
         else:
-            category, detail = outside_failure(event, category, detail)
+            category, detail = outside_failure(event, category, detail, tool_used)
+            tool_used = tool_used or uses_a_narration_tool(event)
     status = _finish(proc)
     drain.join(timeout=2)
     return categorized(failure(f"no result event (claude exited with status {status})", list(tail)),

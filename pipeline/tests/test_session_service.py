@@ -497,6 +497,52 @@ def test_api_failure_is_read_only_from_claude_codes_own_messages():
         assert ss.api_failure(event) is None
 
 
+def tool_use(name="mcp__narration__get_text"):
+    """The model's call of a tool: after get_text, the article's text is in the session."""
+    return {"type": "assistant", "session_id": "s-1", "parent_tool_use_id": None,
+            "message": {"model": "a-model", "role": "assistant", "type": "message",
+                        "content": [{"type": "text", "text": "Reading the article."},
+                                    {"type": "tool_use", "id": "toolu_1", "name": name, "input": {}}]}}
+
+
+TOOL_RESULT = {"type": "user", "session_id": "s-1", "parent_tool_use_id": None,
+               "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_1",
+                                                        "content": "The article's text."}]}}
+
+
+@pytest.mark.parametrize("ending", ["result", "no result", "timeout"])
+def test_an_api_failure_after_the_first_tool_use_is_the_articles(fake_claude, cfg, ending):
+    # R31a: from get_text on, the article's text is in the context, and an article could
+    # make every request fail; counted as a session failure, it holds the article in the
+    # end instead of stopping every night
+    end = {"result": [{"out": API_RESULT}], "no result": [{"exit": 1}], "timeout": [{"sleep": 60}]}[ending]
+    fake_claude({"out": init_event()}, {"out": tool_use()}, {"out": TOOL_RESULT}, {"out": API_ASSISTANT}, *end)
+    out = ss.run_session(request(timeout_s=2), cfg)
+    assert out["category"] == "session" and out["finished_ok"] is False
+    if ending == "result":
+        assert out == ss.parse_result(API_RESULT)  # the session's own error, as for any other
+
+
+def test_only_a_narration_tool_use_counts(fake_claude, cfg):
+    fake_claude({"out": init_event()}, {"out": tool_use("SomethingElse")}, {"out": API_ASSISTANT}, {"out": API_RESULT})
+    assert ss.run_session(request(), cfg)["category"] == "api"
+
+
+def test_a_login_failure_after_a_tool_use_is_still_login(fake_claude, cfg):
+    fake_claude({"out": init_event()}, {"out": tool_use()}, {"out": TOOL_RESULT}, {"out": BAD_TOKEN_ASSISTANT},
+                {"out": BAD_TOKEN_RESULT})
+    out = ss.run_session(request(), cfg)
+    assert (out["category"], out["error"]) == ("login", LOGIN_ERROR)
+
+
+def test_tool_use_is_read_from_assistant_messages_only():
+    assert ss.uses_a_narration_tool(tool_use())
+    assert not ss.uses_a_narration_tool(tool_use("SomethingElse"))
+    for event in (TOOL_RESULT, API_ASSISTANT, init_event(), RESULT,
+                  {"type": "assistant", "message": {"content": "mcp__narration__get_text"}}):
+        assert not ss.uses_a_narration_tool(event)
+
+
 def test_a_login_failure_outranks_an_api_failure(fake_claude, cfg):
     fake_claude({"out": init_event()}, {"out": API_ASSISTANT}, {"out": BAD_TOKEN_ASSISTANT}, {"out": BAD_TOKEN_RESULT})
     out = ss.run_session(request(), cfg)

@@ -47,7 +47,7 @@ If it lapses anyway, or the token in `agent.env` is wrong, the first session of 
 
 To renew it, run `claude setup-token` again, put the new value in `/srv/narration/agent.env`, and recreate the agent so it reads the file again (a plain `restart` keeps the old environment): `docker compose -f deploy/compose.yaml up -d --force-recreate narration-agent`. Then update the date above.
 
-**If Claude Code can't reach the API** for another reason (it reports the request as overloaded, rate-limited or failed), the runner pushes "Claude API unreachable" with the session's error and stops the night the same way: the article goes back to `failed` without a failed night, and comes first the next night. If that push comes every night, recreate the agent (see "Name lookups" above).
+**If Claude Code can't reach the API** for another reason (it reports the request as overloaded, rate-limited or failed) before the session's first narration tool call, the runner pushes "Claude API unreachable" with the session's error and stops the night the same way: the article goes back to `failed` without a failed night, and comes first the next night. If that push comes every night, recreate the agent (see "Name lookups" above). Once the session has called a tool, the article's text is in it, so a failed API request from then on counts against the article like any other failure (an article that made every request fail would otherwise stop every night).
 
 ## Deploy
 

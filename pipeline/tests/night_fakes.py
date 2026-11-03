@@ -49,6 +49,7 @@ class Crash(BaseException):
 class Script:
     fetch: str = "ok"        # ok | error
     session: str = "clean"   # clean | minor | hold | gate_hold | no_finish | no_result | no_login | api_down
+    #                          | api_after_text (an API failure after get_text: the article's)
     session_s: int = 1200    # how long the session takes
     mac: str | None = None   # None | blip_<call> (that call fails once) | down_in_session
     abs: str = "ok"          # ok | error_before_upload | error_after_upload | error_in_wait (once each)
@@ -228,6 +229,10 @@ class FakeSessions:
             clock.sleep(60)
             return {**result, "cost_usd": 0.01, "num_turns": 1, "tokens": 0, "terminal_reason": "api_error",
                     "error": API_ERROR, "category": "api"}
+        if script.session == "api_after_text":  # as the service reports it (R31a): category session
+            clock.sleep(120)
+            item.records = 0
+            return {**result, "cost_usd": 0.05, "num_turns": 2, "terminal_reason": "api_error", "error": API_ERROR}
         clock.sleep(script.session_s)
         if script.session == "no_finish":
             item.records, item.checks = 4, 8
