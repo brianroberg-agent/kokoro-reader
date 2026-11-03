@@ -305,8 +305,12 @@ class _Night:
         return self.fail(it, error)
 
     def leave(self, it: _Item, error: str) -> ItemResult:
+        """The row stays as it is, for the next run's recovery. A recovery that leaves it
+        counts a failed night, so a row recovery can't settle is held in the end."""
         status = self.rec.row(it.row["url"])["status"]
-        return self.result(it, status, [error], "retry" if self.dry_run else None)
+        if self.dry_run or not it.recovered or status != "in_progress":
+            return self.result(it, status, [error], "retry" if self.dry_run else None)
+        return self.count_failure(it, error, None)
 
     def fail(self, it: _Item, error: str) -> ItemResult:
         if it.uploading:  # an upload may exist (R16): a failed row would be recorded and uploaded again
@@ -314,14 +318,23 @@ class _Night:
         url = it.row["url"]
         if self.rec.row(url)["status"] != "in_progress":
             self.rec.transition(url, "in_progress")
+        return self.count_failure(it, error, "failed")
+
+    def count_failure(self, it: _Item, error: str, to: str | None) -> ItemResult:
+        """failed_nights + 1, and the row moves to `to` (None: stays in_progress); at
+        failed_nights_to_hold it is held instead, with a push naming the last error."""
+        url = it.row["url"]
         nights = it.row["failed_nights"] + 1
-        if nights < self.s.failed_nights_to_hold:
-            self.rec.transition(url, "failed", failed_nights=nights, last_error=error)
-            return self.result(it, "failed", [error])
-        reasons = [f"failed {nights} nights: {error}"]
-        self.rec.transition(url, "held", failed_nights=nights, last_error=error)
-        self.notify(f"Held: {it.row['title']}", reasons[0])
-        return self.result(it, "held", reasons)
+        if nights >= self.s.failed_nights_to_hold:
+            reasons = [f"failed {nights} nights: {error}"]
+            self.rec.transition(url, "held", failed_nights=nights, last_error=error)
+            self.notify(f"Held: {it.row['title']}", reasons[0])
+            return self.result(it, "held", reasons)
+        if to is None:
+            self.rec.update(url, failed_nights=nights, last_error=error)
+        else:
+            self.rec.transition(url, to, failed_nights=nights, last_error=error)
+        return self.result(it, to or "in_progress", [error])
 
     def why(self, it: _Item) -> str:
         why = "; ".join(it.fin.get("reasons") or []) or f"finalize answered {it.fin['action']}"

@@ -318,6 +318,27 @@ def test_upload_error_leaves_row_for_recovery_not_failed(world):
     assert r.status == "published" and len(world.abs.episodes) == 1
 
 
+def test_a_row_recovery_cannot_settle_counts_nights_then_is_held(world):
+    url = world.add_article(1)
+    world.abs.down = True  # Audiobookshelf is down for good
+    [r] = world.run().results
+    assert r.status == "in_progress" and world.record.row(url)["failed_nights"] == 0
+    for nights in (1, 2):
+        world.next_night()
+        [r] = world.run().results
+        row = world.record.row(url)
+        assert (r.status, row["status"], row["failed_nights"]) == ("in_progress", "in_progress", nights)
+        assert row["last_error"].startswith("AbsError: ")
+    assert world.push.sent == []
+    world.next_night()
+    [r] = world.run().results
+    row = world.record.row(url)
+    assert (r.status, row["status"], row["failed_nights"], row["publish_started"]) == ("held", "held", 3, 1)
+    [(title, body, _)] = world.push.sent
+    assert "Article 1" in title and body.startswith("failed 3 nights: AbsError: ")
+    assert world.abs.episodes == [] and len(world.narration.items) == 1
+
+
 def test_crash_after_finish_recovers_by_finalizing(world):
     url = world.add_article(1, script=Script(session="minor"))
     world.crash_on = "narration.finalize"

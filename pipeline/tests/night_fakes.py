@@ -223,6 +223,12 @@ class FakeAbs:
         self.episodes: list[Episode] = []  # one per upload, as a real server would make
         self.waits: list[tuple[str, float]] = []
         self.failed: set[tuple[str, str]] = set()
+        self.down = False  # every call fails until it is set back
+
+    def _call(self, name: str) -> None:
+        self.w.tick(name)
+        if self.down:
+            raise AbsError("GET /api/libraries failed: ConnectionError")
 
     def _visible(self, podcast: str, filename: str) -> Episode | None:
         now = self.w.clock.now()
@@ -250,13 +256,13 @@ class FakeAbs:
         return ep
 
     def find_episode(self, podcast: str, filename: str) -> str | None:
-        self.w.tick("abs.find_episode")
+        self._call("abs.find_episode")
         ep = self._visible(podcast, filename)
         return ep.id if ep else None
 
     def wait_episode(self, podcast: str, filename: str, timeout_s: float = 600,
                      poll_s: float = 15) -> str:
-        self.w.tick("abs.wait_episode")
+        self._call("abs.wait_episode")
         self.waits.append((filename, timeout_s))
         if self._fails(filename, "error_in_wait"):
             raise AbsError("GET /api/libraries failed: ConnectionError")
@@ -264,7 +270,7 @@ class FakeAbs:
 
     def publish(self, podcast, mp3, filename, title, description, pub_date, *,
                 wait_timeout_s=600, poll_s=15) -> str:
-        self.w.tick("abs.publish")
+        self._call("abs.publish")
         if self._fails(filename, "error_before_upload"):
             raise AbsError("GET /api/libraries returned 502")
         ep = self._visible(podcast, filename)
