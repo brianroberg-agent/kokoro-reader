@@ -29,7 +29,7 @@ def source(id: str = "tna") -> Source:
     return Source(id=id, name=f"Source {id}", podcast=f"Podcast {id}",
                   feed=f"https://example.test/{id}/feed", listing=None, extractor="generic",
                   start_edition=86, start_date=date(2026, 9, 8),
-                  text_rules=("Read the dateline once.",))
+                  text_rules=("Read the dateline once.",), cover=Path(f"/covers/{id}.png"))
 
 
 _REAL_RECORD_NOW = record_module._now
@@ -269,6 +269,7 @@ class FakeAbs:
         self.waits: list[tuple[str, float]] = []  # (work item id, timeout) of each wait_upload
         self.failed: set[tuple[str, str]] = set()
         self.details_set: list[str] = []  # episode ids set_episode was called for
+        self.covers: dict[str, Path] = {}  # podcast -> the cover publish set for it
         self.down = False  # every call fails until it is set back
 
     def _call(self, name: str) -> None:
@@ -321,7 +322,7 @@ class FakeAbs:
         ep.title, ep.description, ep.pub_date = title, description, pub_date
 
     def publish(self, podcast, mp3, filename, title, description, pub_date, *,
-                wait_timeout_s=600, poll_s=15) -> str:
+                wait_timeout_s=600, poll_s=15, cover=None) -> str:
         self._call("abs.publish")
         item_id = filename.rsplit("-", 1)[1].removesuffix(".mp3")
         if self._fails(item_id, "error_before_upload"):
@@ -337,6 +338,8 @@ class FakeAbs:
                 raise AbsError("PATCH /api/podcasts/x/episode/y returned 500")
             ep = self._wait(podcast, item_id, wait_timeout_s)
         ep.title, ep.description, ep.pub_date = title, description, pub_date
+        if cover is not None:
+            self.covers.setdefault(podcast, cover)  # as the server: set when the podcast has none
         return ep.id
 
 

@@ -343,7 +343,8 @@ class _Night:
             self.rec.update(it.row["url"], publish_started=1)
             it.uploading = True
             episode_id = self.d.abs.publish(self.podcast(it), mp3, filename, title, it.fin.get("notes") or "",
-                                            meta.get("date_published") or None)
+                                            meta.get("date_published") or None,
+                                            cover=self.sources[it.row["source"]].cover)
         status = "published_with_notes" if it.fin["outcome"] == "minor" else "published"
         self.rec.transition(it.row["url"], status, episode_id=episode_id)
         return self.result(it, status, it.fin.get("reasons") or [])

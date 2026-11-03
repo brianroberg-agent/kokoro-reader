@@ -4,6 +4,8 @@ import os
 from dataclasses import fields
 from datetime import date, datetime, time, timedelta
 
+from pathlib import Path
+
 import pytest
 
 from narration_pipeline import handoff as handoff_files
@@ -377,6 +379,20 @@ def test_mac_gone_mid_item_waits_for_it_and_recovers_next_night(world):
     assert world.record.row(a)["failed_nights"] == 1
     world.next_night()
     assert [(r.url, r.status) for r in world.run().results] == [(a, "published")]
+
+
+def test_publish_gives_audiobookshelf_the_sources_cover(world):
+    # Brian, 2026-11-03: a new podcast gets a cover made from the publication's logo.
+    world.add_article(1)
+    world.add_article(2)
+    world.run()
+    assert world.abs.covers == {"Podcast tna": Path("/covers/tna.png")}
+
+
+def test_a_dry_run_sets_no_cover(world):
+    world.add_article(1)
+    world.run(dry_run=True)
+    assert world.abs.covers == {}
 
 
 def test_the_mac_is_given_the_article_with_its_title_and_byline_first(world):
