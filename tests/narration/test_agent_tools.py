@@ -270,6 +270,17 @@ def test_a_round_after_a_failed_one_counts(env):
     assert tools.finish(item, "minor", [DROPPED], [])["ok"]
 
 
+def test_the_first_check_is_what_a_fix_must_follow_not_round_one(env):
+    # Round 1 failed and left nothing; round 2 is the first recording a check heard.
+    _, tools, tts, _, item, _ = env
+    tts.fail_next = True
+    with pytest.raises(Exception):
+        tools.record(item)
+    _round(tools, item)
+    with pytest.raises(ToolError, match="no round has been recorded since the first check"):
+        tools.finish(item, "minor", [DROPPED], [])
+
+
 def test_a_change_made_before_the_first_check_is_not_a_fix_tried(env):
     # The prompt has speech_warnings fixed and recorded again before a check is spent,
     # so two texts are often recorded before any check has heard a word.
