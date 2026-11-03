@@ -13,7 +13,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from narration_pipeline import handoff as handoff_files
-from narration_pipeline.abs import AbsTimeout, episode_filename
+from narration_pipeline.abs import AbsError, AbsTimeout, episode_filename
 from narration_pipeline.config import Settings, Source
 from narration_pipeline.discovery import DiscoveryError, discover
 from narration_pipeline.messages import discovery_failed_message, hold_message, plain, stopped_message
@@ -229,13 +229,21 @@ class _Night:
         return self.conclude(it)
 
     def recover(self, row: Row) -> ItemResult:
-        """An in_progress row: the last run stopped partway through it."""
+        """An in_progress row: the last run stopped partway through it. A row whose upload
+        may exist is looked for in Audiobookshelf first, before the Mac is asked (R32)."""
         it = _Item(row, self.d.now(), recovered=True, item_id=row["item_id"],
                    uploading=bool(row["publish_started"]))
         if it.item_id is None:
             return self.fail(it, "the run stopped before its work item was opened")
         if not valid_item_id(it.item_id):
             return self.fail(it, f"the record holds a bad work item id: {it.item_id!r}")
+        if it.uploading:
+            try:
+                located = self.earlier_upload(it)
+            except Exception as e:  # Audiobookshelf can't say whether the upload is there:
+                return self.leave(it, _error(e))  # not absent (R16); the next run looks again
+            if located is not None:
+                return self.live_already(it, *located)
         try:
             it.fin = self.force(it)  # on a finished or finalized item, the same as a plain finalize
         except Exception as e:
@@ -307,40 +315,76 @@ class _Night:
         return self.result(it, "failed", [it.outside_error])
 
     def publish(self, it: _Item) -> ItemResult:
-        meta = it.st["metadata"]  # the server's copy, so recovery computes the same file name
+        """Download, upload and set the episode's details. A row whose upload may exist
+        comes here only after recovery looked for it (earlier_upload) and found none: if
+        it shows by now, abs.publish finds it by its file name instead of uploading."""
+        meta = it.st["metadata"]  # the server's copy, so a rerun computes the same file name
         title = meta.get("title") or it.row["title"]
         filename = episode_filename(title, it.item_id)
-        podcast = self.sources[it.row["source"]].podcast
-        located = self.earlier_upload(it, podcast, filename) if it.uploading else None
         with tempfile.TemporaryDirectory(dir=self.d.record_dir) as tmp:
             mp3 = Path(tmp) / filename
-            if located is None:
-                self.d.narration.download_mp3(it.item_id, mp3)
-                self.rec.update(it.row["url"], publish_started=1)
-                it.uploading = True
-            # For a located episode publish finds it again and only sets its details, so
-            # the MP3 isn't fetched: publish opens it only to upload.
-            episode_id = self.d.abs.publish(podcast, mp3, filename, title, it.fin.get("notes") or "",
+            self.d.narration.download_mp3(it.item_id, mp3)
+            self.rec.update(it.row["url"], publish_started=1)
+            it.uploading = True
+            episode_id = self.d.abs.publish(self.podcast(it), mp3, filename, title, it.fin.get("notes") or "",
                                             meta.get("date_published") or None)
         status = "published_with_notes" if it.fin["outcome"] == "minor" else "published"
         self.rec.transition(it.row["url"], status, episode_id=episode_id)
         return self.result(it, status, it.fin.get("reasons") or [])
 
-    def earlier_upload(self, it: _Item, podcast: str, filename: str) -> str | None:
+    def podcast(self, it: _Item) -> str:
+        return self.sources[it.row["source"]].podcast
+
+    def earlier_upload(self, it: _Item) -> tuple[str, str] | None:
         """publish_started was set, so an upload may have reached Audiobookshelf without
-        showing yet. Its episode id, looking first and then waiting for what is left of
-        RECOVERY_WAIT_S since the row was last written; None if it hasn't shown by then."""
-        episode_id = self.d.abs.find_episode(podcast, filename)
-        if episode_id is not None:
-            return episode_id
+        showing yet. Found by its work item (its title came from the Mac, which may not
+        answer now): (Audiobookshelf item id, episode id), looking first and then waiting
+        for what is left of RECOVERY_WAIT_S since the row was last written; None if it
+        hasn't shown by then. Other AbsErrors propagate: an error is not absence."""
+        found = self.d.abs.find_upload(self.podcast(it), it.item_id)
+        if found is not None:
+            return found
         age = _seconds(datetime.fromisoformat(it.row["updated_at"]), self.d.now())
         wait = min(RECOVERY_WAIT_S, RECOVERY_WAIT_S - age)
         if wait <= 0:
             return None
         try:
-            return self.d.abs.wait_episode(podcast, filename, timeout_s=wait)
+            return self.d.abs.wait_upload(self.podcast(it), it.item_id, timeout_s=wait)
         except AbsTimeout:
-            return None  # not seen within the wait: publish uploads it. Other AbsErrors propagate.
+            return None  # not seen within the wait: publish uploads it
+
+    def live_already(self, it: _Item, abs_item: str, episode_id: str) -> ItemResult:
+        """Recovery found the row's episode in Audiobookshelf. It is live, so the row ends
+        published whatever the Mac says now (R32): published_with_notes when the session's
+        finish said minor. Its details are set again from finalize's notes when the Mac
+        answers and finalize still says publish; anything left undone goes in last_error."""
+        status, undone = "published", []
+        try:
+            it.fin = self.force(it)
+            it.st = self.d.narration.status(it.item_id)
+        except NarrationError as e:  # NarrationUnavailable too: the episode is live all the same
+            self.unavailable |= isinstance(e, NarrationUnavailable)
+            undone.append(f"the episode's details were not set again: the Mac didn't answer ({_error(e)})")
+        else:
+            if (it.st.get("finish") or {}).get("outcome") == "minor":
+                status = "published_with_notes"
+            if it.fin.get("action") == "publish":
+                meta = it.st.get("metadata") or {}
+                try:
+                    self.d.abs.set_episode(abs_item, episode_id, meta.get("title") or it.row["title"],
+                                           it.fin.get("notes") or "", meta.get("date_published") or None)
+                except AbsError as e:
+                    undone.append(f"the episode's details were not set again: {_error(e)}")
+            else:
+                why = "; ".join(it.fin.get("reasons") or [])
+                undone.append(f"live already, though finalize now answers {it.fin.get('action')}"
+                              + (f": {why}" if why else ""))
+            self.save_costs(it)
+        fields = {"episode_id": episode_id}
+        if undone:
+            fields["last_error"] = plain("; ".join(undone))
+        self.rec.transition(it.row["url"], status, **fields)
+        return self.result(it, status, undone)
 
     def after_error(self, it: _Item, e: Exception) -> ItemResult:
         error = _error(e)

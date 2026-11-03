@@ -512,7 +512,7 @@ def test_late_episode_after_crash_is_waited_for_not_uploaded_again(world):
     [r] = world.run().results
     assert r.status == "published"
     [ep] = world.abs.episodes
-    assert world.abs.waits == [(ep.filename, 1800)]
+    assert world.abs.waits == [(only_item(world), 1800)]
     assert world.record.row(url)["episode_id"] == ep.id
     assert len(world.narration.downloads) == 1
 
@@ -536,17 +536,73 @@ def test_an_error_at_the_end_of_the_wait_is_not_taken_for_absent(world, monkeypa
     with pytest.raises(Crash):
         world.run()
 
-    def wait_then_error(podcast, filename, timeout_s=600, poll_s=15):
+    def wait_then_error(podcast, item_id, timeout_s=600, poll_s=15):
         world.clock.sleep(timeout_s)
         raise AbsError("GET /api/libraries returned 502")
 
-    monkeypatch.setattr(world.abs, "wait_episode", wait_then_error)
+    monkeypatch.setattr(world.abs, "wait_upload", wait_then_error)
     [r] = world.run().results
     assert r.status == "in_progress" and len(world.abs.episodes) == 1
     world.next_night()
     [r] = world.run().results
     assert r.status == "published" and len(world.abs.episodes) == 1
     assert world.record.row(url)["episode_id"] == world.abs.episodes[0].id
+
+
+def crash_after_upload(world, **script):
+    url = world.add_article(1, script=Script(**script))
+    world.crash_on = "abs.publish:uploaded"  # uploaded; its details not set yet
+    with pytest.raises(Crash):
+        world.run()
+    [ep] = world.abs.episodes
+    assert ep.description is None and world.record.row(url)["publish_started"] == 1
+    return url, ep
+
+
+def test_recovery_looks_in_audiobookshelf_before_finalizing(world):
+    url, ep = crash_after_upload(world, session="minor")
+    finalizes = len(world.narration.finalizes)
+    calls = []
+    real = world.abs.find_upload
+    world.abs.find_upload = lambda podcast, item_id: calls.append(len(world.narration.finalizes)) or real(
+        podcast, item_id)
+    [r] = world.run().results
+    assert calls == [finalizes]  # no finalize before the look
+    assert (r.status, world.record.row(url)["episode_id"]) == ("published_with_notes", ep.id)
+    assert ep.description == "Notes for Article 1\n\nRemaining: 12:40 mispronunciation"  # finalize's notes
+    assert world.abs.details_set == [ep.id] and len(world.abs.episodes) == 1
+
+
+def test_a_live_episode_is_published_when_the_mac_has_forgotten_the_work_item(world):
+    url, ep = crash_after_upload(world, session="minor")
+    world.narration.items[only_item(world)].forgotten = True  # "no such work item"
+    [r] = world.run().results
+    row = world.record.row(url)
+    assert (r.status, row["status"], row["episode_id"]) == ("published", "published", ep.id)
+    assert world.abs.details_set == [] and ep.description is None  # nothing to set them from
+    assert "no such work item" in row["last_error"] and world.push.sent == []
+    world.next_night()
+    assert world.run().results == [] and len(world.abs.episodes) == 1
+
+
+def test_a_live_episode_is_published_when_the_mac_is_gone(world):
+    url, ep = crash_after_upload(world)
+    world.narration.down_until = world.clock.now() + timedelta(hours=1)
+    world.narration.health = lambda: True  # it answers health, then fails every call
+    [r] = world.run().results
+    assert (r.status, world.record.row(url)["episode_id"]) == ("published", ep.id)
+    assert world.abs.details_set == [] and "NarrationUnavailable" in world.record.row(url)["last_error"]
+
+
+def test_a_live_episode_is_published_when_the_gate_now_says_hold(world):
+    url, ep = crash_after_upload(world)
+    world.narration.items[only_item(world)].finish["kind"] = "gate_hold"  # finalize now answers hold
+    [r] = world.run().results
+    row = world.record.row(url)
+    assert (r.status, row["status"], row["episode_id"]) == ("published", "published", ep.id)
+    assert world.abs.details_set == [] and ep.description is None  # a hold has no notes to set
+    assert "hold" in row["last_error"] and "without declaring it" in row["last_error"]
+    assert world.push.sent == []
 
 
 def test_crash_before_upload_waits_then_uploads_once(world):
@@ -556,7 +612,7 @@ def test_crash_before_upload_waits_then_uploads_once(world):
         world.run()
     [r] = world.run().results
     assert r.status == "published" and len(world.abs.episodes) == 1
-    assert world.abs.waits == [(world.abs.episodes[0].filename, 1800)]
+    assert world.abs.waits == [(only_item(world), 1800)]
 
 
 def test_recovery_waits_only_what_is_left_of_30_minutes(world):
@@ -567,7 +623,7 @@ def test_recovery_waits_only_what_is_left_of_30_minutes(world):
     world.clock.sleep(600)
     [r] = world.run().results
     assert r.status == "published"
-    assert world.abs.waits == [(world.abs.episodes[0].filename, 1200)]
+    assert world.abs.waits == [(only_item(world), 1200)]
 
 
 def test_next_night_recovery_does_not_wait_for_an_old_upload(world):

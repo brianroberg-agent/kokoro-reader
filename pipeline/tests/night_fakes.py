@@ -86,6 +86,7 @@ class FakeItem:
     finish: dict | None = None
     records: int = 0
     checks: int = 0
+    forgotten: bool = False  # the Mac no longer has it: "no such work item"
 
     def decision(self) -> dict:
         title = self.metadata.get("title") or "?"
@@ -127,7 +128,7 @@ class FakeNarration:
     def _item(self, name: str, item_id: str) -> FakeItem:
         item = self.items.get(item_id)
         self._call(name, item_id, item.script if item else Script())
-        if item is None:
+        if item is None or item.forgotten:
             raise NarrationError("no such work item")
         return item
 
@@ -255,13 +256,18 @@ class Episode:
     description: str | None = None
     pub_date: str | None = None
 
+    @property
+    def item_id(self) -> str:  # episode_filename ends in -<item_id>.mp3
+        return self.filename.rsplit("-", 1)[1].removesuffix(".mp3")
+
 
 class FakeAbs:
     def __init__(self, world: "World"):
         self.w = world
         self.episodes: list[Episode] = []  # one per upload, as a real server would make
-        self.waits: list[tuple[str, float]] = []
+        self.waits: list[tuple[str, float]] = []  # (work item id, timeout) of each wait_upload
         self.failed: set[tuple[str, str]] = set()
+        self.details_set: list[str] = []  # episode ids set_episode was called for
         self.down = False  # every call fails until it is set back
 
     def _call(self, name: str) -> None:
@@ -274,55 +280,61 @@ class FakeAbs:
         return next((e for e in self.episodes if (e.podcast, e.filename) == (podcast, filename)
                      and e.appears_at <= now), None)
 
-    def _fails(self, filename: str, mode: str) -> bool:
-        item_id = filename.rsplit("-", 1)[1].removesuffix(".mp3")
+    def _fails(self, item_id: str, mode: str) -> bool:
         if self.w.narration.items[item_id].script.abs == mode and (item_id, mode) not in self.failed:
             self.failed.add((item_id, mode))
             return True
         return False
 
-    def _wait(self, podcast: str, filename: str, timeout_s: float) -> Episode:
+    def _wait(self, podcast: str, item_id: str, timeout_s: float) -> Episode:
         clock = self.w.clock
         limit = clock.now() + timedelta(seconds=timeout_s)
-        pending = [e for e in self.episodes if (e.podcast, e.filename) == (podcast, filename)
+        pending = [e for e in self.episodes if e.podcast == podcast and e.item_id == item_id
                    and e.appears_at <= limit]
         if not pending:
             clock.sleep(timeout_s)
-            raise AbsTimeout(f"episode {filename} did not appear in {podcast} within {timeout_s}s")
+            raise AbsTimeout(f"the episode for work item {item_id} did not appear in {podcast} within {timeout_s}s")
         ep = min(pending, key=lambda e: e.appears_at)
         if ep.appears_at > clock.now():
             clock.sleep((ep.appears_at - clock.now()).total_seconds())
         return ep
 
-    def find_episode(self, podcast: str, filename: str) -> str | None:
-        self._call("abs.find_episode")
-        ep = self._visible(podcast, filename)
-        return ep.id if ep else None
+    def find_upload(self, podcast: str, item_id: str) -> tuple[str, str] | None:
+        self._call("abs.find_upload")
+        now = self.w.clock.now()
+        ep = next((e for e in self.episodes if e.podcast == podcast and e.item_id == item_id
+                   and e.appears_at <= now), None)
+        return (f"item-{podcast}", ep.id) if ep else None
 
-    def wait_episode(self, podcast: str, filename: str, timeout_s: float = 600,
-                     poll_s: float = 15) -> str:
-        self._call("abs.wait_episode")
-        self.waits.append((filename, timeout_s))
-        if self._fails(filename, "error_in_wait"):
-            raise AbsError("GET /api/libraries failed: ConnectionError")
-        return self._wait(podcast, filename, timeout_s).id
+    def wait_upload(self, podcast: str, item_id: str, timeout_s: float = 600, poll_s: float = 15):
+        self._call("abs.wait_upload")
+        self.waits.append((item_id, timeout_s))
+        if self._fails(item_id, "error_in_wait"):
+            raise AbsError("GET /api/items/x failed: ConnectionError")
+        return f"item-{podcast}", self._wait(podcast, item_id, timeout_s).id
+
+    def set_episode(self, abs_item: str, episode_id: str, title: str, description: str, pub_date) -> None:
+        self._call("abs.set_episode")
+        ep = next(e for e in self.episodes if e.id == episode_id and f"item-{e.podcast}" == abs_item)
+        self.details_set.append(episode_id)
+        ep.title, ep.description, ep.pub_date = title, description, pub_date
 
     def publish(self, podcast, mp3, filename, title, description, pub_date, *,
                 wait_timeout_s=600, poll_s=15) -> str:
         self._call("abs.publish")
-        if self._fails(filename, "error_before_upload"):
+        item_id = filename.rsplit("-", 1)[1].removesuffix(".mp3")
+        if self._fails(item_id, "error_before_upload"):
             raise AbsError("GET /api/libraries returned 502")
         ep = self._visible(podcast, filename)
         if ep is None:
             assert Path(mp3).read_bytes().startswith(b"ID3")
-            item_id = filename.rsplit("-", 1)[1].removesuffix(".mp3")
             late = timedelta(seconds=self.w.narration.items[item_id].script.late_s)
             self.episodes.append(Episode(f"ep-{len(self.episodes) + 1}", podcast, filename,
                                          self.w.clock.now() + late))
             self.w.tick("abs.publish:uploaded")
-            if self._fails(filename, "error_after_upload"):
+            if self._fails(item_id, "error_after_upload"):
                 raise AbsError("PATCH /api/podcasts/x/episode/y returned 500")
-            ep = self._wait(podcast, filename, wait_timeout_s)
+            ep = self._wait(podcast, item_id, wait_timeout_s)
         ep.title, ep.description, ep.pub_date = title, description, pub_date
         return ep.id
 
@@ -379,7 +391,7 @@ class World:
         return list(self.scripts)
 
     def url_of(self, episode: Episode) -> str:
-        return self.narration.items[episode.filename.rsplit("-", 1)[1].removesuffix(".mp3")].url
+        return self.narration.items[episode.item_id].url
 
     def fetch_text(self, url: str) -> str:
         self.tick("fetch_text")

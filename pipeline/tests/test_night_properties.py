@@ -96,6 +96,12 @@ class Nights(RuleBasedStateMachine):
             self.world.sessions.stops_after = len(self.world.sessions.waits) + after
 
     @rule()
+    def the_mac_forgets_its_work_items(self):
+        # its work folders are gone: every call on an earlier item says "no such work item"
+        for item in self.world.narration.items.values():
+            item.forgotten = True
+
+    @rule()
     def the_service_starts(self):
         self.world.sessions.heartbeat, self.world.sessions.stops_after = 1.0, None
 
@@ -129,6 +135,13 @@ class Nights(RuleBasedStateMachine):
             row = self.world.record.row(url)
             assert row is None or row["status"] == "baseline"
             assert url not in opened
+
+    @invariant()
+    def a_live_episode_is_never_held_or_failed(self):
+        # R32: recovery looks in Audiobookshelf before it asks the Mac
+        for ep in self.world.abs.episodes:
+            row = self.world.record.row(self.world.url_of(ep))
+            assert row["status"] not in ("held", "failed"), (ep, row["status"], row["last_error"])
 
     @invariant()
     def a_row_that_may_have_uploaded_is_never_failed(self):

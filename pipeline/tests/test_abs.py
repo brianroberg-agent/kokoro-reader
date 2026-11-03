@@ -258,3 +258,35 @@ def test_publish_waits_on_the_item_alone_after_its_upload(mp3):
     # the look before the upload (1, 1, 1), the upload's library pick (1, 1, 0), then
     # the wait: resolved once, and one item read for each of its three polls
     assert sleeps == [5, 5] and lookups(s) == (3, 3, 4)
+
+
+def test_find_upload_finds_a_work_items_episode_under_any_title():
+    files = ["other-0123456789ab.mp3", episode_filename("Its title on the Mac", "a1b2c3d4e5f6"), "x.mp3"]
+    a, s, _ = make(base_routes(FakeResponse(200, item_with(files))))
+    assert a.find_upload(PODCAST, "a1b2c3d4e5f6") == ("it1", "ep-1")
+    assert a.find_upload(PODCAST, "ffffffffffff") is None
+
+
+def test_find_upload_needs_the_whole_id_at_the_end():
+    a, _, _ = make(base_routes(FakeResponse(200, item_with(["t-a1b2c3d4e5f6.mp3.part", "t-xa1b2c3d4e5f6.mp3"]))))
+    assert a.find_upload(PODCAST, "a1b2c3d4e5f6") is None
+
+
+def test_wait_upload_polls_the_item_until_it_shows():
+    n = {"i": 0}
+
+    def item(call):
+        n["i"] += 1
+        return FakeResponse(200, item_with(["t-a1b2c3d4e5f6.mp3"] if n["i"] >= 3 else []))
+
+    a, s, sleeps = make(base_routes(item))
+    assert a.wait_upload(PODCAST, "a1b2c3d4e5f6", timeout_s=100, poll_s=5) == ("it1", "ep-0")
+    assert sleeps == [5, 5] and lookups(s) == (1, 1, 3)
+
+
+def test_wait_upload_times_out():
+    t = {"now": 0.0}
+    a, _, _ = make(base_routes(FakeResponse(200, item_with([]))), clock=lambda: t["now"])
+    a._sleep = lambda s: t.__setitem__("now", t["now"] + s)
+    with pytest.raises(AbsTimeout, match="work item a1b2c3d4e5f6"):
+        a.wait_upload(PODCAST, "a1b2c3d4e5f6", timeout_s=30, poll_s=10)

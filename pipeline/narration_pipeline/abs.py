@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import time
 import unicodedata
+from collections.abc import Callable
 from pathlib import Path
 
 import requests
@@ -69,6 +70,17 @@ def episode_filename(title: str, item_id: str) -> str:
     return f"{slug}-{item_id}.mp3"
 
 
+def _named(filename: str) -> Callable[[str | None], bool]:
+    return lambda name: name == filename
+
+
+def _uploaded_for(item_id: str) -> Callable[[str | None], bool]:
+    """A file name episode_filename gives this work item, whatever the title: the title
+    comes from the Mac, which may no longer answer."""
+    suffix = f"-{item_id}.mp3"
+    return lambda name: isinstance(name, str) and name.endswith(suffix)
+
+
 # --- client ------------------------------------------------------------------
 class Audiobookshelf:
     def __init__(self, base_url: str, api_key: str, session=None,
@@ -108,25 +120,30 @@ class Audiobookshelf:
             ids += [it["id"] for it in results if item_title(it) == podcast]
         return ids
 
-    def _episode_in(self, item_id: str, filename: str) -> str | None:
-        """The id of the item's episode with this file name, or None: one GET."""
+    def _episode_in(self, item_id: str, wanted: Callable[[str | None], bool]) -> str | None:
+        """The id of the item's episode whose file name is wanted, or None: one GET."""
         full = self._call("GET", item_path(item_id), params={"expanded": 1})
-        return next((ep["id"] for ep in item_episodes(full) if episode_file_name(ep) == filename), None)
+        return next((ep["id"] for ep in item_episodes(full) if wanted(episode_file_name(ep))), None)
 
-    def _in_items(self, items: list[str], filename: str) -> tuple[str, str] | None:
+    def _in_items(self, items: list[str], wanted) -> tuple[str, str] | None:
         for item_id in items:
-            episode_id = self._episode_in(item_id, filename)
+            episode_id = self._episode_in(item_id, wanted)
             if episode_id is not None:
                 return item_id, episode_id
         return None
 
-    def _locate(self, podcast: str, filename: str) -> tuple[str, str] | None:
-        """(item_id, episode_id) of the episode with this file name, or None."""
-        return self._in_items(self._podcast_items(podcast), filename)
+    def _locate(self, podcast: str, wanted) -> tuple[str, str] | None:
+        """(item_id, episode_id) of the episode whose file name is wanted, or None."""
+        return self._in_items(self._podcast_items(podcast), wanted)
 
     def find_episode(self, podcast: str, filename: str) -> str | None:
-        found = self._locate(podcast, filename)
+        found = self._locate(podcast, _named(filename))
         return found[1] if found else None
+
+    def find_upload(self, podcast: str, item_id: str) -> tuple[str, str] | None:
+        """(item_id, episode_id) of the episode uploaded for this work item, under
+        whatever title, or None."""
+        return self._locate(podcast, _uploaded_for(item_id))
 
     def _library_for_upload(self, podcast: str) -> dict:
         libs = self._libraries()
@@ -147,7 +164,7 @@ class Audiobookshelf:
             self._call("POST", UPLOAD_PATH, empty_ok=True, data=data,
                        files={"0": (filename, f, "audio/mpeg")})
 
-    def _wait_locate(self, podcast, filename, timeout_s, poll_s) -> tuple[str, str]:
+    def _wait_locate(self, podcast, wanted, what, timeout_s, poll_s) -> tuple[str, str]:
         """Poll for the episode: the podcast's item is looked up once (again on each poll
         only while it doesn't exist yet, as before a first upload), then each poll reads
         only that item."""
@@ -156,17 +173,22 @@ class Audiobookshelf:
         while True:
             if not items:
                 items = self._podcast_items(podcast)
-            found = self._in_items(items, filename)
+            found = self._in_items(items, wanted)
             if found:
                 return found
             if self._clock() >= deadline:
-                raise AbsTimeout(
-                    f"episode {filename} did not appear in {podcast} within {timeout_s}s")
+                raise AbsTimeout(f"{what} did not appear in {podcast} within {timeout_s}s")
             self._sleep(poll_s)
 
     def wait_episode(self, podcast: str, filename: str,
                      timeout_s: float = 600, poll_s: float = 15) -> str:
-        return self._wait_locate(podcast, filename, timeout_s, poll_s)[1]
+        return self._wait_locate(podcast, _named(filename), f"episode {filename}", timeout_s, poll_s)[1]
+
+    def wait_upload(self, podcast: str, item_id: str,
+                    timeout_s: float = 600, poll_s: float = 15) -> tuple[str, str]:
+        """find_upload, polling until it shows; AbsTimeout if it doesn't in time."""
+        return self._wait_locate(podcast, _uploaded_for(item_id), f"the episode for work item {item_id}",
+                                 timeout_s, poll_s)
 
     def set_episode(self, item_id: str, episode_id: str, title: str,
                     description: str, pub_date: str | None) -> None:
@@ -176,10 +198,10 @@ class Audiobookshelf:
     def publish(self, podcast: str, mp3: Path, filename: str, title: str,
                 description: str, pub_date: str | None,
                 wait_timeout_s: float = 600, poll_s: float = 15) -> str:
-        found = self._locate(podcast, filename)
+        found = self._locate(podcast, _named(filename))
         if found is None:
             self.upload(podcast, mp3, filename)
-            found = self._wait_locate(podcast, filename, wait_timeout_s, poll_s)
+            found = self._wait_locate(podcast, _named(filename), f"episode {filename}", wait_timeout_s, poll_s)
         item_id, episode_id = found
         self.set_episode(item_id, episode_id, title, description, pub_date)
         return episode_id
