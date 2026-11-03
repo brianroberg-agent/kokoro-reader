@@ -139,14 +139,14 @@ def test_clean_publishes_with_tags_and_notes(env):
 def test_minor_lists_issues_in_the_notes_but_never_their_free_text(env):
     store, runner, tools, conv, item, _ = env
     tools.record(item); tools.check(item)
-    tools.finish(item, "minor", [{"kind": "mispronunciation", "where": "0:12",
-                                  "note": "Quillon; see example.com"}], [])
+    tools.finish(item, "minor", [{"kind": "pacing", "where": "0:12",
+                                  "note": "rushed; see example.com"}], [])
     out = runner.finalize(item)
     assert out["action"] == "publish"
-    assert "- 0:12 mispronunciation" in out["notes"]
+    assert "- 0:12 pacing" in out["notes"]
     assert "example.com" not in out["notes"]  # the note is for Brian, not the feed ...
     result = json.loads(store.read_text(item, "result.json"))
-    assert result["remaining_issues"][0]["note"] == "Quillon; see example.com"  # ... so it's in result.json
+    assert result["remaining_issues"][0]["note"] == "rushed; see example.com"  # ... so it's in result.json
 
 
 def test_agent_hold_is_a_hold(env):

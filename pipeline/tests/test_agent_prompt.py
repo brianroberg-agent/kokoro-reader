@@ -86,3 +86,12 @@ def test_prompt_says_recording_again_does_not_fix_a_word_misread_every_time(text
     assert "won't change by recording again" in principle
     assert "abbreviations and symbols the engine reads wrong" in report_line(text, "Fix")
     assert "Recording the same text again isn't a fix" in outcome_line(text, "minor")
+
+
+def test_prompt_says_finish_refuses_minor_before_a_fix_is_tried(text):
+    # The narration server's finish enforces it (agent_tools.fix_not_tried), so a
+    # session that reads the prompt isn't surprised by the refusal (Brian, 2026-11-03).
+    finish = next(line for line in text.splitlines() if line.startswith("- **`finish` ends"))
+    assert ("While record rounds and checks are left, `finish` refuses `minor` that lists a "
+            "`mispronunciation` until a round has been recorded from changed text, or an "
+            "`omission` until a second round has been recorded.") in finish

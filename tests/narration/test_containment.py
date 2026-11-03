@@ -121,8 +121,8 @@ def test_an_honest_session_publishes_with_exactly_the_notes_it_earned(server):
     ] + RECORD_AND_CHECK)
     assert _ok(c, "/agent/mcp", token, "finish", {
         "outcome": "minor",
-        "remaining_issues": [{"kind": "mispronunciation", "where": "0:42",
-                              "note": "Ames sounds like aims; see example.com"}],
+        "remaining_issues": [{"kind": "pacing", "where": "0:42",
+                              "note": "a rushed sentence; see example.com"}],
         "substitutions": [{"original": "XIV", "spoken": "the Fourteenth", "why": "numeral"}],
     }) == {"ok": True}
     after = c.post("/agent/mcp", headers={**HDR, "Authorization": f"Bearer {token}"},
@@ -133,7 +133,7 @@ def test_an_honest_session_publishes_with_exactly_the_notes_it_earned(server):
     assert (out["action"], out["outcome"], out["reasons"], out["mp3"]) == ("publish", "minor", [], True)
     assert out["notes"] == ("A test article.\n"
                             "Known issues in this recording:\n"
-                            "- 0:42 mispronunciation\n"
+                            "- 0:42 pacing\n"
                             "Read with these substitutions:\n"
                             '- "XIV" read as "the Fourteenth"\n'
                             "Recorded automatically.")

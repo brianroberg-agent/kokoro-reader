@@ -386,6 +386,8 @@ class AgentTools:
             tmp.unlink(missing_ok=True)  # a failed run's partial file
         state["recorded_round"] = state["records"]
         state["recorded_sha256"] = _sha256(text)  # what this round's audio says
+        # Every round that left a recording, in order, for fix_not_tried.
+        state["recorded_texts"] = state.get("recorded_texts", []) + [state["recorded_sha256"]]
         self.store.save_state(item_id, state)
         return {"round": state["records"], "duration_seconds": round(duration, 1),
                 "records_left": MAX_RECORDS - state["records"], "speech_warnings": warnings}
@@ -432,6 +434,8 @@ class AgentTools:
         issues, subs_in = validate_finish(outcome, remaining_issues, substitutions)
         if outcome != "hold":  # nothing held is published, so hold needs no claims
             self._check_claims(item_id, state, subs_in)
+        if outcome == "minor" and (why := fix_not_tried(state, issues)):
+            raise ToolError(why)
         state["finish"] = {"outcome": outcome, "remaining_issues": issues, "substitutions": subs_in}
         state["status"] = "finished"
         self.store.save_state(item_id, state)
@@ -497,6 +501,39 @@ def recording_claims(state: dict, prepared: str) -> list[str]:
                   else "Fix and re-record, or finish with outcome 'hold'.")
         problems.append(f"the latest check's pre-check flagged: {flagged}. {advice}")
     return problems
+
+
+def fix_not_tried(state: dict, issues: list[dict]) -> str | None:
+    """Why outcome minor with these issues comes too early, or None when it doesn't.
+    While a record round and a check are both left, minor that lists a mispronunciation
+    needs a round recorded from changed text (the engine says a word the same way each
+    time it reads the same text), and minor that lists an omission needs a second
+    recording of any text (the engine doesn't always drop the same words). A failed
+    round left no recording and doesn't count. This asks for one fix tried, not one per
+    issue: the check flags new places in each round, so a rule per issue would spend
+    every round on most articles. The gate doesn't run it: it is about what the session
+    tried, not about whether what it claims of the recording holds."""
+    kinds = {i["kind"] for i in issues}
+    if (state["records"] >= MAX_RECORDS or _checks_used(state) >= MAX_CHECKS
+            or not kinds & {"mispronunciation", "omission"}):
+        return None
+    recorded = state.get("recorded_texts", [])
+    left = "while record rounds and checks are left"
+    if "mispronunciation" in kinds and len(set(recorded)) < 2:
+        why = ("recording the same text again says each word the same way" if len(recorded) > 1
+               else "only one round has been recorded")
+        return (f"outcome 'minor' lists a mispronunciation {left}, and {why}: try a fix first "
+                "(an override with phonemes from the phonemes tool, or a respelling declared "
+                "as a substitution), then record and check again. If it still sounds wrong "
+                "after that round, finish with outcome 'minor'; a mispronunciation is no "
+                "reason to hold")
+    if "omission" in kinds and len(recorded) < 2:
+        return (f"outcome 'minor' lists an omission {left}, and only one round has been "
+                "recorded: record and check again (the engine doesn't always drop the same "
+                "words, and a change near the gap, such as splitting a long sentence, can "
+                "help). If words are still missing after that round, finish with outcome "
+                "'minor', or 'hold' if a passage is missing")
+    return None
 
 
 def validate_finish(outcome, remaining_issues, substitutions) -> tuple[list[dict], list[dict]]:
