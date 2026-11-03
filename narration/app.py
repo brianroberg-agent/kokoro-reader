@@ -189,10 +189,10 @@ def build_app(store, agent_tools, runner_tools, runner_token, allowed_hosts: lis
         issues), minor (small issues) or hold (content missing or garbled; not
         published); minor and hold list at least one remaining issue. clean and minor
         need the latest round recorded from the prepared text as it is now, and
-        checked with no pre-check warnings. While a record round and a check are left,
-        minor that lists a mispronunciation needs a round recorded after the first check
-        from changed text, and minor that lists an omission needs a round recorded after
-        the first check.
+        checked with no pre-check warnings. While two or more record rounds and checks
+        are left, minor that lists a mispronunciation needs a round recorded after the
+        first check from changed text, and minor that lists an omission needs a round
+        recorded after the first check.
         remaining_issues: each a kind, a where (a timestamp like 12:40) and a short
         note for the editor; the published notes carry only the kind and timestamp.
         substitutions: every word change in the prepared text, as original, spoken

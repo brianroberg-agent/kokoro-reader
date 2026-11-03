@@ -506,7 +506,8 @@ def recording_claims(state: dict, prepared: str) -> list[str]:
 
 def fix_not_tried(state: dict, issues: list[dict]) -> str | None:
     """Why outcome minor with these issues comes too early, or None when it doesn't.
-    While a record round and a check are both left, minor that lists a mispronunciation
+    While two or more record rounds and two or more checks are left (so a fix that goes
+    wrong can still be undone, recorded and checked), minor that lists a mispronunciation
     needs a round recorded after the first check from text other than the text that
     check heard (the engine says a word the same way each time it reads the same text),
     and minor that lists an omission needs a round recorded after the first check, of
@@ -519,14 +520,14 @@ def fix_not_tried(state: dict, issues: list[dict]) -> str | None:
     claims of the recording holds. An item opened before the server kept recorded_texts
     has no record of its rounds' texts, so the rule isn't applied to it."""
     kinds = {i["kind"] for i in issues}
-    if (state["records"] >= MAX_RECORDS or _checks_used(state) >= MAX_CHECKS
+    if (MAX_RECORDS - state["records"] < 2 or MAX_CHECKS - _checks_used(state) < 2
             or not kinds & {"mispronunciation", "omission"} or not state["checks"]
             or "recorded_texts" not in state):
         return None
     texts = {r["round"]: r["sha256"] for r in state["recorded_texts"]}
     first = min(c["record"] for c in state["checks"])
     later = [h for n, h in texts.items() if n > first]
-    left = "while record rounds and checks are left"
+    left = "while two or more record rounds and checks are left"
     since = "no round has been recorded since the first check"
     if "mispronunciation" in kinds and all(h == texts.get(first) for h in later):
         why = "recording the same text again says each word the same way" if later else since

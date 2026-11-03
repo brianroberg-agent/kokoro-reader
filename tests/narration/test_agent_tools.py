@@ -332,6 +332,24 @@ def test_minor_is_accepted_after_one_round_once_no_check_is_left(env):
     assert tools.finish(item, "minor", [MISSAID, DROPPED], [])["ok"]
 
 
+def test_minor_is_accepted_when_a_forced_fix_could_not_be_undone_for_want_of_a_round(env):
+    # The first check came at round 3: a fix in round 4 that went wrong (say a speech
+    # mismatch) couldn't be undone, and would leave only hold.
+    _, tools, *_, item, _ = env
+    for _ in range(MAX_RECORDS - 2):
+        tools.record(item)
+    _round(tools, item)
+    assert tools.finish(item, "minor", [MISSAID, DROPPED], [])["ok"]
+
+
+def test_minor_is_accepted_when_a_forced_fix_could_not_be_undone_for_want_of_a_check(env):
+    _, tools, *_, item, _ = env
+    tools.record(item)
+    for _ in range(agent_tools.MAX_CHECKS - 1):
+        tools.check(item)
+    assert tools.finish(item, "minor", [MISSAID, DROPPED], [])["ok"]
+
+
 @pytest.mark.parametrize("outcome, issues", [
     ("minor", [{"kind": "pacing", "where": "0:04", "note": "rushed"}]),
     ("minor", [{"kind": "artifact", "where": "0:04", "note": "a click"}]),
