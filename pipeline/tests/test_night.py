@@ -6,6 +6,7 @@ from datetime import date, datetime, time, timedelta
 import pytest
 
 from narration_pipeline.abs import AbsError, episode_filename
+from narration_pipeline.config import Settings
 from narration_pipeline.discovery import Candidate
 from narration_pipeline.night import Deps, deadlines, run_night
 from night_fakes import HELD, ISSUES, NY, Crash, Script, World, restore_record_clock, source
@@ -200,6 +201,18 @@ def test_a_recovered_row_is_not_retried_the_same_night(world):
     assert world.record.row(a)["failed_nights"] == 1
     world.next_night()
     assert [(r.url, r.status) for r in world.run().results] == [(a, "published")]
+
+
+def test_the_cap_holds_after_recovery_settles_a_row(tmp_path):
+    world = World(tmp_path, settings=Settings(cap=2))
+    a, b, c, d = (world.add_article(n) for n in range(1, 5))
+    world.crash_on = "abs.publish:uploaded"  # a is uploaded, then the run dies
+    with pytest.raises(Crash):
+        world.run()
+    report = world.run()
+    assert [(r.url, r.status) for r in report.results] == [
+        (a, "published"), (b, "published"), (c, "published")]  # a recovered, then two new
+    assert world.record.row(d)["status"] == "queued" and len(world.narration.items) == 3
 
 
 def test_waits_for_mac_until_0500_then_stops(world):

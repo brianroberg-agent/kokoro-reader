@@ -66,7 +66,7 @@ class Nights(RuleBasedStateMachine):
             if not in_scope:
                 self.out_of_scope.add(url)
 
-    @initialize(in_scope=st.integers(1, 5), out_of_scope=st.integers(0, 2))
+    @initialize(in_scope=st.integers(1, 8), out_of_scope=st.integers(0, 2))
     def first_articles(self, in_scope, out_of_scope):
         self._add(True, in_scope)
         self._add(False, out_of_scope)
