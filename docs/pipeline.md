@@ -175,7 +175,16 @@ This stops and removes both containers. The `narration-data` and `narration-hand
 
 ## Verified
 
-**Still open: the home server.** Nothing here has run there yet: the deploy above end to end (the tailnet from both containers, Brian's Audiobookshelf and ntfy, the agent's login from `claude setup-token`), and the acceptance run with Brian's listen. Also not yet run: the spec's containment test of a real session asked to run a shell command, read a file and fetch a URL (each session's tool list is checked when it starts, and that check passed against the real init event in the sessions below).
+**Still open: the home server.** Nothing here has run there yet: the deploy above end to end (the tailnet from both containers, Brian's Audiobookshelf), and the acceptance run with Brian's listen. Brian's ntfy and a login from `claude setup-token` were used on the Mac (below). Also not yet run: the spec's containment test of a real session asked to run a shell command, read a file and fetch a URL (each session's tool list is checked when it starts, and that check passed against the real init event in the sessions below).
+
+**The whole pipeline on Brian's Mac, 2026-11-03**: the narration server with its real engines (Kokoro, the transcript check, Gemini), both containers on Docker Desktop with Brian's `claude setup-token` login and ntfy topic, the live site, and Audiobookshelf 2.37.2 in a local container:
+
+- **The acceptance run:** a dry run, then the real run, of "The Pro-Human AI Declaration": published with notes; each session $0.04 to $0.07.
+- **A push:** with the agent's container stopped, the runner sent "Narration session service not running", which reached Brian's phone, and started no article.
+- **The Mac gone mid-article:** the narration server killed 25 seconds into a session left the article `in_progress`, with nothing published; the next full run's recovery marked it `failed` (one failed night), and the next run published it once.
+- **A podcast that doesn't exist yet:** the runner created "The New Atlantis" with its cover before the first upload, and its title held after Audiobookshelf's scan of the first episode.
+- **A long article:** "Zoning Alone", 29:14 of audio, checked in 9 sections; 3 record rounds, 13 minutes, $0.15.
+- **The opening line:** each recording opened with the title and its byline, or the title alone for the unsigned Declaration.
 
 **The containers on Docker Desktop on Brian's Mac (linux/amd64), 2026-11-02**, with `agentbox:latest` built from agentbox's `agentbox-base-switch` branch (agentbox PR #14), fake secrets, `MAC_HOST=host.docker.internal`, and a test narration server on the host:
 
