@@ -161,7 +161,7 @@ The columns are in `pipeline/narration_pipeline/record.py`. The ones worth readi
 
 **"Narration session service not running".** The agent's session service touches `/handoff/heartbeat` every 2 seconds, also while a session runs. Before each article the runner reads it: when it is missing or more than 60 seconds old, the runner sends this push and starts no article that night; an article whose session got no result while the heartbeat stopped goes back to `failed` without a failed night. Look at `docker compose -f deploy/compose.yaml ps` and the agent's log, then start it again: `docker compose -f deploy/compose.yaml up -d narration-agent`. When the runner stops waiting for a result, it withdraws the request if the service hasn't taken it yet, and the service answers a request older than its timeout plus 300 seconds with "stale request" instead of starting a session.
 
-**Updating** after a `git pull`: `docker compose -f deploy/compose.yaml up -d --build`. Do it in the daytime: a runner restarted mid-night leaves its article `in_progress`, and the next night recovers it.
+**Updating** after a `git pull`: first the Mac (pull its checkout, `uv sync --inexact`, and restart the LaunchAgent, `docs/narration-server.md`), then `docker compose -f deploy/compose.yaml up -d --build`. The Mac goes first because the agent's prompt, built into the image, can name what only a newer narration server accepts (the `omission` issue kind, for one); in the other order such a `finish` is refused until the Mac is updated. Do it in the daytime: a runner restarted mid-night leaves its article `in_progress`, and the next night recovers it.
 
 ## Rollback
 
