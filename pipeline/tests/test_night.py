@@ -37,7 +37,7 @@ def test_clean_publishes(world):
     row = world.record.row(url)
     assert (row["status"], row["item_id"], row["episode_id"], row["publish_started"]) == (
         "published", item_id, ep.id, 1)
-    assert row["rounds"] == 2 and row["claude_cost_usd"] == 0.4
+    assert row["rounds"] == 2 and row["claude_cost_usd"] == 0.4 and row["claude_tokens"] == 51000
     assert row["gemini_cost_usd"] == pytest.approx(0.09) and row["run_seconds"] == 1200
     assert world.sessions.requests == [{"item_id": item_id, "agent_token": f"tok-{item_id}",
                                         "text_rules": ["Read the dateline once."],
@@ -438,4 +438,6 @@ def test_default_handoff_is_the_request_and_result_files(world):
     assert request == {"item_id": item_id, "agent_token": f"tok-{item_id}",
                        "text_rules": ["Read the dateline once."], "budget_usd": 2.0, "timeout_s": 5400}
     assert r.status == "failed" and r.cost_usd == 0.25
-    assert "error_during_execution" in world.record.row(url)["last_error"]
+    row = world.record.row(url)
+    assert "error_during_execution" in row["last_error"]
+    assert row["claude_tokens"] is None  # this result has no tokens

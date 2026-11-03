@@ -187,7 +187,7 @@ class FakeSessions:
             clock.sleep(timeout_s)
             return None
         result = {"item_id": item_id, "finished_ok": False, "cost_usd": 0.4, "num_turns": 30,
-                  "terminal_reason": None, "error": None}
+                  "tokens": 51000, "terminal_reason": None, "error": None}
         if script.mac == "down_in_session":
             clock.sleep(300)
             self.w.narration.down_until = clock.now() + timedelta(minutes=30)
