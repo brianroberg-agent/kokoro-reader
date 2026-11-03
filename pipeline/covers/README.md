@@ -1,6 +1,6 @@
 # Podcast covers
 
-One square cover per source, named in its `sources.toml` entry (`cover`). After each publish the runner looks at the podcast in Audiobookshelf, and if it has no cover yet (as when the first upload has just created it) it uploads this one. A cover already set is never replaced.
+One square cover per source, named in its `sources.toml` entry (`cover`). When the runner creates the podcast in Audiobookshelf (before its first upload), it gives it this cover; after each publish, a podcast that has no cover yet gets it too. A cover already set is never replaced.
 
 Each cover is a square adaptation of the publication's logo, 3000 px, between the 1400 and 3000 px podcast apps ask for:
 
