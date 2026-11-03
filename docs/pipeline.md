@@ -7,7 +7,7 @@ Each night the runner looks for new articles, has a Claude Code session record e
 
 The Mac runs the narration server (`docs/narration-server.md`). The files are `deploy/compose.yaml`, the two Dockerfiles in `deploy/narration-runner/` and `deploy/narration-agent/`, and the three examples `deploy/env.example`, `deploy/runner.env.example` and `deploy/agent.env.example`.
 
-The runner starts the night at 01:00 New York time, keeps trying to reach the Mac until 05:00, starts no new article after 06:00, and sends the summary at 07:00 (`pipeline/sources.toml`, `[settings]`). Then it exits, and compose's `restart: unless-stopped` starts it again. A new start is what makes agentbox's firewall look up the allowed hostnames again: it resolves them once, when the container starts, and the source site sits behind a CDN whose addresses change.
+The runner starts the night at 01:00 New York time, keeps trying to reach the Mac until 05:00, starts no new article after 06:00, and sends the summary at 07:00 (`pipeline/sources.toml`, `[settings]`). Then it exits, and compose's `restart: unless-stopped` starts it again (see "Name lookups" below for why).
 
 ## What each container may reach
 
@@ -19,6 +19,14 @@ The runner starts the night at 01:00 New York time, keeps trying to reach the Ma
 | Also, from agentbox | `api.anthropic.com` (`code.claude.com` and `docs.claude.com` share its address) | the same |
 
 Neither container publishes a port, and the firewall drops inbound connections. The runner hands work to the agent through the `narration-handoff` volume.
+
+### Name lookups
+
+agentbox's firewall resolves each allowed hostname once, when the container starts (its entrypoint runs the firewall before the command), and lets in the addresses it got then. An address a host moves to later stays blocked until the container starts again.
+
+- **The runner** starts again after each night's 07:00 summary, so at 01:00 its lookups of the source site and the ntfy host are about 18 hours old. That is fine while the source site's CDN keeps its addresses for a day, as it typically does, and each night's restart looks them up afresh for the next.
+- **The agent** looks up `api.anthropic.com` when its container starts, and runs until it is stopped. If every session fails to connect to the API, recreate it so it looks the name up again: `docker compose -f deploy/compose.yaml up -d --force-recreate narration-agent`.
+- The Mac's grant is an address (`MAC_HOST`), so no lookup is involved.
 
 ## The secrets Brian makes
 
