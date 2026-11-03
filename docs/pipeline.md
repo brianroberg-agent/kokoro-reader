@@ -185,6 +185,7 @@ This stops and removes both containers. The `narration-data` and `narration-hand
 - **A podcast that doesn't exist yet:** the runner created "The New Atlantis" with its cover before the first upload; with the episodes tagged album "The New Atlantis" and no artist, it kept its title and had no author after two episodes. (Tagged with the article's authors, it had taken the first episode's as its author.)
 - **A long article:** "Zoning Alone", 29:14 of audio, checked in 9 sections; 3 record rounds, 13 minutes, $0.15.
 - **The opening line:** each recording opened with the title and its byline, or the title alone for the unsigned Declaration.
+- **A fix tried before `minor`:** in "Is There Life on Mars, Pennsylvania?", `finish` refused `minor` with a mispronunciation after round 1; the session added an override for the author's surname, recorded and checked round 2, and published with notes ($0.08). The Declaration's session used two rounds without a refusal, declaring the list numbers and the web address it fixed ($0.06). Neither held.
 
 **The containers on Docker Desktop on Brian's Mac (linux/amd64), 2026-11-02**, with `agentbox:latest` built from agentbox's `agentbox-base-switch` branch (agentbox PR #14), fake secrets, `MAC_HOST=host.docker.internal`, and a test narration server on the host:
 
