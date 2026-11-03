@@ -401,29 +401,35 @@ def test_write_private_json_is_atomic_and_private(tmp_path):
 
 # The article's spoken opening (Brian, 2026-11-03): "The reading should always begin with
 # the title and author(s) ... For the occasional article that has no author attributed,
-# just the title should be read." Names here are made up.
+# just the title should be read." Names here are made up. It is a heading line with no
+# final period: the word check reads a line that doesn't end as a sentence does as a
+# heading, so the title's capitalised words don't count as the article's names (review
+# finding 4), and a heading keeps a leading number the list rule would take (finding 10).
 @pytest.mark.parametrize("meta, line", [
     ({"title": "Is There Life on Mars, Pennsylvania?", "byline": ["Ilse Varnholt"]},
-     "Is There Life on Mars, Pennsylvania? by Ilse Varnholt."),
+     "# Is There Life on Mars, Pennsylvania? by Ilse Varnholt"),
     ({"title": "The Pro-Human AI Declaration", "byline": [], "authors": ["A Coalition"]},
-     "The Pro-Human AI Declaration."),          # no name under the title: the title alone
+     "# The Pro-Human AI Declaration"),          # no name under the title: the title alone
     ({"title": "Zoning Alone", "authors": ["Ada Quill"]},
-     "Zoning Alone by Ada Quill."),             # no byline key (another site): the authors
+     "# Zoning Alone by Ada Quill"),             # no byline key (another site): the authors
     ({"title": "Two Hands", "byline": ["Ada Quill", "Tom Brandvold"]},
-     "Two Hands by Ada Quill and Tom Brandvold."),
+     "# Two Hands by Ada Quill and Tom Brandvold"),
     ({"title": "Three Hands", "byline": ["Ada Quill", "Tom Brandvold", "Mara Odell"]},
-     "Three Hands by Ada Quill, Tom Brandvold, and Mara Odell."),
-    ({"title": "Why Not?", "byline": []}, "Why Not?"),
-    ({"title": "Notes and Briefs.", "byline": ["Ada Quill"]}, "Notes and Briefs by Ada Quill."),
-    ({"title": "  Spaced \n Out ", "byline": ["  Ada \n Quill ", "", 7]}, "Spaced Out by Ada Quill."),
-    ({"title": "Odd", "byline": "Ada Quill", "authors": ["Tom Brandvold"]}, "Odd."),
+     "# Three Hands by Ada Quill, Tom Brandvold, and Mara Odell"),
+    ({"title": "Why Not?", "byline": []}, "# Why Not?"),
+    ({"title": "Notes and Briefs.", "byline": ["Ada Quill"]}, "# Notes and Briefs by Ada Quill"),
+    ({"title": "Power in the U.S.", "byline": ["Ada Quill"]}, "# Power in the U.S. by Ada Quill"),
+    ({"title": "10. Things We Lost", "byline": ["Ada Quill"]}, "# 10. Things We Lost by Ada Quill"),
+    ({"title": "  Spaced \n Out ", "byline": ["  Ada \n Quill ", "", 7]}, "# Spaced Out by Ada Quill"),
+    ({"title": "Odd", "authors": "Ada Quill"}, "# Odd by Ada Quill"),   # a lone name, as gate._meta reads it
+    ({"title": "Odd", "byline": [], "authors": "Ada Quill"}, "# Odd"),
 ])
 def test_spoken_title_is_the_title_and_the_byline(meta, line):
     assert spoken_title(meta) == line
 
 
 def test_with_spoken_title_puts_the_line_first_as_its_own_paragraph():
-    assert with_spoken_title("Body.", {"title": "T", "byline": ["Ada Quill"]}) == "T by Ada Quill.\n\nBody."
+    assert with_spoken_title("Body.", {"title": "T", "byline": ["Ada Quill"]}) == "# T by Ada Quill\n\nBody."
 
 
 @pytest.mark.parametrize("meta", [{}, {"title": ""}, {"title": None}, {"title": "  "}])
@@ -431,7 +437,7 @@ def test_with_spoken_title_falls_back_to_the_records_title(meta):
     # The night carries on without a title in the metadata (it names the episode from
     # the record's title), so the spoken title does too.
     assert with_spoken_title("Body.", {**meta, "byline": ["Ada Quill"]}, "From the record") == (
-        "From the record by Ada Quill.\n\nBody.")
+        "# From the record by Ada Quill\n\nBody.")
 
 
 def test_with_spoken_title_without_any_title_is_the_text_alone():

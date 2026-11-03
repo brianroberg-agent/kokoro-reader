@@ -400,7 +400,7 @@ def test_the_mac_is_given_the_article_with_its_title_and_byline_first(world):
     url = world.add_article(1)
     world.run()
     item = world.narration.items[only_item(world)]
-    assert item.text == f"{world.titles[url]} by A. Writer.\n\nText of {url}."
+    assert item.text == f"# {world.titles[url]} by A. Writer\n\nText of {url}."
 
 
 def test_a_session_cut_off_by_the_mac_keeps_its_cost(world):

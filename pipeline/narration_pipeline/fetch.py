@@ -54,8 +54,10 @@ def _names(meta: dict) -> list[str]:
     """Who wrote the piece, for the spoken opening: the byline article-assistant read
     under the title (`[]` when the page shows no one, as for an unsigned statement),
     or, with no byline key (a site without its own extractor, or a page in markup it
-    doesn't read), the authors."""
+    doesn't read), the authors. A lone name is one author, as gate._meta reads it."""
     names = meta["byline"] if "byline" in meta else meta.get("authors")
+    if isinstance(names, str):
+        names = [names]
     if not isinstance(names, list):
         return []
     return [" ".join(n.split()) for n in names if isinstance(n, str) and n.strip()]
@@ -63,23 +65,31 @@ def _names(meta: dict) -> list[str]:
 
 def spoken_title(meta: dict, fallback_title: str = "") -> str:
     """The line the reading opens with (Brian, 2026-11-03): the title and who wrote it,
-    "Where Did the Commons Go? by Ada Quill.", or the title alone
-    when the page names no one. The metadata's title, else fallback_title (the
-    record's, as the night names the episode); "" when there is neither."""
+    "Where Did the Commons Go? by Ada Quill", or the title alone when the page names
+    no one. The metadata's title, else fallback_title (the record's, as the night
+    names the episode); "" when there is neither.
+
+    It is a Markdown heading with no final period. narration.words reads a line that
+    doesn't end as a sentence does as a heading, so the title's capitalised words don't
+    count as the article's names (which loosen its respelling rule); and a heading's
+    leading number ("10. Things We Lost") isn't taken for a list marker. A title alone
+    that ends in "?" or "!" still ends as a sentence."""
     raw = meta.get("title")
     title = " ".join((raw if isinstance(raw, str) and raw.strip() else fallback_title).split())
     if not title:
         return ""
+    if title.endswith(".") and "." not in title.rsplit(" ", 1)[-1][:-1]:
+        title = title[:-1]  # "Notes and Briefs." loses its period; "the U.S." keeps it
     names = _names(meta)
     if not names:
-        return title if title.endswith((".", "?", "!")) else f"{title}."
+        return f"# {title}"
     if len(names) == 1:
         who = names[0]
     elif len(names) == 2:
         who = f"{names[0]} and {names[1]}"
     else:
         who = f"{', '.join(names[:-1])}, and {names[-1]}"
-    return f"{title.removesuffix('.')} by {who}."
+    return f"# {title} by {who}"
 
 
 def with_spoken_title(markdown: str, meta: dict, fallback_title: str = "") -> str:

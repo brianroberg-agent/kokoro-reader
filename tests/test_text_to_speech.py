@@ -600,3 +600,9 @@ class TestMLXAudioBackend:
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+def test_the_runners_opening_line_keeps_a_leading_number():
+    # A title such as "10. Things We Lost" opens the article as a heading (pipeline
+    # fetch.spoken_title), so the list rule leaves its number (review finding 10).
+    assert clean_markdown_text("# 10. Things We Lost by Ada Quill\n\nBody.") == (
+        "10. Things We Lost by Ada Quill\n\nBody.")

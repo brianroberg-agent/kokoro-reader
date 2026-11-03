@@ -32,7 +32,7 @@ Expect 2 to 4 rounds for a long article; a short one may be clean on the first.
 
 Edit the prepared text only with `replace_text`. Its `old` must appear exactly once in the prepared text, so to change a word that appears several times, include enough of the surrounding text to make each passage unique, one call per passage. Formatting, paragraph breaks, pauses and `[BREAK]` markers don't count as word changes; any change to the words does, and is declared in `finish`.
 
-- **The opening line:** The first paragraph is the article's title and who wrote it, put there by the runner so the listener hears them first. Keep it as it is.
+- **The opening line:** The first line is a heading with the article's title and who wrote it, put there by the runner so the listener hears them first. Keep it as it is.
 - **Section breaks:** Replace visual separators (`#####`, `---`, `***`) with `[BREAK]` on its own line. This puts a clean 2-second silence between sections, and lets `check` verify a long recording section by section. Don't put `...` on a line of its own: the engine voices it as a garbled sound.
 - **Section headings:** Keep them. Their `#` marks are dropped and the heading text is read aloud.
 - **Paragraph length:** Break any paragraph longer than about 4 or 5 sentences into several. Dense paragraphs with many quoted phrases are especially prone to garbling.
