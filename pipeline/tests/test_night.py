@@ -121,6 +121,17 @@ def test_a_lost_claude_login_pushes_once_and_stops_the_night(world):
     assert world.abs.episodes == []
 
 
+@pytest.mark.parametrize("call", ["status", "finalize"])
+def test_a_lost_login_still_pushes_once_and_counts_no_night_after_a_mac_blip(world, call):
+    a = world.add_article(1, script=Script(session="no_login", mac=f"blip_{call}"))
+    world.add_article(2)
+    report = world.run()
+    assert report.login_failed and len(report.results) == 1
+    row = world.record.row(a)
+    assert (row["status"], row["failed_nights"], row["last_error"]) == ("failed", 0, LOGIN_ERROR)
+    assert world.push.sent == [("Claude login failed", LOGIN_ERROR, "default")]
+
+
 def test_a_lost_login_never_holds_the_article(world):
     url = world.add_article(1, script=Script(session="no_login"))
     for night in range(4):

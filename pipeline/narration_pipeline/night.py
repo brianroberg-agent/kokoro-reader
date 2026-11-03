@@ -196,6 +196,9 @@ class _Night:
                                          self.s.session_budget_usd, self.s.session_timeout_s)
             it.session = self.d.handoff.wait_result(self.d.handoff_dir, it.item_id,
                                                     timeout_s=self.s.session_timeout_s + SESSION_GRACE_S)
+            if self.login_lost(it):
+                self.report.login_failed = True  # every later session would fail the same way
+                self.notify(*login_failed_message(LOGIN_ERROR))
         except Exception as e:
             return self.after_error(it, e)
         return self.conclude(it)
@@ -219,8 +222,8 @@ class _Night:
         try:
             if it.fin is None:
                 it.fin = self.finalize(it)
-            if (it.session or {}).get("error") == LOGIN_ERROR:
-                self.report.login_failed = True  # every later session would fail the same way
+            if self.login_lost(it) and it.fin["action"] == "retry" and not self.dry_run:
+                return self.logged_out(it)
             it.st = self.d.narration.status(it.item_id)
             if self.dry_run:
                 return self.result(it, it.row["status"], it.fin.get("reasons") or [], it.fin["action"])
@@ -252,15 +255,16 @@ class _Night:
             self.rec.transition(it.row["url"], "held")
             self.notify(*hold_message(it.row, reasons))
             return self.result(it, "held", reasons)
-        if self.report.login_failed:
-            return self.logged_out(it)
         return self.fail(it, self.why(it))
 
+    def login_lost(self, it: _Item) -> bool:
+        return (it.session or {}).get("error") == LOGIN_ERROR
+
     def logged_out(self, it: _Item) -> ItemResult:
-        """The session couldn't log in, which says nothing about the article: the row is
-        failed (so it comes first next night) without a failed night, and Brian is told."""
+        """The session couldn't authenticate, which says nothing about the article (the
+        push went when its result came in): the row is failed, so it comes first next
+        night, without a failed night."""
         self.rec.transition(it.row["url"], "failed", last_error=LOGIN_ERROR)
-        self.notify(*login_failed_message(LOGIN_ERROR))
         return self.result(it, "failed", [LOGIN_ERROR])
 
     def publish(self, it: _Item) -> ItemResult:
@@ -317,7 +321,9 @@ class _Night:
                 it.fin = fin
                 if fin["action"] != "retry":
                     return self.conclude(it)
-                return self.leave(it, error) if self.dry_run else self.fail(it, error)
+                if self.dry_run:
+                    return self.leave(it, error)
+                return self.logged_out(it) if self.login_lost(it) else self.fail(it, error)
         if self.dry_run or (unavailable and it.item_id is not None):
             # The Mac went away after the forced finalize or after a decision: the next
             # run's recovery takes the row from there, without recording again.
