@@ -6,6 +6,8 @@ module-level constant or a one-line function, so a correction is a one-line chan
 """
 from __future__ import annotations
 
+import logging
+import mimetypes
 import re
 import time
 import unicodedata
@@ -13,6 +15,8 @@ from collections.abc import Callable
 from pathlib import Path
 
 import requests
+
+log = logging.getLogger(__name__)
 
 # --- endpoints and field names (verified against Audiobookshelf 2.37.2, 2026-11-02) ---------------------------------
 LIBRARIES_PATH = "/api/libraries"
@@ -25,6 +29,16 @@ def items_path(library_id: str) -> str:
 
 def item_path(item_id: str) -> str:
     return f"/api/items/{item_id}"
+
+
+def cover_path(item_id: str) -> str:
+    """POST, multipart with the image as field "cover" (verified against 2.37.2, 2026-11-03)."""
+    return f"/api/items/{item_id}/cover"
+
+
+def item_cover(item: dict) -> str | None:
+    """The podcast item's cover path on the server, or None when it has none."""
+    return (item.get("media") or {}).get("coverPath") or None
 
 
 def episode_path(item_id: str, episode_id: str) -> str:
@@ -195,15 +209,30 @@ class Audiobookshelf:
         self._call("PATCH", episode_path(item_id, episode_id), empty_ok=True,
                    json=details_body(title, description, pub_date))
 
+    def ensure_cover(self, item_id: str, cover: Path) -> None:
+        """Upload cover as the podcast's when it has none: the first upload creates a
+        podcast without one. A cover already set is left as it is. Best effort: the
+        episode is live by now, and the next publish tries again."""
+        try:
+            if item_cover(self._call("GET", item_path(item_id))):
+                return
+            kind = mimetypes.guess_type(cover.name)[0] or "application/octet-stream"
+            with open(cover, "rb") as f:
+                self._call("POST", cover_path(item_id), empty_ok=True, files={"cover": (cover.name, f, kind)})
+        except (AbsError, OSError) as e:  # AbsError carries no key; OSError: the file
+            log.warning("the podcast's cover was not set: %s", e)
+
     def publish(self, podcast: str, mp3: Path, filename: str, title: str,
                 description: str, pub_date: str | None,
-                wait_timeout_s: float = 600, poll_s: float = 15) -> str:
+                wait_timeout_s: float = 600, poll_s: float = 15, *, cover: Path | None = None) -> str:
         found = self._locate(podcast, _named(filename))
         if found is None:
             self.upload(podcast, mp3, filename)
             found = self._wait_locate(podcast, _named(filename), f"episode {filename}", wait_timeout_s, poll_s)
         item_id, episode_id = found
         self.set_episode(item_id, episode_id, title, description, pub_date)
+        if cover is not None:
+            self.ensure_cover(item_id, cover)
         return episode_id
 
 

@@ -290,3 +290,57 @@ def test_wait_upload_times_out():
     a._sleep = lambda s: t.__setitem__("now", t["now"] + s)
     with pytest.raises(AbsTimeout, match="work item a1b2c3d4e5f6"):
         a.wait_upload(PODCAST, "a1b2c3d4e5f6", timeout_s=30, poll_s=10)
+
+
+# ---- the podcast's cover (Brian, 2026-11-03) ----
+@pytest.fixture
+def cover(tmp_path):
+    p = tmp_path / "cover.png"
+    p.write_bytes(b"\x89PNG fake")
+    return p
+
+
+def cover_routes(item_body):
+    routes = base_routes(lambda call: FakeResponse(200, item_body))
+    routes[("POST", "/api/items/it1/cover")] = FakeResponse(200, {"success": True})
+    return routes
+
+
+def test_publish_sets_the_cover_of_a_podcast_that_has_none(mp3, cover):
+    # A podcast the first upload has just created has no cover (Audiobookshelf 2.37.2).
+    a, s, _ = make(cover_routes(item_with(["x-1.mp3"])))
+    a.publish(PODCAST, mp3, "x-1.mp3", "Title", "Notes", None, cover=cover)
+    [post] = [c for c in s.calls if c["path"] == "/api/items/it1/cover"]
+    name, _, kind = post["files"]["cover"]
+    assert post["method"] == "POST" and name == "cover.png" and kind == "image/png"
+    order = [(c["method"], c["path"]) for c in s.calls]
+    assert order.index(("PATCH", "/api/podcasts/it1/episode/ep-0")) < order.index(("POST", "/api/items/it1/cover"))
+
+
+def test_publish_leaves_a_cover_already_set(mp3, cover):
+    body = item_with(["x-1.mp3"])
+    body["media"]["coverPath"] = "/metadata/items/it1/cover.jpg"
+    a, s, _ = make(cover_routes(body))
+    a.publish(PODCAST, mp3, "x-1.mp3", "Title", "Notes", None, cover=cover)
+    assert "/api/items/it1/cover" not in s.paths("POST")
+
+
+def test_publish_without_a_cover_never_looks_at_covers(mp3):
+    a, s, _ = make(cover_routes(item_with(["x-1.mp3"])))
+    a.publish(PODCAST, mp3, "x-1.mp3", "Title", "Notes", None)
+    assert "/api/items/it1/cover" not in s.paths("POST")
+
+
+def test_a_failed_cover_upload_leaves_the_episode_published(mp3, cover, caplog):
+    # The episode is live by then; the next publish tries the cover again.
+    routes = cover_routes(item_with(["x-1.mp3"]))
+    routes[("POST", "/api/items/it1/cover")] = FakeResponse(500, {})
+    a, s, _ = make(routes)
+    assert a.publish(PODCAST, mp3, "x-1.mp3", "Title", "Notes", None, cover=cover) == "ep-0"
+    assert "cover" in caplog.text and KEY not in caplog.text
+
+
+def test_a_missing_cover_file_leaves_the_episode_published(mp3, tmp_path, caplog):
+    a, s, _ = make(cover_routes(item_with(["x-1.mp3"])))
+    assert a.publish(PODCAST, mp3, "x-1.mp3", "Title", "Notes", None, cover=tmp_path / "gone.png") == "ep-0"
+    assert "cover" in caplog.text
