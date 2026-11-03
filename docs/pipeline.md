@@ -182,7 +182,7 @@ This stops and removes both containers. The `narration-data` and `narration-hand
 - **The acceptance run:** a dry run, then the real run, of "The Pro-Human AI Declaration": published with notes; each session $0.04 to $0.07.
 - **A push:** with the agent's container stopped, the runner sent "Narration session service not running", which reached Brian's phone, and started no article.
 - **The Mac gone mid-article:** the narration server killed 25 seconds into a session left the article `in_progress`, with nothing published; the next full run's recovery marked it `failed` (one failed night), and the next run published it once.
-- **A podcast that doesn't exist yet:** the runner created "The New Atlantis" with its cover before the first upload, and its title held after Audiobookshelf's scan of the first episode.
+- **A podcast that doesn't exist yet:** the runner created "The New Atlantis" with its cover before the first upload; with the episodes tagged album "The New Atlantis" and no artist, it kept its title and had no author after two episodes. (Tagged with the article's authors, it had taken the first episode's as its author.)
 - **A long article:** "Zoning Alone", 29:14 of audio, checked in 9 sections; 3 record rounds, 13 minutes, $0.15.
 - **The opening line:** each recording opened with the title and its byline, or the title alone for the unsigned Declaration.
 
