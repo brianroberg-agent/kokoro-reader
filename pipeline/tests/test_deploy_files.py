@@ -288,6 +288,10 @@ def test_the_build_stops_on_what_it_cannot_remove(name, case, image_root, tmp_pa
     done = run_strip(name, image_root, bin)
     assert done.returncode != 0
     assert LEFT_IN_IMAGE in done.stderr
+    # the message names what is left, so a failed build says where to look
+    named = {"a bit is left": ["su", "ssh-agent", "both"], "a file capability": ["plain"], "no getcap": []}[case]
+    for file in named:
+        assert str(image_root / "usr" / "bin" / file) in done.stderr
 
 
 @pytest.mark.parametrize("path, ignored", [

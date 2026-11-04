@@ -32,9 +32,9 @@ RUN install -d -o node -g node -m 0700 /handoff
 # stops that too, on a host whose Docker allows it (docs/pipeline.md, "Docker from the snap
 # package"). The last step, so nothing installed after it brings one back.
 RUN find / -xdev -type f \( -perm -4000 -o -perm -2000 \) -exec chmod ug-s {} + \
-  && test -z "$(find / -xdev -type f \( -perm -4000 -o -perm -2000 \))" \
   && command -v getcap > /dev/null \
-  && test -z "$(find / -xdev -type f -exec getcap {} +)" \
-  || { echo "a setuid or setgid program or a file capability is left in the image (or getcap, to look for one, is missing)" >&2; exit 1; }
+  && left="$(find / -xdev -type f \( -perm -4000 -o -perm -2000 \); find / -xdev -type f -exec getcap {} +)" \
+  && test -z "$left" \
+  || { printf '%s\n%s\n' "a setuid or setgid program or a file capability is left in the image (or getcap, to look for one, is missing):" "${left:-}" >&2; exit 1; }
 
 CMD ["python3", "/opt/narration/session_service.py"]
