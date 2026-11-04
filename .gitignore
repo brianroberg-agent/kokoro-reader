@@ -19,9 +19,13 @@ temp_*
 .DS_Store
 Thumbs.db
 
-# Environment and secrets: .env, and a filled runner.env or agent.env wherever it is
+# Environment and secrets: .env, and a filled runner.env or agent.env wherever it is,
+# with the copies an editor or merge tool leaves beside one; the .example files stay
 .env
 *.env
+*.env~
+*.env.*
+!*.env.example
 
 
 # IDE files

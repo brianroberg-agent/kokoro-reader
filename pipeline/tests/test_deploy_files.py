@@ -320,6 +320,8 @@ def test_the_build_stops_on_what_it_cannot_remove(name, case, image_root, tmp_pa
 
 @pytest.mark.parametrize("path, ignored", [
     ("deploy/runner.env", True), ("deploy/secrets/agent.env", True), ("secrets/runner.env", True),
+    # an editor's or a merge tool's copy beside a filled file holds the same secrets
+    ("deploy/runner.env~", True), ("deploy/secrets/agent.env.bak", True), ("runner.env.orig", True),
     ("deploy/runner.env.example", False), ("deploy/agent.env.example", False), ("deploy/env.example", False),
 ])
 def test_filled_secret_files_are_git_ignored(path, ignored):
