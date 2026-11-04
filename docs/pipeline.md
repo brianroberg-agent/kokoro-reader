@@ -201,6 +201,13 @@ This stops and removes both containers. The `narration-data` and `narration-hand
 - **The opening line:** each recording opened with the title and its byline, or the title alone for the unsigned Declaration.
 - **A fix tried before `minor`:** in "Is There Life on Mars, Pennsylvania?", `finish` refused `minor` with a mispronunciation after round 1; the session added an override for the author's surname, recorded and checked round 2, and published with notes ($0.08). The Declaration's session used two rounds without a refusal, declaring the list numbers and the web address it fixed ($0.06). Neither held.
 
+**The snap-package settings, on Docker Desktop on Brian's Mac (linux/amd64), 2026-11-03:**
+
+- **No setuid program or file capability:** after both images were built, `find / -xdev -type f \( -perm -4000 -o -perm -2000 \)` and `getcap -r /` printed nothing in either; Debian's `su` and `passwd` were mode 755. The entrypoint still applied the firewall (`verified: base hosts blocked`, `example.com` blocked) and ran the command as `node`.
+- **The build stops on a capability:** an image built on `narration-agent` that added a `cap_net_raw` program stopped at the last step, naming `/usr/local/bin/capped cap_net_raw=ep`.
+- **`NARRATION_NO_NEW_PRIVILEGES`:** unset, the runner's process showed `NoNewPrivs: 1`; with `false`, `0`, and it still started as `node` and reached the test narration server through the firewall; with `no`, Docker refused the container (`invalid --security-opt 2`).
+- **`NARRATION_SECRETS_DIR`:** set, compose loaded each service's env file from that folder; empty or unset, it looked in `/srv/narration`.
+
 **The containers on Docker Desktop on Brian's Mac (linux/amd64), 2026-11-02**, with `agentbox:latest` built from agentbox's `agentbox-base-switch` branch (agentbox PR #14), fake secrets, `MAC_HOST=host.docker.internal`, and a test narration server on the host:
 
 - **Egress from `narration-agent`:** `example.com`, `sentry.io`, `statsig.com`, `api.github.com` and the host's other ports were blocked; `api.anthropic.com` and the Mac's narration port were reachable.
