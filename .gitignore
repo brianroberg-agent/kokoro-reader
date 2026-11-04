@@ -19,8 +19,9 @@ temp_*
 .DS_Store
 Thumbs.db
 
-# Environment and secrets
+# Environment and secrets: .env, and a filled runner.env or agent.env wherever it is
 .env
+*.env
 
 
 # IDE files

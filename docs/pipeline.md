@@ -79,7 +79,7 @@ On the home server, from scratch:
    # then fill in the values with an editor
    ```
 
-   These use the default folder, `/srv/narration`. To keep the files elsewhere, use that folder in the commands and set `NARRATION_SECRETS_DIR` to it in `deploy/.env` (step 4). Docker's snap package needs this ("Docker from the snap package", below).
+   These use the default folder, `/srv/narration`. To keep the files elsewhere, use that folder in the commands and set `NARRATION_SECRETS_DIR` to it, as an absolute path, in `deploy/.env` (step 4). A relative one would put the secrets inside the repo, beside `compose.yaml`. Docker's snap package needs this ("Docker from the snap package", below).
 
    compose stops with "env file <the folder>/runner.env not found" if a file is missing.
 
@@ -90,7 +90,7 @@ On the home server, from scratch:
 
      The firewall opens **every port** at the addresses a hostname here resolves to. So leave out a hostname that resolves to the Docker host itself, or to any machine running other services (ntfy and Audiobookshelf behind a reverse proxy on the home server, say): that would open all of them to the runner. Put its `address:443` in `RUNNER_LAN` instead, and keep the hostname in `AUDIOBOOKSHELF_URL` and `NTFY_TOPIC_URL`: only the firewall's grant changes. For example, with both behind a proxy at 192.168.1.20: `RUNNER_ALLOW=www.thenewatlantis.com` and `RUNNER_LAN=192.168.1.20:443`.
    - `RUNNER_LAN`: `address:port` grants, comma-separated: Audiobookshelf's if `AUDIOBOOKSHELF_URL` uses an address, and the `address:443` of any host left out of `RUNNER_ALLOW` above; otherwise empty.
-   - `NARRATION_SECRETS_DIR`: empty for `/srv/narration`, or the folder the secrets went into in step 3.
+   - `NARRATION_SECRETS_DIR`: empty for `/srv/narration`, or the absolute path of the folder the secrets went into in step 3.
    - `NARRATION_NO_NEW_PRIVILEGES`: empty, which leaves `no-new-privileges` on, or `false` on a Docker that refuses it (below).
 
    compose stops with "set MAC_HOST in deploy/.env" (or `RUNNER_ALLOW`) when one of them is unset.

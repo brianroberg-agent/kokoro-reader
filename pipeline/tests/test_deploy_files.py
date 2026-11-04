@@ -288,3 +288,14 @@ def test_the_build_stops_on_what_it_cannot_remove(name, case, image_root, tmp_pa
     done = run_strip(name, image_root, bin)
     assert done.returncode != 0
     assert LEFT_IN_IMAGE in done.stderr
+
+
+@pytest.mark.parametrize("path, ignored", [
+    ("deploy/runner.env", True), ("deploy/secrets/agent.env", True), ("secrets/runner.env", True),
+    ("deploy/runner.env.example", False), ("deploy/agent.env.example", False), ("deploy/env.example", False),
+])
+def test_filled_secret_files_are_git_ignored(path, ignored):
+    # compose resolves a relative NARRATION_SECRETS_DIR against deploy/, inside the repo
+    done = subprocess.run(["git", "check-ignore", "-q", path], cwd=DEPLOY.parent)
+    assert done.returncode in (0, 1)
+    assert (done.returncode == 0) is ignored
