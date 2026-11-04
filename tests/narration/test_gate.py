@@ -139,14 +139,14 @@ def test_clean_publishes_with_tags_and_notes(env):
 def test_minor_lists_issues_in_the_notes_but_never_their_free_text(env):
     store, runner, tools, conv, item, _ = env
     tools.record(item); tools.check(item)
-    tools.finish(item, "minor", [{"kind": "mispronunciation", "where": "0:12",
-                                  "note": "Quillon; see example.com"}], [])
+    tools.finish(item, "minor", [{"kind": "pacing", "where": "0:12",
+                                  "note": "rushed; see example.com"}], [])
     out = runner.finalize(item)
     assert out["action"] == "publish"
-    assert "- 0:12 mispronunciation" in out["notes"]
+    assert "- 0:12 pacing" in out["notes"]
     assert "example.com" not in out["notes"]  # the note is for Brian, not the feed ...
     result = json.loads(store.read_text(item, "result.json"))
-    assert result["remaining_issues"][0]["note"] == "Quillon; see example.com"  # ... so it's in result.json
+    assert result["remaining_issues"][0]["note"] == "rushed; see example.com"  # ... so it's in result.json
 
 
 def test_agent_hold_is_a_hold(env):
@@ -910,3 +910,22 @@ def test_a_number_range_read_out_publishes_with_its_substitution_in_the_notes(tm
     out = runner.finalize(item)
     assert out["action"] == "publish" and out["mp3"], out["reasons"]
     assert '- "2-3" read as "2 to 3"' in out["notes"]
+
+
+# ---- end-to-end test findings, 2026-11-03 ----
+def test_an_omission_is_a_kind_of_issue_finish_accepts():
+    # F3: a word the engine left out fitted none of the kinds, so it was published as "other".
+    issues, _ = agent_tools.validate_finish(
+        "minor", [{"kind": "omission", "where": "2:27", "note": "a dropped"}], [])
+    assert issues == [{"kind": "omission", "where": "2:27", "note": "a dropped"}]
+
+
+def test_notes_list_the_issues_in_time_order():
+    # F3: the notes followed the order the agent wrote them in (3:32, 3:43, then 2:27).
+    finish = {"outcome": "minor", "substitutions": [],
+              "remaining_issues": [{"kind": "mispronunciation", "where": "12:40", "note": ""},
+                                   {"kind": "pacing", "where": "9:40", "note": ""},
+                                   {"kind": "omission", "where": "2:27", "note": ""},
+                                   {"kind": "other", "where": "9:40", "note": ""}]}
+    lines = [l for l in notes_for(META, finish).splitlines() if l.startswith("- ")]
+    assert lines == ["- 2:27 omission", "- 9:40 pacing", "- 9:40 other", "- 12:40 mispronunciation"]

@@ -59,6 +59,33 @@ def format_timestamp(ms: int) -> str:
     return f"{total_seconds // 60}:{total_seconds % 60:02d}"
 
 
+# A time in a report: m:ss, mm:ss or h:mm:ss, not part of a longer number or word
+# (v1:20b, 2.5:1) and not a clock time (10:30 a.m., 9:45pm).
+_TIMESTAMP = re.compile(
+    r"(?<![\w.:])(\d{1,3}):([0-5]\d)(?::([0-5]\d))?(?!\w|:\d|\.\d|\s?[AaPp]\.?[Mm]\b)")
+
+
+# What the report quotes from the article, where a time is the article's own ("John
+# 3:16"): text in straight or curly double quotes, *italics* (not **bold**, which the
+# report uses for its own labels such as "**1:26 - Missing word:**"), and `code`.
+_QUOTED = re.compile(r'"[^"\n]*"|\u201c[^\u201d\n]*\u201d|(?<!\*)\*(?!\*)[^*\n]+(?<!\*)\*(?!\*)|`[^`\n]*`')
+
+
+def shift_timestamps(text: str, offset_ms: int) -> str:
+    """Each time in a section's report moved by the section's start, written as
+    format_timestamp writes it, so the report's times are times in the whole recording.
+    A time inside text the report quotes from the article is left as it is."""
+    quoted = [m.span() for m in _QUOTED.finditer(text)]
+
+    def shift(m: re.Match) -> str:
+        if any(a <= m.start() < b for a, b in quoted):
+            return m.group()
+        a, b, c = m.group(1), m.group(2), m.group(3)
+        seconds = int(a) * 3600 + int(b) * 60 + int(c) if c else int(a) * 60 + int(b)
+        return format_timestamp(seconds * 1000 + offset_ms)
+    return _TIMESTAMP.sub(shift, text)
+
+
 def _pace_stats(audio: AudioSegment, source_text: str) -> tuple[int, int, float]:
     """Return (duration_ms, word_count, wpm); [BREAK] markers are not words."""
     duration_ms = len(audio)
@@ -272,8 +299,8 @@ def _verify_chunked(client, audio: AudioSegment, sections: list,
     for i, (_, segment) in enumerate(chunks, start=1):
         check_single_call_limit(len(segment), f"Section {i} of {total}")
     parts = [
-        "Note: timestamps within each section below are relative to that "
-        "section's start; the header gives its absolute range."
+        "Note: the timestamps below are times in the whole recording; each "
+        "section's header gives its range."
     ]
 
     with tempfile.TemporaryDirectory(prefix="verify_audio_") as temp_dir:
@@ -296,7 +323,7 @@ def _verify_chunked(client, audio: AudioSegment, sections: list,
                 f"## Section {i} of {total} "
                 f"({format_timestamp(start_ms)}–{format_timestamp(end_ms)})"
             )
-            parts.append(f"{header}\n{result}")
+            parts.append(f"{header}\n{shift_timestamps(result, start_ms)}")
 
     return "\n\n".join(parts)
 

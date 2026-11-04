@@ -1437,3 +1437,14 @@ def test_moving_a_word_boundary_is_a_change_not_a_respelling(original, spoken):
     prepared = _repeat(f"We saw {spoken} today.", 21)
     problems = check(article, prepared, [Substitution(original, spoken)])
     assert len(problems) == 1 and "changes" in problems[0]
+
+
+def test_the_runners_opening_line_lends_the_article_no_names():
+    # The runner opens each article with "# <title> by <names>", no final period
+    # (pipeline fetch.spoken_title): a heading, so its capitalised words don't become
+    # names that loosen the respelling rule. Ended as a sentence, they did (review
+    # finding 4, 2026-11-03).
+    from narration.words import article_names
+    body = "\n\nThe body has no such words in it."
+    assert article_names("# Where Did the Tragedy Go? by Ada Quill" + body) == frozenset()
+    assert article_names("Where Did the Tragedy Go? by Ada Quill." + body) != frozenset()

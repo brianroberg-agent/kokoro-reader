@@ -145,7 +145,16 @@ class TestCleanMarkdownText:
         text = "- Item 1\n* Item 2\n+ Item 3\n1. Numbered item"
         expected = "Item 1\nItem 2\nItem 3\nNumbered item"
         assert clean_markdown_text(text) == expected
-    
+
+    def test_a_numbered_heading_keeps_its_number(self):
+        """E2E finding 1: the header marks went first, so the list rule took a
+        heading's own number ("##### 1. Keeping Humans in Charge" read without "1")."""
+        text = ("##### 1. Keeping Humans in Charge\n\nText.\n\n"
+                "##### **2.** Avoiding Concentration of Power\n\nMore.")
+        expected = ("1. Keeping Humans in Charge\n\nText.\n\n"
+                    "2. Avoiding Concentration of Power\n\nMore.")
+        assert clean_markdown_text(text) == expected
+
     def test_remove_blockquotes(self):
         """Test removal of blockquote formatting."""
         text = "> This is a quote\n> Multi-line quote"
@@ -591,3 +600,9 @@ class TestMLXAudioBackend:
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+def test_the_runners_opening_line_keeps_a_leading_number():
+    # A title such as "10. Things We Lost" opens the article as a heading (pipeline
+    # fetch.spoken_title), so the list rule leaves its number (review finding 10).
+    assert clean_markdown_text("# 10. Things We Lost by Ada Quill\n\nBody.") == (
+        "10. Things We Lost by Ada Quill\n\nBody.")

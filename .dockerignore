@@ -1,0 +1,14 @@
+# The build context for deploy/narration-runner and deploy/narration-agent (both built
+# from the repo root). An allowlist: the images need only pipeline/, so everything else
+# (.git, .venv, .worktrees, .superpowers, .env files, audio) stays out of the context.
+*
+!pipeline/
+pipeline/.venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.hypothesis
+**/.env
+**/*.wav
+**/*.mp3
+**/*.m4a

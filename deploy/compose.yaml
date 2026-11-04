@@ -1,0 +1,68 @@
+# The unattended pipeline on the home server (docs/pipeline.md). Two containers built on
+# agentbox's image and egress firewall, sharing one volume for the work handoff:
+#   narration-runner  the nightly loop; holds the Audiobookshelf key, the ntfy token and
+#                     the narration runner token (/srv/narration/runner.env)
+#   narration-agent   one locked-down Claude Code session at a time; holds only the
+#                     Claude login (/srv/narration/agent.env)
+# From the repo root: docker compose -f deploy/compose.yaml build, then up -d narration-agent;
+# the runner (up -d narration-runner) only after the acceptance run (docs/pipeline.md, Deploy).
+# MAC_HOST, MAC_PORT, RUNNER_ALLOW and RUNNER_LAN come from deploy/.env, written from
+# deploy/env.example; compose reads the .env beside this file.
+#
+# agentbox outside its launcher needs AGENTBOX_NET set, NET_ADMIN and NET_RAW for
+# iptables, no-new-privileges, and init (agentbox README, "Running a command instead of
+# the agent (compose)"). Neither service publishes a port: the firewall drops inbound
+# traffic, and the runner hands work to the agent through the handoff volume.
+
+name: narration
+
+services:
+  narration-runner:
+    build:
+      context: ..
+      dockerfile: deploy/narration-runner/Dockerfile
+    # The image's command runs one night and its summary, then exits; the restart starts
+    # the next night, and the firewall resolves RUNNER_ALLOW's hosts again.
+    restart: unless-stopped
+    init: true
+    cap_add: [NET_ADMIN, NET_RAW]
+    security_opt: ["no-new-privileges:true"]
+    env_file: /srv/narration/runner.env
+    environment:
+      TZ: America/New_York
+      AGENTBOX_NET: restricted
+      AGENTBOX_GITHUB: "off"
+      AGENTBOX_BASE: "off"  # no telemetry hosts: the runner hands sessions to the agent, and it holds the secrets
+      # hostnames, every port: the source site and the ntfy host
+      AGENTBOX_ALLOW: ${RUNNER_ALLOW:?set RUNNER_ALLOW in deploy/.env}
+      # host:port grants: the Mac's narration port, then RUNNER_LAN's (Audiobookshelf by address)
+      AGENTBOX_LAN: ${MAC_HOST:?set MAC_HOST in deploy/.env}:${MAC_PORT:-8770},${RUNNER_LAN:-}
+      NARRATION_URL: http://${MAC_HOST:?set MAC_HOST in deploy/.env}:${MAC_PORT:-8770}
+    volumes:
+      - narration-data:/data
+      - narration-handoff:/handoff
+
+  narration-agent:
+    build:
+      context: ..
+      dockerfile: deploy/narration-agent/Dockerfile
+    restart: unless-stopped
+    init: true
+    cap_add: [NET_ADMIN, NET_RAW]
+    security_opt: ["no-new-privileges:true"]
+    env_file: /srv/narration/agent.env
+    environment:
+      TZ: America/New_York
+      # egress allowed: the Anthropic API and the Mac's narration port
+      AGENTBOX_NET: restricted
+      AGENTBOX_GITHUB: "off"
+      AGENTBOX_BASE: "off"
+      AGENTBOX_LAN: ${MAC_HOST:?set MAC_HOST in deploy/.env}:${MAC_PORT:-8770}
+      NARRATION_AGENT_URL: http://${MAC_HOST:?set MAC_HOST in deploy/.env}:${MAC_PORT:-8770}/agent/mcp
+    volumes:
+      - narration-handoff:/handoff
+
+# `docker compose down` keeps these; `down -v` deletes them, and the record with them.
+volumes:
+  narration-data:
+  narration-handoff:

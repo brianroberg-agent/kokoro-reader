@@ -194,7 +194,7 @@ def test_finish_validates_shapes(env):
     tools.record(item); tools.check(item)
     with pytest.raises(ToolError):
         tools.finish(item, "great", [], [])
-    ok = {"kind": "mispronunciation", "where": "12:40", "note": "Pengelley"}
+    ok = {"kind": "pacing", "where": "12:40", "note": "rushed"}
     for bad in ({**ok, "kind": "garbled"},          # kind comes from a fixed list
                 {**ok, "where": "near the end"},   # where is a timestamp
                 {**ok, "where": "1234:00"},
@@ -205,6 +205,167 @@ def test_finish_validates_shapes(env):
         tools.finish(item, "minor", [ok] * 21, [])
     assert tools.finish(item, "minor", [ok], [])["ok"]
 
+
+
+# While two or more record rounds and checks are left, a session that lists a
+# mispronunciation or an omission tries a fix before it settles for minor (Brian,
+# 2026-11-03).
+MISSAID = {"kind": "mispronunciation", "where": "0:03", "note": "Ivo"}
+DROPPED = {"kind": "omission", "where": "0:05", "note": "well"}
+A_PAUSE = ("It went well.", "It went\n\nwell.")  # a change of pauses alone, words unchanged
+
+
+def _round(tools, item):
+    tools.record(item); tools.check(item)
+
+
+def test_minor_with_a_mispronunciation_after_one_round_is_refused(env):
+    store, tools, *_, item, _ = env
+    _round(tools, item)
+    with pytest.raises(ToolError, match="try a fix first"):
+        tools.finish(item, "minor", [MISSAID], [])
+    assert store.load_state(item)["status"] == "open"  # the session can still fix it
+
+
+def test_minor_with_a_mispronunciation_is_accepted_after_a_round_of_changed_text(env):
+    _, tools, *_, item, _ = env
+    _round(tools, item)
+    tools.replace_text(item, *A_PAUSE)
+    _round(tools, item)
+    assert tools.finish(item, "minor", [MISSAID], [])["ok"]  # tried once: minor stands
+
+
+def test_recording_the_same_text_again_is_not_a_fix_for_a_mispronunciation(env):
+    _, tools, *_, item, _ = env
+    _round(tools, item); _round(tools, item)
+    with pytest.raises(ToolError, match="same text again"):
+        tools.finish(item, "minor", [MISSAID], [])
+
+
+def test_a_change_undone_later_still_counts_as_a_fix_tried(env, monkeypatch):
+    # At MAX_RECORDS = 4 the rule is off from round 3 on (two rounds must be left), so
+    # this runs with more rounds: it guards the comparison should the limit be raised.
+    monkeypatch.setattr(agent_tools, "MAX_RECORDS", 6)
+    _, tools, *_, item, _ = env
+    _round(tools, item)
+    tools.replace_text(item, *A_PAUSE)
+    _round(tools, item)
+    tools.replace_text(item, *reversed(A_PAUSE))  # the fix made it worse
+    _round(tools, item)
+    assert tools.finish(item, "minor", [MISSAID], [])["ok"]
+
+
+def test_minor_with_an_omission_needs_a_recording_of_any_text_after_the_first_check(env):
+    _, tools, *_, item, _ = env
+    _round(tools, item)
+    with pytest.raises(ToolError, match="no round has been recorded since the first check"):
+        tools.finish(item, "minor", [DROPPED], [])
+    _round(tools, item)  # the engine doesn't always drop the same words
+    assert tools.finish(item, "minor", [DROPPED], [])["ok"]
+
+
+def test_a_round_after_a_failed_one_counts(env):
+    _, tools, tts, _, item, _ = env
+    _round(tools, item)
+    tts.fail_next = True
+    with pytest.raises(Exception):
+        tools.record(item)
+    tools.record(item); tools.check(item)  # round 3, recorded after the first check
+    assert tools.finish(item, "minor", [DROPPED], [])["ok"]
+
+
+def test_the_first_check_is_what_a_fix_must_follow_not_round_one(env):
+    # Round 1 failed and left nothing; round 2 is the first recording a check heard.
+    _, tools, tts, _, item, _ = env
+    tts.fail_next = True
+    with pytest.raises(Exception):
+        tools.record(item)
+    _round(tools, item)
+    with pytest.raises(ToolError, match="no round has been recorded since the first check"):
+        tools.finish(item, "minor", [DROPPED], [])
+
+
+def test_a_fix_recorded_again_unchanged_still_counts_as_tried(env, monkeypatch):
+    # Fixed in round 2, then the fixed text recorded again for a dropped word: the latest
+    # two rounds have the same text, but round 2 tried a fix after the first check. With
+    # more rounds than MAX_RECORDS = 4, for the reason in the test above.
+    monkeypatch.setattr(agent_tools, "MAX_RECORDS", 6)
+    _, tools, *_, item, _ = env
+    _round(tools, item)
+    tools.replace_text(item, *A_PAUSE)
+    _round(tools, item); _round(tools, item)
+    assert tools.finish(item, "minor", [MISSAID], [])["ok"]
+
+def test_an_item_from_before_recorded_texts_is_not_refused_on_a_guess(env):
+    # An item opened before the server kept recorded_texts has no record of its rounds'
+    # texts, so the rule can't say truly whether a fix was tried; it isn't applied.
+    store, tools, *_, item, _ = env
+    _round(tools, item)
+    tools.replace_text(item, *A_PAUSE)
+    _round(tools, item)  # a fix tried after the first check
+    state = store.load_state(item)
+    del state["recorded_texts"]
+    store.save_state(item, state)
+    assert tools.finish(item, "minor", [MISSAID], [])["ok"]
+
+
+def test_a_change_made_before_the_first_check_is_not_a_fix_tried(env):
+    # The prompt has speech_warnings fixed and recorded again before a check is spent,
+    # so two texts are often recorded before any check has heard a word.
+    _, tools, *_, item, _ = env
+    tools.record(item)
+    tools.replace_text(item, *A_PAUSE)
+    _round(tools, item)
+    with pytest.raises(ToolError, match="try a fix first"):
+        tools.finish(item, "minor", [MISSAID], [])
+    with pytest.raises(ToolError, match="no round has been recorded since the first check"):
+        tools.finish(item, "minor", [DROPPED], [])
+
+
+def test_minor_is_accepted_once_no_record_round_is_left(env):
+    _, tools, *_, item, _ = env
+    for _ in range(MAX_RECORDS - 1):
+        tools.record(item)
+    tools.record(item); tools.check(item)  # the last round, of the same text
+    assert tools.finish(item, "minor", [MISSAID, DROPPED], [])["ok"]
+
+
+def test_minor_is_accepted_after_one_round_once_no_check_is_left(env):
+    _, tools, *_, item, _ = env
+    tools.record(item)
+    for _ in range(agent_tools.MAX_CHECKS):
+        tools.check(item)
+    assert tools.finish(item, "minor", [MISSAID, DROPPED], [])["ok"]
+
+
+def test_minor_is_accepted_when_a_forced_fix_could_not_be_undone_for_want_of_a_round(env):
+    # The first check came at round 3: a fix in round 4 that went wrong (say a speech
+    # mismatch) couldn't be undone, and would leave only hold.
+    _, tools, *_, item, _ = env
+    for _ in range(MAX_RECORDS - 2):
+        tools.record(item)
+    _round(tools, item)
+    assert tools.finish(item, "minor", [MISSAID, DROPPED], [])["ok"]
+
+
+def test_minor_is_accepted_when_a_forced_fix_could_not_be_undone_for_want_of_a_check(env):
+    _, tools, *_, item, _ = env
+    tools.record(item)
+    for _ in range(agent_tools.MAX_CHECKS - 1):
+        tools.check(item)
+    assert tools.finish(item, "minor", [MISSAID, DROPPED], [])["ok"]
+
+
+@pytest.mark.parametrize("outcome, issues", [
+    ("minor", [{"kind": "pacing", "where": "0:04", "note": "rushed"}]),
+    ("minor", [{"kind": "artifact", "where": "0:04", "note": "a click"}]),
+    ("hold", [MISSAID]),  # nothing held is published
+    ("hold", [DROPPED]),
+])
+def test_other_kinds_and_hold_need_no_fix_round(env, outcome, issues):
+    _, tools, *_, item, _ = env
+    _round(tools, item)
+    assert tools.finish(item, outcome, issues, [])["ok"]
 
 @settings(max_examples=100, deadline=None)
 @given(old=st.text(min_size=1, max_size=40), new=st.text(max_size=40))

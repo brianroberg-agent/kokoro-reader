@@ -1,0 +1,28 @@
+[project]
+name = "narration-pipeline"
+version = "0.1.0"
+description = "Nightly runner that turns new articles into podcast episodes"
+requires-python = ">=3.11"
+dependencies = [
+    "defusedxml>=0.7.1",
+    "httpx2>=2.16.0",  # imported directly (narration_client); mcp's own HTTP client
+    "mcp==2.3.0",
+    "requests>=2.34.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["narration_pipeline"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.170.14",
+    "pytest>=9.2.0",
+    "pyyaml>=6.0.3",
+]
