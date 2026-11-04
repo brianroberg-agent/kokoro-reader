@@ -7,14 +7,16 @@
 # From the repo root: docker compose -f deploy/compose.yaml build, then up -d narration-agent;
 # the runner (up -d narration-runner) only after the acceptance run (docs/pipeline.md, Deploy).
 # MAC_HOST, MAC_PORT, RUNNER_ALLOW, RUNNER_LAN, NARRATION_SECRETS_DIR and
-# NARRATION_NO_NEW_PRIVILEGES come from deploy/.env, written from deploy/env.example; compose reads the .env beside this file.
+# NARRATION_NO_NEW_PRIVILEGES come from deploy/.env, written from deploy/env.example;
+# compose reads the .env beside this file.
 # The secrets folder is /srv/narration unless NARRATION_SECRETS_DIR names another.
 #
 # agentbox outside its launcher needs AGENTBOX_NET set, NET_ADMIN and NET_RAW for
 # iptables, no-new-privileges, and init (agentbox README, "Running a command instead of
 # the agent (compose)"). no-new-privileges is on unless NARRATION_NO_NEW_PRIVILEGES=false,
-# for a Docker that refuses it (docs/pipeline.md, "Docker from the snap package"). Neither service publishes a port: the firewall drops inbound
-# traffic, and the runner hands work to the agent through the handoff volume.
+# for a Docker that refuses it (docs/pipeline.md, "Docker from the snap package").
+# Neither service publishes a port: the firewall drops inbound traffic, and the runner
+# hands work to the agent through the handoff volume.
 
 name: narration
 
