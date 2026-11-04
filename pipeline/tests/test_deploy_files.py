@@ -56,7 +56,8 @@ def test_compose_has_agentbox_settings(compose, name):
     s = compose["services"][name]
     assert s["init"] is True
     assert sorted(s["cap_add"]) == ["NET_ADMIN", "NET_RAW"]
-    assert s["security_opt"] == ["no-new-privileges:true"]
+    # on unless deploy/.env turns it off: Docker's snap package refuses it (docs/pipeline.md)
+    assert s["security_opt"] == ["no-new-privileges:${NARRATION_NO_NEW_PRIVILEGES:-true}"]
     assert s["restart"] == "unless-stopped"
     env = environment(s)
     assert env["AGENTBOX_NET"] == "restricted"
@@ -110,7 +111,8 @@ def test_compose_settings_come_from_deploy_env():
     text = (DEPLOY / "compose.yaml").read_text()
     used = re.findall(r"\$\{([A-Z_]+)([^}]*)\}", text)
     assert {name for name, _ in used} == set(example_names("env.example"))
-    optional = {"MAC_PORT": ":-8770", "RUNNER_LAN": ":-", "NARRATION_SECRETS_DIR": ":-/srv/narration"}
+    optional = {"MAC_PORT": ":-8770", "RUNNER_LAN": ":-", "NARRATION_SECRETS_DIR": ":-/srv/narration",
+                "NARRATION_NO_NEW_PRIVILEGES": ":-true"}
     for name, rest in used:  # compose stops, naming the setting, when a required one is unset
         assert rest == optional[name] if name in optional else rest.startswith(":?")
 

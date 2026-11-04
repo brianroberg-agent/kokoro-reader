@@ -89,6 +89,7 @@ On the home server, from scratch:
    - `RUNNER_ALLOW`: `www.thenewatlantis.com,<the ntfy host>`, plus Audiobookshelf's hostname if `AUDIOBOOKSHELF_URL` uses one. A hostname here is required: the runner doesn't start if it can't be resolved.
    - `RUNNER_LAN`: Audiobookshelf's `address:port` if `AUDIOBOOKSHELF_URL` uses an address; otherwise empty.
    - `NARRATION_SECRETS_DIR`: empty for `/srv/narration`, or the folder the secrets went into in step 3.
+   - `NARRATION_NO_NEW_PRIVILEGES`: empty, which leaves `no-new-privileges` on, or `false` on a Docker that refuses it (below).
 
    compose stops with "set MAC_HOST in deploy/.env" (or `RUNNER_ALLOW`) when one of them is unset.
 
@@ -133,6 +134,7 @@ On the home server, from scratch:
 Ubuntu's snap of Docker confines the docker command, and that changes the deploy:
 
 - **It can't read `/srv`.** compose then stops with "env file /srv/narration/runner.env not found" although the file is there. Keep the secrets in a folder under `/root` instead, such as `/root/narration` (mode 700, the files 600), and set `NARRATION_SECRETS_DIR=/root/narration` in `deploy/.env`.
+- **It refuses `no-new-privileges`.** Every container that sets it fails to start with `exec ...: operation not permitted`: AppArmor refuses runc's switch to the container's profile once the setting is on, and turning the container's AppArmor profile off doesn't help. Set `NARRATION_NO_NEW_PRIVILEGES=false` in `deploy/.env`. What the setting stops is a process, running as `node`, getting root or a capability back by running a setuid program or one with a file capability. Neither image has either: the last step of each Dockerfile removes the setuid and setgid bits and stops the build if one is left or a file has a capability. agentbox itself drops root with `gosu`, which isn't setuid.
 - **It has its own `/tmp`.** A file written to `/tmp` outside it isn't there for a docker or compose command; pipe a compose file on standard input instead (`docker compose -f - ...`).
 
 ## Operate
