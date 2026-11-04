@@ -326,6 +326,8 @@ def test_the_build_stops_on_what_it_cannot_remove(name, case, image_root, tmp_pa
 ])
 def test_filled_secret_files_are_git_ignored(path, ignored):
     # compose resolves a relative NARRATION_SECRETS_DIR against deploy/, inside the repo
-    done = subprocess.run(["git", "check-ignore", "-q", path], cwd=DEPLOY.parent)
+    done = subprocess.run(["git", "check-ignore", "-v", path], cwd=DEPLOY.parent, capture_output=True, text=True)
     assert done.returncode in (0, 1)
     assert (done.returncode == 0) is ignored
+    if ignored:  # by this repo's .gitignore, not a global ignore file on the developer's machine
+        assert done.stdout.startswith(".gitignore:"), done.stdout
