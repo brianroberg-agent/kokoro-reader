@@ -45,6 +45,17 @@ ENV UV_NO_SYNC=1
 # they start owned by node.
 RUN install -d -o node -g node -m 0700 /data /handoff
 
+# No setuid or setgid program and no file capability is left in the image. agentbox drops
+# root with gosu, which isn't setuid, so nothing here needs one. Running one is how a
+# process in the container, as node, would get root or a capability back; no-new-privileges
+# stops that too, on a host whose Docker allows it (docs/pipeline.md, "Docker from the snap
+# package"). The last step, so nothing installed after it brings one back.
+RUN find / -xdev -type f \( -perm -4000 -o -perm -2000 \) -exec chmod ug-s {} + \
+  && test -z "$(find / -xdev -type f \( -perm -4000 -o -perm -2000 \))" \
+  && command -v getcap > /dev/null \
+  && test -z "$(find / -xdev -type f -exec getcap {} +)" \
+  || { echo "a setuid or setgid program or a file capability is left in the image (or getcap, to look for one, is missing)" >&2; exit 1; }
+
 WORKDIR /app
 # One night and its summary, then exit: compose's restart starts the next night, and
 # the firewall resolves the allowed hosts again (it resolves them once, at start).

@@ -216,3 +216,73 @@ def test_every_third_party_import_is_declared():
     project = tomllib.loads((DEPLOY.parent / "pipeline" / "pyproject.toml").read_text())["project"]
     declared = {re.split(r"[<>=!~ ;\[]", d, maxsplit=1)[0] for d in project["dependencies"]}
     assert third_party and third_party <= declared, third_party - declared
+
+
+# Neither image keeps a setuid or setgid program or a file capability: running one is how
+# a process in the container, as node, would get root or a capability back, and that is
+# what no-new-privileges stops on hosts that allow it (docs/pipeline.md, "Docker from the
+# snap package"). The last RUN removes the bits and fails the build on anything left.
+LEFT_IN_IMAGE = "a setuid or setgid program or a file capability is left in the image"
+
+
+def strip_step(name: str) -> str:
+    runs = [i for i in instructions(name) if i.startswith("RUN ")]
+    return runs[-1].removeprefix("RUN ")
+
+
+@pytest.mark.parametrize("name", SERVICES)
+def test_nothing_is_added_after_the_setuid_bits_are_removed(name):
+    ins = instructions(name)
+    last = max(n for n, i in enumerate(ins) if i.split()[0] in {"RUN", "COPY", "ADD"})
+    assert ins[last] == "RUN " + strip_step(name) and "chmod ug-s" in strip_step(name)
+
+
+def run_strip(name: str, root: Path, bin: Path) -> subprocess.CompletedProcess:
+    """The image's last step run on root, a folder standing in for /, with bin first on PATH."""
+    step = strip_step(name)
+    assert step.count("find / ") == 3
+    return subprocess.run(["/bin/sh", "-c", step.replace("find / ", f"find {root} ")],
+                          env={"PATH": f"{bin}:/usr/bin:/bin"}, capture_output=True, text=True, timeout=30)
+
+
+def stub(bin: Path, name: str, script: str):
+    bin.mkdir(exist_ok=True)
+    (bin / name).write_text("#!/bin/sh\n" + script + "\n")
+    (bin / name).chmod(0o755)
+
+
+@pytest.fixture
+def image_root(tmp_path) -> Path:
+    root = tmp_path / "root"
+    (root / "usr" / "bin").mkdir(parents=True)
+    for file, mode in [("su", 0o4755), ("ssh-agent", 0o2755), ("both", 0o6755), ("plain", 0o755)]:
+        (root / "usr" / "bin" / file).write_text("")
+        (root / "usr" / "bin" / file).chmod(mode)
+    assert (root / "usr" / "bin" / "ssh-agent").stat().st_mode & 0o2000  # the setgid case is real
+    return root
+
+
+@pytest.mark.parametrize("name", SERVICES)
+def test_the_build_removes_setuid_and_setgid_bits(name, image_root, tmp_path):
+    stub(tmp_path / "bin", "getcap", "exit 0")  # no file has a capability
+    done = run_strip(name, image_root, tmp_path / "bin")
+    assert done.returncode == 0, done.stderr
+    modes = {f.name: f.stat().st_mode & 0o7777 for f in (image_root / "usr" / "bin").iterdir()}
+    assert modes == {"su": 0o755, "ssh-agent": 0o755, "both": 0o755, "plain": 0o755}
+
+
+@pytest.mark.parametrize("name", SERVICES)
+@pytest.mark.parametrize("case", ["a bit is left", "a file capability", "no getcap"])
+def test_the_build_stops_on_what_it_cannot_remove(name, case, image_root, tmp_path):
+    bin = tmp_path / "bin"
+    if case == "a bit is left":
+        stub(bin, "getcap", "exit 0")
+        stub(bin, "chmod", "exit 0")  # a chmod that changes nothing
+    elif case == "a file capability":
+        stub(bin, "getcap", 'for f; do case "$f" in */plain) echo "$f cap_net_raw=ep";; esac; done')
+    else:
+        bin.mkdir()  # getcap isn't on PATH (macOS and Debian's /usr/bin have none)
+        assert subprocess.run(["/bin/sh", "-c", "command -v getcap"], env={"PATH": f"{bin}:/usr/bin:/bin"}).returncode
+    done = run_strip(name, image_root, bin)
+    assert done.returncode != 0
+    assert LEFT_IN_IMAGE in done.stderr
