@@ -226,6 +226,7 @@ def test_every_third_party_import_is_declared():
 # what no-new-privileges stops on hosts that allow it (docs/pipeline.md, "Docker from the
 # snap package"). The last RUN removes the bits and fails the build on anything left.
 LEFT_IN_IMAGE = "a setuid or setgid program or a file capability is left in the image"
+COULD_NOT_CHECK = "or the check couldn't run"
 
 
 def strip_step(name: str) -> str:
@@ -286,7 +287,7 @@ def test_the_build_removes_setuid_and_setgid_bits(name, image_root, tmp_path):
 
 
 @pytest.mark.parametrize("name", SERVICES)
-@pytest.mark.parametrize("case", ["a bit is left", "a file capability", "no getcap", "getcap errs"])
+@pytest.mark.parametrize("case", ["a bit is left", "a file capability", "no getcap", "getcap errs", "chmod fails"])
 def test_the_build_stops_on_what_it_cannot_remove(name, case, image_root, tmp_path):
     bin = tmp_path / "bin"
     if case == "a bit is left":
@@ -294,6 +295,9 @@ def test_the_build_stops_on_what_it_cannot_remove(name, case, image_root, tmp_pa
         stub(bin, "chmod", "exit 0")  # a chmod that changes nothing
     elif case == "a file capability":
         stub(bin, "getcap", 'for f; do case "$f" in */plain) echo "$f cap_net_raw=ep";; esac; done')
+    elif case == "chmod fails":
+        stub(bin, "getcap", "exit 0")
+        stub(bin, "chmod", 'echo "chmod: $2: Operation not permitted" >&2; exit 1')
     elif case == "getcap errs":
         # Debian's getcap reports a file it can't read on stderr and still exits 0
         stub(bin, "getcap", 'for f; do case "$f" in */plain) echo "Failed to get capabilities of file \'$f\' (Input/output error)" >&2;; esac; done; exit 0')
@@ -305,9 +309,13 @@ def test_the_build_stops_on_what_it_cannot_remove(name, case, image_root, tmp_pa
     assert LEFT_IN_IMAGE in done.stderr
     # the message names what is left, so a failed build says where to look
     named = {"a bit is left": ["su", "ssh-agent", "both"], "a file capability": ["plain"], "no getcap": [],
-             "getcap errs": ["plain"]}[case]
+             "getcap errs": ["plain"], "chmod fails": []}[case]
     for file in named:
         assert str(image_root / "usr" / "bin" / file) in done.stderr
+    if case in ("no getcap", "chmod fails"):  # nothing is known to be left: the message says so
+        assert COULD_NOT_CHECK in done.stderr
+    if case == "no getcap":  # find's own error names the missing tool
+        assert "getcap" in done.stderr.split(COULD_NOT_CHECK, 1)[1]
 
 
 @pytest.mark.parametrize("path, ignored", [

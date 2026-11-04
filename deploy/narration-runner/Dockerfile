@@ -51,10 +51,9 @@ RUN install -d -o node -g node -m 0700 /data /handoff
 # stops that too, on a host whose Docker allows it (docs/pipeline.md, "Docker from the snap
 # package"). The last step, so nothing installed after it brings one back.
 RUN find / -xdev -type f \( -perm -4000 -o -perm -2000 \) -exec chmod ug-s {} + \
-  && command -v getcap > /dev/null \
   && left="$( { find / -xdev -type f \( -perm -4000 -o -perm -2000 \); find / -xdev -type f -exec getcap {} +; } 2>&1)" \
   && test -z "$left" \
-  || { printf '%s\n%s\n' "a setuid or setgid program or a file capability is left in the image (or getcap, to look for one, is missing):" "${left:-}" >&2; exit 1; }
+  || { printf '%s\n%s\n' "a setuid or setgid program or a file capability is left in the image, or the check couldn't run (what it found or the errors are below; a chmod error is above):" "${left:-}" >&2; exit 1; }
 
 WORKDIR /app
 # One night and its summary, then exit: compose's restart starts the next night, and
