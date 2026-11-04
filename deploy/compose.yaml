@@ -35,9 +35,10 @@ services:
       AGENTBOX_NET: restricted
       AGENTBOX_GITHUB: "off"
       AGENTBOX_BASE: "off"  # no telemetry hosts: the runner hands sessions to the agent, and it holds the secrets
-      # hostnames, every port: the source site and the ntfy host
+      # hostnames, every port of their addresses: the source site and the ntfy host
       AGENTBOX_ALLOW: ${RUNNER_ALLOW:?set RUNNER_ALLOW in deploy/.env}
-      # host:port grants: the Mac's narration port, then RUNNER_LAN's (Audiobookshelf by address)
+      # host:port grants: the Mac's narration port, then RUNNER_LAN's (Audiobookshelf by
+      # address, or a host whose address runs other services too)
       AGENTBOX_LAN: ${MAC_HOST:?set MAC_HOST in deploy/.env}:${MAC_PORT:-8770},${RUNNER_LAN:-}
       NARRATION_URL: http://${MAC_HOST:?set MAC_HOST in deploy/.env}:${MAC_PORT:-8770}
     volumes:

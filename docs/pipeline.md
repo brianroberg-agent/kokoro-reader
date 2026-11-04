@@ -18,8 +18,8 @@ The runner starts the night at 01:00 New York time, keeps trying to reach the Ma
 | | `narration-runner` | `narration-agent` |
 |---|---|---|
 | Profile | `restricted`, `AGENTBOX_GITHUB=off`, `AGENTBOX_BASE=off` | `restricted`, `AGENTBOX_GITHUB=off`, `AGENTBOX_BASE=off` |
-| Hostnames (every port) | `RUNNER_ALLOW`: the source site and the ntfy host | none |
-| Host:port grants | the Mac's narration port, plus `RUNNER_LAN` (Audiobookshelf by address) | the Mac's narration port |
+| Hostnames (every port) | `RUNNER_ALLOW`: the source site, and the ntfy host when nothing else runs at its address | none |
+| Host:port grants | the Mac's narration port, plus `RUNNER_LAN` (Audiobookshelf, or a host that shares its address with other services, by address and port) | the Mac's narration port |
 | Also, from agentbox | `api.anthropic.com` (`code.claude.com` and `docs.claude.com` share its address) | the same |
 
 Neither container publishes a port, and the firewall drops inbound connections. The runner hands work to the agent through the `narration-handoff` volume.
@@ -87,7 +87,9 @@ On the home server, from scratch:
    - `MAC_HOST`: the Mac's tailnet address, `tailscale ip -4` on the Mac. Use the address, not the name: the firewall makes its grant when the container starts, and a tailnet name may not resolve inside a container. The narration server accepts the address in the Host header, since the plist's `NARRATION_ALLOWED_HOSTS` lists `TAILNET_IP:8770`.
    - `MAC_PORT`: leave at `8770` unless the plist's `NARRATION_PORT` differs.
    - `RUNNER_ALLOW`: `www.thenewatlantis.com,<the ntfy host>`, plus Audiobookshelf's hostname if `AUDIOBOOKSHELF_URL` uses one. A hostname here is required: the runner doesn't start if it can't be resolved.
-   - `RUNNER_LAN`: Audiobookshelf's `address:port` if `AUDIOBOOKSHELF_URL` uses an address; otherwise empty.
+
+     The firewall opens **every port** at the addresses a hostname here resolves to. So leave out a hostname that resolves to the Docker host itself, or to any machine running other services (ntfy and Audiobookshelf behind a reverse proxy on the home server, say): that would open all of them to the runner. Put its `address:443` in `RUNNER_LAN` instead, and keep the hostname in `AUDIOBOOKSHELF_URL` and `NTFY_TOPIC_URL`: only the firewall's grant changes. For example, with both behind a proxy at 192.168.1.20: `RUNNER_ALLOW=www.thenewatlantis.com` and `RUNNER_LAN=192.168.1.20:443`.
+   - `RUNNER_LAN`: `address:port` grants, comma-separated: Audiobookshelf's if `AUDIOBOOKSHELF_URL` uses an address, and the `address:443` of any host left out of `RUNNER_ALLOW` above; otherwise empty.
    - `NARRATION_SECRETS_DIR`: empty for `/srv/narration`, or the folder the secrets went into in step 3.
    - `NARRATION_NO_NEW_PRIVILEGES`: empty, which leaves `no-new-privileges` on, or `false` on a Docker that refuses it (below).
 
