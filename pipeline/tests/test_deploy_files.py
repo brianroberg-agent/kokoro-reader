@@ -286,7 +286,7 @@ def test_the_build_removes_setuid_and_setgid_bits(name, image_root, tmp_path):
 
 
 @pytest.mark.parametrize("name", SERVICES)
-@pytest.mark.parametrize("case", ["a bit is left", "a file capability", "no getcap"])
+@pytest.mark.parametrize("case", ["a bit is left", "a file capability", "no getcap", "getcap errs"])
 def test_the_build_stops_on_what_it_cannot_remove(name, case, image_root, tmp_path):
     bin = tmp_path / "bin"
     if case == "a bit is left":
@@ -294,6 +294,9 @@ def test_the_build_stops_on_what_it_cannot_remove(name, case, image_root, tmp_pa
         stub(bin, "chmod", "exit 0")  # a chmod that changes nothing
     elif case == "a file capability":
         stub(bin, "getcap", 'for f; do case "$f" in */plain) echo "$f cap_net_raw=ep";; esac; done')
+    elif case == "getcap errs":
+        # Debian's getcap reports a file it can't read on stderr and still exits 0
+        stub(bin, "getcap", 'for f; do case "$f" in */plain) echo "Failed to get capabilities of file \'$f\' (Input/output error)" >&2;; esac; done; exit 0')
     else:
         tools(bin)  # find and chmod only: no getcap on PATH, on any host
         assert subprocess.run(["/bin/sh", "-c", "command -v getcap"], env={"PATH": str(bin)}).returncode
@@ -301,7 +304,8 @@ def test_the_build_stops_on_what_it_cannot_remove(name, case, image_root, tmp_pa
     assert done.returncode != 0
     assert LEFT_IN_IMAGE in done.stderr
     # the message names what is left, so a failed build says where to look
-    named = {"a bit is left": ["su", "ssh-agent", "both"], "a file capability": ["plain"], "no getcap": []}[case]
+    named = {"a bit is left": ["su", "ssh-agent", "both"], "a file capability": ["plain"], "no getcap": [],
+             "getcap errs": ["plain"]}[case]
     for file in named:
         assert str(image_root / "usr" / "bin" / file) in done.stderr
 
