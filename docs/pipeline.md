@@ -49,7 +49,7 @@ Each goes into one of two files on the home server, not into the repo or an imag
 
 If it lapses anyway, or the token in `agent.env` is wrong, the first session of the night can't authenticate. The runner then pushes "Claude login failed", with "Claude Code could not authenticate (CLAUDE_CODE_OAUTH_TOKEN missing, expired or invalid)", and stops the night. The article goes back to `failed` with that as its `last_error` and without a failed night counted against it, so it comes first the next night, and the push comes again each night until the token is fixed.
 
-To renew it, run `claude setup-token` again, put the new value in `/srv/narration/agent.env`, and recreate the agent so it reads the file again (a plain `restart` keeps the old environment): `docker compose -f deploy/compose.yaml up -d --force-recreate narration-agent`. Then update the date above.
+To renew it, run `claude setup-token` again, put the new value in `agent.env` in the secrets folder, and recreate the agent so it reads the file again (a plain `restart` keeps the old environment): `docker compose -f deploy/compose.yaml up -d --force-recreate narration-agent`. Then update the date above.
 
 **If Claude Code can't reach the API** for another reason (it reports the request as overloaded, rate-limited or failed) before the session's first narration tool call, the runner pushes "Claude API unreachable" with the session's error and stops the night the same way: the article goes back to `failed` without a failed night, and comes first the next night. If that push comes every night, recreate the agent (see "Name lookups" above). Once the session has called a tool, the article's text is in it, so a failed API request from then on counts against the article like any other failure (an article that made every request fail would otherwise stop every night).
 
@@ -79,13 +79,16 @@ On the home server, from scratch:
    # then fill in the values with an editor
    ```
 
-   compose stops with "env file /srv/narration/runner.env not found" if a file is missing.
+   These use the default folder, `/srv/narration`. To keep the files elsewhere, use that folder in the commands and set `NARRATION_SECRETS_DIR` to it in `deploy/.env` (step 4). Docker's snap package needs this ("Docker from the snap package", below).
+
+   compose stops with "env file <the folder>/runner.env not found" if a file is missing.
 
 4. **Write `deploy/.env`** from `deploy/env.example` (`cp deploy/env.example deploy/.env`). It is git-ignored. Fill in:
    - `MAC_HOST`: the Mac's tailnet address, `tailscale ip -4` on the Mac. Use the address, not the name: the firewall makes its grant when the container starts, and a tailnet name may not resolve inside a container. The narration server accepts the address in the Host header, since the plist's `NARRATION_ALLOWED_HOSTS` lists `TAILNET_IP:8770`.
    - `MAC_PORT`: leave at `8770` unless the plist's `NARRATION_PORT` differs.
    - `RUNNER_ALLOW`: `www.thenewatlantis.com,<the ntfy host>`, plus Audiobookshelf's hostname if `AUDIOBOOKSHELF_URL` uses one. A hostname here is required: the runner doesn't start if it can't be resolved.
    - `RUNNER_LAN`: Audiobookshelf's `address:port` if `AUDIOBOOKSHELF_URL` uses an address; otherwise empty.
+   - `NARRATION_SECRETS_DIR`: empty for `/srv/narration`, or the folder the secrets went into in step 3.
 
    compose stops with "set MAC_HOST in deploy/.env" (or `RUNNER_ALLOW`) when one of them is unset.
 
@@ -124,6 +127,13 @@ On the home server, from scratch:
    The log shows the firewall lines as the agent's did, `verified: base hosts blocked` among them, then `next run at <time>` (01:00 New York time, as an ISO time), and the runner waits. That night it takes the articles the acceptance run's discovery queued, five a night, oldest first.
 
 `docker compose config` prints the merged configuration with the secrets from both files in it: don't paste its output anywhere.
+
+### Docker from the snap package
+
+Ubuntu's snap of Docker confines the docker command, and that changes the deploy:
+
+- **It can't read `/srv`.** compose then stops with "env file /srv/narration/runner.env not found" although the file is there. Keep the secrets in a folder under `/root` instead, such as `/root/narration` (mode 700, the files 600), and set `NARRATION_SECRETS_DIR=/root/narration` in `deploy/.env`.
+- **It has its own `/tmp`.** A file written to `/tmp` outside it isn't there for a docker or compose command; pipe a compose file on standard input instead (`docker compose -f - ...`).
 
 ## Operate
 

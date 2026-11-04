@@ -16,6 +16,8 @@ from narration_pipeline.__main__ import REQUIRED
 DEPLOY = Path(__file__).resolve().parents[2] / "deploy"
 SERVICES = ("narration-runner", "narration-agent")
 MAC_URL = "http://${MAC_HOST:?set MAC_HOST in deploy/.env}:${MAC_PORT:-8770}"
+# Docker's snap package can't read /srv, so the folder is a setting (docs/pipeline.md)
+SECRETS = "${NARRATION_SECRETS_DIR:-/srv/narration}"
 
 
 @pytest.fixture(scope="module")
@@ -80,7 +82,7 @@ def test_agent_reaches_only_the_anthropic_api_and_the_mac(compose):
 
 def test_agent_holds_only_the_claude_login(compose):
     s = compose["services"]["narration-agent"]
-    assert env_files(s) == ["/srv/narration/agent.env"]
+    assert env_files(s) == [SECRETS + "/agent.env"]
     assert example_names("agent.env.example") == {"CLAUDE_CODE_OAUTH_TOKEN": ""}
 
 
@@ -93,7 +95,7 @@ def test_runner_egress_and_secrets(compose):
     # RUNNER_LAN adds Audiobookshelf when it's reached by address
     assert env["AGENTBOX_LAN"] == "${MAC_HOST:?set MAC_HOST in deploy/.env}:${MAC_PORT:-8770},${RUNNER_LAN:-}"
     assert env["NARRATION_URL"] == MAC_URL
-    assert env_files(s) == ["/srv/narration/runner.env"]
+    assert env_files(s) == [SECRETS + "/runner.env"]
     # the example names every secret the runner needs; compose sets NARRATION_URL itself
     assert example_names("runner.env.example") == {n: "" for n in REQUIRED if n != "NARRATION_URL"}
 
@@ -108,7 +110,7 @@ def test_compose_settings_come_from_deploy_env():
     text = (DEPLOY / "compose.yaml").read_text()
     used = re.findall(r"\$\{([A-Z_]+)([^}]*)\}", text)
     assert {name for name, _ in used} == set(example_names("env.example"))
-    optional = {"MAC_PORT": ":-8770", "RUNNER_LAN": ":-"}
+    optional = {"MAC_PORT": ":-8770", "RUNNER_LAN": ":-", "NARRATION_SECRETS_DIR": ":-/srv/narration"}
     for name, rest in used:  # compose stops, naming the setting, when a required one is unset
         assert rest == optional[name] if name in optional else rest.startswith(":?")
 

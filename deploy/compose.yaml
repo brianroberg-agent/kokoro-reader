@@ -1,13 +1,14 @@
 # The unattended pipeline on the home server (docs/pipeline.md). Two containers built on
 # agentbox's image and egress firewall, sharing one volume for the work handoff:
 #   narration-runner  the nightly loop; holds the Audiobookshelf key, the ntfy token and
-#                     the narration runner token (/srv/narration/runner.env)
+#                     the narration runner token (runner.env in the secrets folder)
 #   narration-agent   one locked-down Claude Code session at a time; holds only the
-#                     Claude login (/srv/narration/agent.env)
+#                     Claude login (agent.env in the secrets folder)
 # From the repo root: docker compose -f deploy/compose.yaml build, then up -d narration-agent;
 # the runner (up -d narration-runner) only after the acceptance run (docs/pipeline.md, Deploy).
-# MAC_HOST, MAC_PORT, RUNNER_ALLOW and RUNNER_LAN come from deploy/.env, written from
-# deploy/env.example; compose reads the .env beside this file.
+# MAC_HOST, MAC_PORT, RUNNER_ALLOW, RUNNER_LAN and NARRATION_SECRETS_DIR come from
+# deploy/.env, written from deploy/env.example; compose reads the .env beside this file.
+# The secrets folder is /srv/narration unless NARRATION_SECRETS_DIR names another.
 #
 # agentbox outside its launcher needs AGENTBOX_NET set, NET_ADMIN and NET_RAW for
 # iptables, no-new-privileges, and init (agentbox README, "Running a command instead of
@@ -27,7 +28,7 @@ services:
     init: true
     cap_add: [NET_ADMIN, NET_RAW]
     security_opt: ["no-new-privileges:true"]
-    env_file: /srv/narration/runner.env
+    env_file: ${NARRATION_SECRETS_DIR:-/srv/narration}/runner.env
     environment:
       TZ: America/New_York
       AGENTBOX_NET: restricted
@@ -50,7 +51,7 @@ services:
     init: true
     cap_add: [NET_ADMIN, NET_RAW]
     security_opt: ["no-new-privileges:true"]
-    env_file: /srv/narration/agent.env
+    env_file: ${NARRATION_SECRETS_DIR:-/srv/narration}/agent.env
     environment:
       TZ: America/New_York
       # egress allowed: the Anthropic API and the Mac's narration port
