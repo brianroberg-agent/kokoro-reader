@@ -5,6 +5,7 @@ started, and the containment) are recorded in docs/pipeline.md."""
 
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -239,16 +240,27 @@ def test_nothing_is_added_after_the_setuid_bits_are_removed(name):
     assert ins[last] == "RUN " + strip_step(name) and "chmod ug-s" in strip_step(name)
 
 
+def tools(bin: Path) -> Path:
+    """bin, the whole PATH for the step: links to the real find and chmod, and nothing else,
+    so a getcap the host has (in /usr/bin on some systems) is never found by accident."""
+    bin.mkdir(exist_ok=True)
+    for tool in ("find", "chmod"):
+        if not (bin / tool).exists():
+            (bin / tool).symlink_to(shutil.which(tool))
+    return bin
+
+
 def run_strip(name: str, root: Path, bin: Path) -> subprocess.CompletedProcess:
-    """The image's last step run on root, a folder standing in for /, with bin first on PATH."""
+    """The image's last step run on root, a folder standing in for /, with only bin on PATH."""
     step = strip_step(name)
     assert step.count("find / ") == 3
     return subprocess.run(["/bin/sh", "-c", step.replace("find / ", f"find {root} ")],
-                          env={"PATH": f"{bin}:/usr/bin:/bin"}, capture_output=True, text=True, timeout=30)
+                          env={"PATH": str(tools(bin))}, capture_output=True, text=True, timeout=30)
 
 
 def stub(bin: Path, name: str, script: str):
-    bin.mkdir(exist_ok=True)
+    tools(bin)
+    (bin / name).unlink(missing_ok=True)  # never write through the link to the real tool
     (bin / name).write_text("#!/bin/sh\n" + script + "\n")
     (bin / name).chmod(0o755)
 
@@ -283,8 +295,8 @@ def test_the_build_stops_on_what_it_cannot_remove(name, case, image_root, tmp_pa
     elif case == "a file capability":
         stub(bin, "getcap", 'for f; do case "$f" in */plain) echo "$f cap_net_raw=ep";; esac; done')
     else:
-        bin.mkdir()  # getcap isn't on PATH (macOS and Debian's /usr/bin have none)
-        assert subprocess.run(["/bin/sh", "-c", "command -v getcap"], env={"PATH": f"{bin}:/usr/bin:/bin"}).returncode
+        tools(bin)  # find and chmod only: no getcap on PATH, on any host
+        assert subprocess.run(["/bin/sh", "-c", "command -v getcap"], env={"PATH": str(bin)}).returncode
     done = run_strip(name, image_root, bin)
     assert done.returncode != 0
     assert LEFT_IN_IMAGE in done.stderr
