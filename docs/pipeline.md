@@ -40,7 +40,7 @@ Each goes into one of two files on the home server, not into the repo or an imag
 |---|---|---|
 | `NARRATION_RUNNER_TOKEN` | `runner.env` | The same value as the Mac's `~/.config/narration/runner-token` (`docs/narration-server.md`). Copy it across by hand, not through chat. |
 | `AUDIOBOOKSHELF_URL`, `AUDIOBOOKSHELF_API_KEY` | `runner.env` | The server's address and an API key with upload rights to "The New Atlantis". |
-| `NTFY_TOPIC_URL`, `NTFY_TOKEN` | `runner.env` | An ntfy topic named `narration` with its own access token. `NTFY_TOPIC_URL` is the topic's full URL, `https://<ntfy host>/narration`, and the runner posts to it with the token as a bearer token. |
+| `NTFY_TOPIC_URL`, `NTFY_TOKEN` | `runner.env` | An ntfy topic for the pipeline, under any name, with its own access token; the runner only posts, so a token that may only write to the topic is enough. `NTFY_TOPIC_URL` is the topic's full URL, `https://<ntfy host>/<topic>`, and the runner posts to it with the token as a bearer token. |
 | `CLAUDE_CODE_OAUTH_TOKEN` | `agent.env` | `claude setup-token`, run on the Mac (it works with the Max subscription). The token lasts about a year, per agentbox's notes. |
 
 **The Claude login expires.** Record the day the token was made here, and set a reminder for 11 months later to make a new one:
