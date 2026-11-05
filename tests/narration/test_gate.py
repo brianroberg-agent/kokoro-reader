@@ -675,7 +675,7 @@ def test_misaki_hears_a_sign_the_word_check_misses():
     assert check(article, prepared, []) == []
     assert speech_matches(g2p, article, prepared, [])
     # markup that a second cleaning would change, unedited, matches
-    for article in ("It was ***truly*** fine.", "# # Hash tags", "1. 2. Two items"):
+    for article in ("# # Hash tags", "1. 2. Two items"):
         assert speech_matches(g2p, article, article, []) == []
 
 
@@ -813,7 +813,7 @@ class RecordingG2P(FakeG2P):
         return super().phonemes_for_text(text)
 
 
-MARKUP = ["It was ***truly*** fine.", "# # Hash tags", "1. 2. Two items"]
+MARKUP = ["# # Hash tags", "1. 2. Two items"]
 
 
 @pytest.mark.parametrize("article", MARKUP)
@@ -827,8 +827,8 @@ def test_markup_that_cleaning_changes_twice_passes_unedited(article):
 def test_the_article_side_reaches_the_g2p_as_apply_returns_it():
     from narration.words import apply, engine_text
     recording = RecordingG2P()
-    article = "It was ***truly*** fine.\n\n[BREAK]\n\nKing Ivo XIV spoke."
-    prepared = "It was ***truly*** fine.\n\nKing Ivo the Fourteenth spoke."
+    article = "# # It was fine.\n\n[BREAK]\n\nKing Ivo XIV spoke."
+    prepared = "# # It was fine.\n\nKing Ivo the Fourteenth spoke."
     subs = [Substitution("XIV", "the Fourteenth")]
     assert speech_matches(recording, article, prepared, subs) == []
     assert recording.texts == [engine_text(prepared), apply(article, prepared, subs)]

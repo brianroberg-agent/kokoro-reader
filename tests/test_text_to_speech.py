@@ -121,7 +121,18 @@ class TestCleanMarkdownText:
         text = "This is **bold** and *italic* text"
         expected = "This is bold and italic text"
         assert clean_markdown_text(text) == expected
-    
+
+    @pytest.mark.parametrize("text, expected", [
+        # One italic phrase a site split in two threw the pairing of the markers off for
+        # the rest of the text, and the last italic's closing "*" was read "asterisk".
+        ("A *Tale of Two Citie**s*–style ending, as in *Moby Dick*. The end.",
+         "A Tale of Two Cities–style ending, as in Moby Dick. The end."),
+        ("It was ***truly*** fine.", "It was truly fine."),  # bold italics
+        ("The flag* was raised.", "The flag was raised."),   # a lone marker
+    ])
+    def test_no_asterisk_is_left_for_the_engine_to_read(self, text, expected):
+        assert clean_markdown_text(text) == expected
+
     def test_remove_underscore_emphasis(self):
         """Test removal of underscore-based emphasis."""
         text = "This is __bold__ and _italic_ text"

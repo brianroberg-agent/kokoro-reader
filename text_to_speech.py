@@ -143,8 +143,11 @@ def clean_markdown_text(text: str) -> str:
     # Remove markdown links but keep the text (preserve Kokoro phonetic links like [word](/phonemes/))
     text = _unwrap_links(text)
     
-    # Remove markdown emphasis (bold/italic)
+    # Remove markdown emphasis (bold/italic), then any asterisk the pairs left: one
+    # italic phrase a site split in two ("*Brave New Worl**d*") throws the pairing off
+    # for the rest of the text, "***x***" keeps a pair, and misaki reads "*" as "asterisk"
     text = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', text)
+    text = text.replace('*', '')
     text = re.sub(r'_{1,2}([^_]+)_{1,2}', r'\1', text)
     
     # Remove code blocks and inline code

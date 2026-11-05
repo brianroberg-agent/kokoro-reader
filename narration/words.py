@@ -534,8 +534,8 @@ def apply(source: str, prepared: str, substitutions: list[Substitution]) -> str 
 
     The result is already prepared as engine_text prepares a text (markup cleaned,
     spaces made plain, "--" made a pause, one section per line), ready for the G2P:
-    don't prepare it again, since cleaning is not idempotent ("***x***" cleaned twice
-    loses the asterisks the engine says). gate.speech_matches compares what the engine
+    don't prepare it again, since cleaning is not idempotent ("# # x" cleaned twice
+    loses the "#" the engine says "hash" for). gate.speech_matches compares what the engine
     says for this and for engine_text(prepared). The prepared text's pacing (commas,
     "--", [BREAK]s) doesn't travel, so a sign or a mark that the word check counts as
     silent but misaki voices shows up as a difference."""
