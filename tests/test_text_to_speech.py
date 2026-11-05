@@ -144,6 +144,12 @@ class TestCleanMarkdownText:
     def test_a_stray_asterisk_keeps_only_digits_apart(self, text, expected):
         assert clean_markdown_text(text) == expected
 
+    def test_an_emphasis_pair_does_not_reach_across_lines(self):
+        """A stray asterisk paired with one paragraphs later, and both were dropped as
+        markers, joining what was on either side of each."""
+        text = "It costs 2*3 dollars.\n\nLater, a*b again."
+        assert clean_markdown_text(text) == "It costs 2 3 dollars.\n\nLater, ab again."
+
     @pytest.mark.parametrize("text, expected", [
         # markdownify writes a literal "*" as "\*", and misaki reads a leftover "\" as
         # "backslash". Nor may it pair with the next italic's marker.

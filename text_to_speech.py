@@ -156,7 +156,7 @@ def clean_markdown_text(text: str) -> str:
     # An escaped one first ("\*", as markdownify writes a literal "*"), backslash and
     # all, so it pairs with no marker and leaves no "\" (read "backslash").
     text = _drop_stray(text, r'(?:\\\*)+', r'[^\W_]')
-    text = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', text)
+    text = re.sub(r'\*{1,2}([^*\n]+)\*{1,2}', r'\1', text)  # a pair is on one line
     # A leftover one between letters is most likely a marker that lost its pair inside
     # a word ("***un***believable", "*Worl**d*s"), so only digits are kept apart.
     text = _drop_stray(text, r'\*+', r'\d')
