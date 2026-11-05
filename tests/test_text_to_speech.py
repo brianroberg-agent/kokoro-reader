@@ -135,11 +135,13 @@ class TestCleanMarkdownText:
 
     @pytest.mark.parametrize("text, expected", [
         ("It costs 2*3 dollars.", "It costs 2 3 dollars."),  # not "23"
-        ("Both cats*dogs ran.", "Both cats dogs ran."),
-        ("It was f***ing cold.", "It was f ing cold."),
-        ("An un*frig*believable day.", "An unfrigbelievable day."),  # a pair: one word
+        # Between letters it is most likely an emphasis marker that lost its pair, which
+        # joined the word: a pair inside a word, bold italics, a split italic's leftover.
+        ("An un*frig*believable day.", "An unfrigbelievable day."),
+        ("It was ***un***believable.", "It was unbelievable."),
+        ("The *Worl**d*s best.", "The Worlds best."),
     ])
-    def test_a_stray_asterisk_between_two_words_keeps_them_apart(self, text, expected):
+    def test_a_stray_asterisk_keeps_only_digits_apart(self, text, expected):
         assert clean_markdown_text(text) == expected
 
     @pytest.mark.parametrize("text, expected", [

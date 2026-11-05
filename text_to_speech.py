@@ -126,10 +126,10 @@ def _unwrap_links(text: str) -> str:
     return ''.join(out)
 
 
-def _drop_stray(text: str, mark: str) -> str:
-    """Each run of `mark` dropped; one between two letters or digits leaves a space, so
-    the words or numbers on either side stay apart ("2*3" is not "23")."""
-    text = re.sub(rf'(?<=[^\W_])(?:{mark})(?=[^\W_])', ' ', text)
+def _drop_stray(text: str, mark: str, apart: str) -> str:
+    """Each run of `mark` dropped; one between two characters of the class `apart`
+    leaves a space, so what is on either side stays apart ("2*3" is not "23")."""
+    text = re.sub(rf'(?<={apart})(?:{mark})(?={apart})', ' ', text)
     return re.sub(mark, '', text)
 
 
@@ -155,9 +155,11 @@ def clean_markdown_text(text: str) -> str:
     # for the rest of the text, "***x***" keeps a pair, and misaki reads "*" as "asterisk".
     # An escaped one first ("\*", as markdownify writes a literal "*"), backslash and
     # all, so it pairs with no marker and leaves no "\" (read "backslash").
-    text = _drop_stray(text, r'(?:\\\*)+')
+    text = _drop_stray(text, r'(?:\\\*)+', r'[^\W_]')
     text = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', text)
-    text = _drop_stray(text, r'\*+')
+    # A leftover one between letters is most likely a marker that lost its pair inside
+    # a word ("***un***believable", "*Worl**d*s"), so only digits are kept apart.
+    text = _drop_stray(text, r'\*+', r'\d')
     text = re.sub(r'_{1,2}([^_]+)_{1,2}', r'\1', text)
     
     # Remove code blocks and inline code
