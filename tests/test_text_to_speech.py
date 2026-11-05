@@ -133,6 +133,15 @@ class TestCleanMarkdownText:
     def test_no_asterisk_is_left_for_the_engine_to_read(self, text, expected):
         assert clean_markdown_text(text) == expected
 
+    @pytest.mark.parametrize("text, expected", [
+        ("It costs 2*3 dollars.", "It costs 2 3 dollars."),  # not "23"
+        ("Both cats*dogs ran.", "Both cats dogs ran."),
+        ("It was f***ing cold.", "It was f ing cold."),
+        ("An un*frig*believable day.", "An unfrigbelievable day."),  # a pair: one word
+    ])
+    def test_a_stray_asterisk_between_two_words_keeps_them_apart(self, text, expected):
+        assert clean_markdown_text(text) == expected
+
     def test_remove_underscore_emphasis(self):
         """Test removal of underscore-based emphasis."""
         text = "This is __bold__ and _italic_ text"

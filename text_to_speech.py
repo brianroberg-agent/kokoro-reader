@@ -126,6 +126,13 @@ def _unwrap_links(text: str) -> str:
     return ''.join(out)
 
 
+def _drop_stray(text: str, mark: str) -> str:
+    """Each run of `mark` dropped; one between two letters or digits leaves a space, so
+    the words or numbers on either side stay apart ("2*3" is not "23")."""
+    text = re.sub(rf'(?<=[^\W_])(?:{mark})(?=[^\W_])', ' ', text)
+    return re.sub(mark, '', text)
+
+
 def clean_markdown_text(text: str) -> str:
     """Clean markdown formatting from text for better TTS."""
     # Remove markdown lists first, while a heading's line still starts with its
@@ -147,7 +154,7 @@ def clean_markdown_text(text: str) -> str:
     # italic phrase a site split in two ("*Brave New Worl**d*") throws the pairing off
     # for the rest of the text, "***x***" keeps a pair, and misaki reads "*" as "asterisk"
     text = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', text)
-    text = text.replace('*', '')
+    text = _drop_stray(text, r'\*+')
     text = re.sub(r'_{1,2}([^_]+)_{1,2}', r'\1', text)
     
     # Remove code blocks and inline code
