@@ -10,6 +10,7 @@ import sys
 import os
 import re
 import tempfile
+import unicodedata
 from pathlib import Path
 from typing import List
 import numpy as np
@@ -126,11 +127,20 @@ def _unwrap_links(text: str) -> str:
     return ''.join(out)
 
 
-def _drop_stray(text: str, mark: str, apart: str) -> str:
-    """Each run of `mark` dropped; one between two characters of the class `apart`
-    leaves a space, so what is on either side stays apart ("2*3" is not "23")."""
-    text = re.sub(rf'(?<={apart})(?:{mark})(?={apart})', ' ', text)
-    return re.sub(mark, '', text)
+def _letter_or_digit(c: str) -> bool:
+    """A letter or a digit, or a combining mark: an accent typed as its own character
+    (a decomposed "é") belongs to the letter before it."""
+    return c.isalnum() or unicodedata.category(c).startswith('M')
+
+
+def _drop_stray(text: str, mark: str, apart) -> str:
+    """Each run of `mark` dropped, in one pass; one between two characters for which
+    `apart` holds leaves a space, so what is on either side stays apart ("2*3" is not
+    "23")."""
+    def stray(m: re.Match) -> str:
+        before, after = text[m.start() - 1:m.start()], text[m.end():m.end() + 1]
+        return ' ' if before and after and apart(before) and apart(after) else ''
+    return re.sub(mark, stray, text)
 
 
 def clean_markdown_text(text: str) -> str:
@@ -150,16 +160,18 @@ def clean_markdown_text(text: str) -> str:
     # Remove markdown links but keep the text (preserve Kokoro phonetic links like [word](/phonemes/))
     text = _unwrap_links(text)
     
+    # Escaped marks first ("\*" and "\_", as markdownify writes a literal "*" or "_"),
+    # each with its own backslash, so none pairs with an emphasis marker and none leaves
+    # that "\" (read "backslash"). One between two letters or digits leaves a space.
+    text = _drop_stray(text, r'(?:\\[*_])+', _letter_or_digit)
+
     # Remove markdown emphasis (bold/italic), then any asterisk the pairs left: one
     # italic phrase a site split in two ("*Brave New Worl**d*") throws the pairing off
     # for the rest of the text, "***x***" keeps a pair, and misaki reads "*" as "asterisk".
-    # An escaped one first ("\*", as markdownify writes a literal "*"), backslash and
-    # all, so it pairs with no marker and leaves no "\" (read "backslash").
-    text = _drop_stray(text, r'(?:\\\*)+', r'[^\W_]')
     text = re.sub(r'\*{1,2}([^*\n]+)\*{1,2}', r'\1', text)  # a pair is on one line
     # A leftover one between letters is most likely a marker that lost its pair inside
     # a word ("***un***believable", "*Worl**d*s"), so only digits are kept apart.
-    text = _drop_stray(text, r'\*+', r'\d')
+    text = _drop_stray(text, r'\*+', str.isdecimal)
     text = re.sub(r'_{1,2}([^_]+)_{1,2}', r'\1', text)
     
     # Remove code blocks and inline code

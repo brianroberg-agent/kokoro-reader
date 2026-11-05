@@ -151,12 +151,14 @@ class TestCleanMarkdownText:
         assert clean_markdown_text(text) == "It costs 2 3 dollars.\n\nLater, ab again."
 
     @pytest.mark.parametrize("text, expected", [
-        # markdownify writes a literal "*" as "\*", and misaki reads a leftover "\" as
-        # "backslash". Nor may it pair with the next italic's marker.
+        # markdownify writes a literal "*" as "\*" and "_" as "\_", and misaki reads a
+        # leftover "\" as "backslash". Nor may one pair with the next italic's marker.
         ("A footnote\\*. Then *Moby Dick* again.", "A footnote. Then Moby Dick again."),
         ("It costs 2\\*3 dollars.", "It costs 2 3 dollars."),
+        ("Name it snake\\_case or file\\_name\\_here.", "Name it snake case or file name here."),
+        ("A cafe\u0301\\*bar.", "A cafe\u0301 bar."),  # an accent typed as a combining mark
     ])
-    def test_an_escaped_asterisk_goes_with_its_backslash(self, text, expected):
+    def test_an_escaped_mark_goes_with_its_backslash(self, text, expected):
         assert clean_markdown_text(text) == expected
 
     def test_remove_underscore_emphasis(self):
