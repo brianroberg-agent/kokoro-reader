@@ -797,8 +797,8 @@ def test_open_refuses_metadata_that_is_not_json_before_touching_the_store(tmp_pa
 
 # I2: the article's side is prepared for the engine once, as the engine prepares it
 class VoicingG2P(FakeG2P):
-    """FakeG2P that voices "*", "#" and digits, as misaki does ("asterisk", "hash", "two")."""
-    SAID = {"*": " asterisk ", "#": " hash ", "1": " one ", "2": " two "}
+    """FakeG2P that voices "#" and digits, as misaki does ("hash", "two")."""
+    SAID = {"#": " hash ", "1": " one ", "2": " two "}
 
     def phonemes_for_text(self, text):
         return super().phonemes_for_text("".join(self.SAID.get(ch, ch) for ch in text))
