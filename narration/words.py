@@ -10,11 +10,11 @@ Both texts are read as the engine receives them: text_to_speech.clean_markdown_t
 (the cleaning the CLI and KokoroEngine apply), then every run of whitespace other
 than a newline made one plain space (as KokoroEngine does: misaki misplaces an
 override after a no-break, thin or ideographic space or a tab on the same line),
-then prepare_for_tts (which turns "--" into "... " before generate_audio hands
-the text to misaki). Nothing else is done to the characters: no Unicode
-normalisation (a fullwidth "＄" is not "$"). The only other edits are to drop [BREAK] markers, read a phonetic
-override as its displayed word, and read a curly apostrophe as a straight one,
-as misaki does.
+then prepare_for_tts (which turns "--" into "... " and makes a curly apostrophe
+between two letters straight before generate_audio hands the text to misaki). Nothing
+else is done to the characters: no Unicode normalisation (a fullwidth "＄" is not
+"$"). The only other edits are to drop [BREAK] markers, read a phonetic override as
+its displayed word, and read every other curly apostrophe as a straight one.
 
 Each run of non-whitespace characters is split into tokens, following what
 misaki (the engine's grapheme-to-phoneme step) was checked to voice:
@@ -268,7 +268,10 @@ def looks_like_link(phonemes: str) -> bool:
 
 
 def _straight(text: str) -> str:
-    """Curly apostrophes read as straight ones, as misaki reads them (same length)."""
+    """Curly apostrophes read as straight ones (same length), so "students’" and
+    "students'" are the same word. Those between two letters are already straight:
+    prepare_for_tts makes them so for the engine, since misaki reads "it isn’t." as
+    "it is"."""
     return text.replace("’", "'").replace("‘", "'")
 
 

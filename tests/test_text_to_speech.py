@@ -251,6 +251,12 @@ class TestPrepareForTTS:
         assert "He was a crank" in result
         assert "a prophet." in result
 
+    def test_leaves_curly_quotation_marks_alone(self):
+        """Only an apostrophe between two letters is made straight: a quotation mark, a
+        plural possessive's apostrophe and an elided letter at a word's edge stay."""
+        text = "She said ‘no’, the students’ books, rock ’n’ roll, the ’90s."
+        assert prepare_for_tts(text) == text
+
 
 class TestSplitSections:
     """Test the split_sections function."""
@@ -341,6 +347,23 @@ class TestGenerateAudio:
         assert call_kwargs["voice"] == "af_bella"
         assert call_kwargs["speed"] == 1.2
         assert call_kwargs["lang_code"] == "b"
+
+    @patch('text_to_speech.concatenate_audio_files')
+    @patch('text_to_speech.sf')
+    @patch('text_to_speech.load_model')
+    def test_hands_the_model_straight_apostrophes_inside_words(
+            self, mock_load_model, mock_sf, mock_concat, tmp_path):
+        """misaki reads a sentence-final "isn’t." or "wasn’t." with a curly
+        apostrophe as "is" or "was": an article's "But it isn’t." was read "But it is"."""
+        mock_model = MagicMock()
+        mock_load_model.return_value = mock_model
+        mock_result = MagicMock()
+        mock_result.audio = [0.0]
+        mock_model.generate.return_value = [mock_result]
+
+        generate_audio("But it isn’t. It wasn’t. L’Étoile.", str(tmp_path / "output.wav"))
+
+        assert mock_model.generate.call_args.kwargs["text"] == "But it isn't. It wasn't. L'Étoile."
 
     @patch('text_to_speech.concatenate_audio_files')
     @patch('text_to_speech.sf')

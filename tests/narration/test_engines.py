@@ -66,6 +66,17 @@ def test_misaki_g2p_answers_for_names_outside_its_lexicon():
     assert g2p.phonemes("[Pengelley](/kˈɪlðəmˈɔl/)") != "kˈɪlðəmˈɔl"
 
 
+def test_the_engine_reads_a_curly_negative_as_the_straight_one():
+    # Runs only where misaki is installed. misaki 0.9.4 reads a sentence-final "isn’t."
+    # or "wasn’t." with a curly apostrophe as "is" or "was". The gate's speech check
+    # reads the text as the engine gets it (words.engine_text), so it hears this too.
+    pytest.importorskip("misaki")
+    g2p = MisakiG2P()
+    curly = "But it isn’t. It wasn’t."
+    assert (g2p.phonemes_for_text(words.engine_text(curly))
+            == g2p.phonemes_for_text(words.engine_text(curly.replace("’", "'"))))
+
+
 def _overlap_meter():
     """A function that sleeps briefly and records the most calls running at once."""
     state = {"active": 0, "most": 0}

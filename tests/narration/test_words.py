@@ -1268,12 +1268,13 @@ def test_apply_puts_an_override_on_a_substituted_word():
 
 def test_apply_reads_the_article_as_the_engine_does():
     from narration.words import apply
-    # markup goes, "--" is a pause, curly apostrophes stay, and an override the article
-    # itself has (a relative link) is read as its displayed text, as words() reads it
+    # markup goes, "--" is a pause, a curly apostrophe inside a word is straight (as
+    # prepare_for_tts makes it for the engine), and an override the article itself has
+    # (a relative link) is read as its displayed text, as words() reads it
     source = "# Zoning\n\nIt’s **here** -- see [Home](/home/) today.\n\nKing Ivo XIV spoke."
     prepared = "Zoning\n\nIt’s here -- see Home today.\n\nKing Ivo the Fourteenth spoke."
     assert apply(source, prepared, [FOURTEENTH]) == (
-        "Zoning\n\nIt’s here... see Home today.\n\nKing Ivo the Fourteenth spoke.")
+        "Zoning\n\nIt's here... see Home today.\n\nKing Ivo the Fourteenth spoke.")
 
 
 @pytest.mark.parametrize("source, prepared, subs", [

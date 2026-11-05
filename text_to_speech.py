@@ -161,15 +161,21 @@ def clean_markdown_text(text: str) -> str:
     return text.strip()
 
 
+# A curly apostrophe between two letters (any script's): misaki reads a sentence-final
+# "isn’t." or "wasn’t." as "is" or "was", and the straight one correctly.
+_CURLY_APOSTROPHE_IN_WORD = re.compile(r'(?<=[^\W\d_])’(?=[^\W\d_])')
+
+
 def prepare_for_tts(text: str) -> str:
     """Prepare text for TTS by improving pause markers.
 
-    Replaces -- em dashes with ... ellipsis for longer pauses in the TTS model.
+    Replaces -- em dashes with ... ellipsis for longer pauses in the TTS model, and
+    makes a curly apostrophe between two letters straight ("isn’t" reads "isn't").
     """
     # (?<!\s) starts the whitespace before "--" only at the start of its run:
     # \s*--\s* would rescan a long run of whitespace from each position in it.
     text = re.sub(r'(?:(?<!\s)\s+)?--\s*', '... ', text)
-    return text
+    return _CURLY_APOSTROPHE_IN_WORD.sub("'", text)
 
 
 def split_sections(text: str) -> List[str]:
