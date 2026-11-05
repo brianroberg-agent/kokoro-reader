@@ -73,9 +73,9 @@ def test_the_engine_reads_a_curly_negative_as_the_straight_one():
     pytest.importorskip("misaki")
     g2p = MisakiG2P()
     curly, straight = "But it isn’t. It wasn’t.", "But it isn't. It wasn't."
-    # The engine's own misreading, which prepare_for_tts works around. If a misaki
-    # upgrade reads the two alike, the straightening may no longer be needed.
-    assert g2p.phonemes_for_text(curly) != g2p.phonemes_for_text(straight)
+    if g2p.phonemes_for_text(curly) == g2p.phonemes_for_text(straight):
+        pytest.skip("this misaki reads a curly negative as the straight one: "
+                    "prepare_for_tts's straightening may no longer be needed")
     assert g2p.phonemes_for_text(words.engine_text(curly)) == g2p.phonemes_for_text(straight)
 
 
