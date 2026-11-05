@@ -152,7 +152,10 @@ def clean_markdown_text(text: str) -> str:
     
     # Remove markdown emphasis (bold/italic), then any asterisk the pairs left: one
     # italic phrase a site split in two ("*Brave New Worl**d*") throws the pairing off
-    # for the rest of the text, "***x***" keeps a pair, and misaki reads "*" as "asterisk"
+    # for the rest of the text, "***x***" keeps a pair, and misaki reads "*" as "asterisk".
+    # An escaped one first ("\*", as markdownify writes a literal "*"), backslash and
+    # all, so it pairs with no marker and leaves no "\" (read "backslash").
+    text = _drop_stray(text, r'(?:\\\*)+')
     text = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', text)
     text = _drop_stray(text, r'\*+')
     text = re.sub(r'_{1,2}([^_]+)_{1,2}', r'\1', text)

@@ -142,6 +142,15 @@ class TestCleanMarkdownText:
     def test_a_stray_asterisk_between_two_words_keeps_them_apart(self, text, expected):
         assert clean_markdown_text(text) == expected
 
+    @pytest.mark.parametrize("text, expected", [
+        # markdownify writes a literal "*" as "\*", and misaki reads a leftover "\" as
+        # "backslash". Nor may it pair with the next italic's marker.
+        ("A footnote\\*. Then *Moby Dick* again.", "A footnote. Then Moby Dick again."),
+        ("It costs 2\\*3 dollars.", "It costs 2 3 dollars."),
+    ])
+    def test_an_escaped_asterisk_goes_with_its_backslash(self, text, expected):
+        assert clean_markdown_text(text) == expected
+
     def test_remove_underscore_emphasis(self):
         """Test removal of underscore-based emphasis."""
         text = "This is __bold__ and _italic_ text"
