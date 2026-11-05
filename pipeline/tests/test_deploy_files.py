@@ -5,6 +5,7 @@ started, and the containment) are recorded in docs/pipeline.md."""
 
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -16,6 +17,8 @@ from narration_pipeline.__main__ import REQUIRED
 DEPLOY = Path(__file__).resolve().parents[2] / "deploy"
 SERVICES = ("narration-runner", "narration-agent")
 MAC_URL = "http://${MAC_HOST:?set MAC_HOST in deploy/.env}:${MAC_PORT:-8770}"
+# Docker's snap package can't read /srv, so the folder is a setting (docs/pipeline.md)
+SECRETS = "${NARRATION_SECRETS_DIR:-/srv/narration}"
 
 
 @pytest.fixture(scope="module")
@@ -54,7 +57,8 @@ def test_compose_has_agentbox_settings(compose, name):
     s = compose["services"][name]
     assert s["init"] is True
     assert sorted(s["cap_add"]) == ["NET_ADMIN", "NET_RAW"]
-    assert s["security_opt"] == ["no-new-privileges:true"]
+    # on unless deploy/.env turns it off: Docker's snap package refuses it (docs/pipeline.md)
+    assert s["security_opt"] == ["no-new-privileges:${NARRATION_NO_NEW_PRIVILEGES:-true}"]
     assert s["restart"] == "unless-stopped"
     env = environment(s)
     assert env["AGENTBOX_NET"] == "restricted"
@@ -80,7 +84,7 @@ def test_agent_reaches_only_the_anthropic_api_and_the_mac(compose):
 
 def test_agent_holds_only_the_claude_login(compose):
     s = compose["services"]["narration-agent"]
-    assert env_files(s) == ["/srv/narration/agent.env"]
+    assert env_files(s) == [SECRETS + "/agent.env"]
     assert example_names("agent.env.example") == {"CLAUDE_CODE_OAUTH_TOKEN": ""}
 
 
@@ -93,7 +97,7 @@ def test_runner_egress_and_secrets(compose):
     # RUNNER_LAN adds Audiobookshelf when it's reached by address
     assert env["AGENTBOX_LAN"] == "${MAC_HOST:?set MAC_HOST in deploy/.env}:${MAC_PORT:-8770},${RUNNER_LAN:-}"
     assert env["NARRATION_URL"] == MAC_URL
-    assert env_files(s) == ["/srv/narration/runner.env"]
+    assert env_files(s) == [SECRETS + "/runner.env"]
     # the example names every secret the runner needs; compose sets NARRATION_URL itself
     assert example_names("runner.env.example") == {n: "" for n in REQUIRED if n != "NARRATION_URL"}
 
@@ -108,7 +112,8 @@ def test_compose_settings_come_from_deploy_env():
     text = (DEPLOY / "compose.yaml").read_text()
     used = re.findall(r"\$\{([A-Z_]+)([^}]*)\}", text)
     assert {name for name, _ in used} == set(example_names("env.example"))
-    optional = {"MAC_PORT": ":-8770", "RUNNER_LAN": ":-"}
+    optional = {"MAC_PORT": ":-8770", "RUNNER_LAN": ":-", "NARRATION_SECRETS_DIR": ":-/srv/narration",
+                "NARRATION_NO_NEW_PRIVILEGES": ":-true"}
     for name, rest in used:  # compose stops, naming the setting, when a required one is unset
         assert rest == optional[name] if name in optional else rest.startswith(":?")
 
@@ -214,3 +219,115 @@ def test_every_third_party_import_is_declared():
     project = tomllib.loads((DEPLOY.parent / "pipeline" / "pyproject.toml").read_text())["project"]
     declared = {re.split(r"[<>=!~ ;\[]", d, maxsplit=1)[0] for d in project["dependencies"]}
     assert third_party and third_party <= declared, third_party - declared
+
+
+# Neither image keeps a setuid or setgid program or a file capability: running one is how
+# a process in the container, as node, would get root or a capability back, and that is
+# what no-new-privileges stops on hosts that allow it (docs/pipeline.md, "Docker from the
+# snap package"). The last RUN removes the bits and fails the build on anything left.
+LEFT_IN_IMAGE = "a setuid or setgid program or a file capability is left in the image"
+COULD_NOT_CHECK = "or the check couldn't run"
+
+
+def strip_step(name: str) -> str:
+    runs = [i for i in instructions(name) if i.startswith("RUN ")]
+    return runs[-1].removeprefix("RUN ")
+
+
+@pytest.mark.parametrize("name", SERVICES)
+def test_nothing_is_added_after_the_setuid_bits_are_removed(name):
+    ins = instructions(name)
+    last = max(n for n, i in enumerate(ins) if i.split()[0] in {"RUN", "COPY", "ADD"})
+    assert ins[last] == "RUN " + strip_step(name) and "chmod ug-s" in strip_step(name)
+
+
+def tools(bin: Path) -> Path:
+    """bin, the whole PATH for the step: links to the real find and chmod, and nothing else,
+    so a getcap the host has (in /usr/bin on some systems) is never found by accident."""
+    bin.mkdir(exist_ok=True)
+    for tool in ("find", "chmod"):
+        if not (bin / tool).exists():
+            (bin / tool).symlink_to(shutil.which(tool))
+    return bin
+
+
+def run_strip(name: str, root: Path, bin: Path) -> subprocess.CompletedProcess:
+    """The image's last step run on root, a folder standing in for /, with only bin on PATH."""
+    step = strip_step(name)
+    assert step.count("find / ") == 3
+    return subprocess.run(["/bin/sh", "-c", step.replace("find / ", f"find {root} ")],
+                          env={"PATH": str(tools(bin))}, capture_output=True, text=True, timeout=30)
+
+
+def stub(bin: Path, name: str, script: str):
+    tools(bin)
+    (bin / name).unlink(missing_ok=True)  # never write through the link to the real tool
+    (bin / name).write_text("#!/bin/sh\n" + script + "\n")
+    (bin / name).chmod(0o755)
+
+
+@pytest.fixture
+def image_root(tmp_path) -> Path:
+    root = tmp_path / "root"
+    (root / "usr" / "bin").mkdir(parents=True)
+    for file, mode in [("su", 0o4755), ("ssh-agent", 0o2755), ("both", 0o6755), ("plain", 0o755)]:
+        (root / "usr" / "bin" / file).write_text("")
+        (root / "usr" / "bin" / file).chmod(mode)
+    assert (root / "usr" / "bin" / "ssh-agent").stat().st_mode & 0o2000  # the setgid case is real
+    return root
+
+
+@pytest.mark.parametrize("name", SERVICES)
+def test_the_build_removes_setuid_and_setgid_bits(name, image_root, tmp_path):
+    stub(tmp_path / "bin", "getcap", "exit 0")  # no file has a capability
+    done = run_strip(name, image_root, tmp_path / "bin")
+    assert done.returncode == 0, done.stderr
+    modes = {f.name: f.stat().st_mode & 0o7777 for f in (image_root / "usr" / "bin").iterdir()}
+    assert modes == {"su": 0o755, "ssh-agent": 0o755, "both": 0o755, "plain": 0o755}
+
+
+@pytest.mark.parametrize("name", SERVICES)
+@pytest.mark.parametrize("case", ["a bit is left", "a file capability", "no getcap", "getcap errs", "chmod fails"])
+def test_the_build_stops_on_what_it_cannot_remove(name, case, image_root, tmp_path):
+    bin = tmp_path / "bin"
+    if case == "a bit is left":
+        stub(bin, "getcap", "exit 0")
+        stub(bin, "chmod", "exit 0")  # a chmod that changes nothing
+    elif case == "a file capability":
+        stub(bin, "getcap", 'for f; do case "$f" in */plain) echo "$f cap_net_raw=ep";; esac; done')
+    elif case == "chmod fails":
+        stub(bin, "getcap", "exit 0")
+        stub(bin, "chmod", 'echo "chmod: $2: Operation not permitted" >&2; exit 1')
+    elif case == "getcap errs":
+        # Debian's getcap reports a file it can't read on stderr and still exits 0
+        stub(bin, "getcap", 'for f; do case "$f" in */plain) echo "Failed to get capabilities of file \'$f\' (Input/output error)" >&2;; esac; done; exit 0')
+    else:
+        tools(bin)  # find and chmod only: no getcap on PATH, on any host
+        assert subprocess.run(["/bin/sh", "-c", "command -v getcap"], env={"PATH": str(bin)}).returncode
+    done = run_strip(name, image_root, bin)
+    assert done.returncode != 0
+    assert LEFT_IN_IMAGE in done.stderr
+    # the message names what is left, so a failed build says where to look
+    named = {"a bit is left": ["su", "ssh-agent", "both"], "a file capability": ["plain"], "no getcap": [],
+             "getcap errs": ["plain"], "chmod fails": []}[case]
+    for file in named:
+        assert str(image_root / "usr" / "bin" / file) in done.stderr
+    if case in ("no getcap", "chmod fails"):  # nothing is known to be left: the message says so
+        assert COULD_NOT_CHECK in done.stderr
+    if case == "no getcap":  # find's own error names the missing tool
+        assert "getcap" in done.stderr.split(COULD_NOT_CHECK, 1)[1]
+
+
+@pytest.mark.parametrize("path, ignored", [
+    ("deploy/runner.env", True), ("deploy/secrets/agent.env", True), ("secrets/runner.env", True),
+    # an editor's or a merge tool's copy beside a filled file holds the same secrets
+    ("deploy/runner.env~", True), ("deploy/secrets/agent.env.bak", True), ("runner.env.orig", True),
+    ("deploy/runner.env.example", False), ("deploy/agent.env.example", False), ("deploy/env.example", False),
+])
+def test_filled_secret_files_are_git_ignored(path, ignored):
+    # compose resolves a relative NARRATION_SECRETS_DIR against deploy/, inside the repo
+    done = subprocess.run(["git", "check-ignore", "-v", path], cwd=DEPLOY.parent, capture_output=True, text=True)
+    assert done.returncode in (0, 1)
+    assert (done.returncode == 0) is ignored
+    if ignored:  # by this repo's .gitignore, not a global ignore file on the developer's machine
+        assert done.stdout.startswith(".gitignore:"), done.stdout

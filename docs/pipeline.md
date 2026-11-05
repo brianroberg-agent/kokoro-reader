@@ -18,8 +18,8 @@ The runner starts the night at 01:00 New York time, keeps trying to reach the Ma
 | | `narration-runner` | `narration-agent` |
 |---|---|---|
 | Profile | `restricted`, `AGENTBOX_GITHUB=off`, `AGENTBOX_BASE=off` | `restricted`, `AGENTBOX_GITHUB=off`, `AGENTBOX_BASE=off` |
-| Hostnames (every port) | `RUNNER_ALLOW`: the source site and the ntfy host | none |
-| Host:port grants | the Mac's narration port, plus `RUNNER_LAN` (Audiobookshelf by address) | the Mac's narration port |
+| Hostnames (every port) | `RUNNER_ALLOW`: the source site, and the ntfy host when nothing else runs at its address | none |
+| Host:port grants | the Mac's narration port, plus `RUNNER_LAN` (Audiobookshelf, or a host that shares its address with other services, by address and port) | the Mac's narration port |
 | Also, from agentbox | `api.anthropic.com` (`code.claude.com` and `docs.claude.com` share its address) | the same |
 
 Neither container publishes a port, and the firewall drops inbound connections. The runner hands work to the agent through the `narration-handoff` volume.
@@ -40,7 +40,7 @@ Each goes into one of two files on the home server, not into the repo or an imag
 |---|---|---|
 | `NARRATION_RUNNER_TOKEN` | `runner.env` | The same value as the Mac's `~/.config/narration/runner-token` (`docs/narration-server.md`). Copy it across by hand, not through chat. |
 | `AUDIOBOOKSHELF_URL`, `AUDIOBOOKSHELF_API_KEY` | `runner.env` | The server's address and an API key with upload rights to "The New Atlantis". |
-| `NTFY_TOPIC_URL`, `NTFY_TOKEN` | `runner.env` | An ntfy topic named `narration` with its own access token. `NTFY_TOPIC_URL` is the topic's full URL, `https://<ntfy host>/narration`, and the runner posts to it with the token as a bearer token. |
+| `NTFY_TOPIC_URL`, `NTFY_TOKEN` | `runner.env` | An ntfy topic for the pipeline, under any name, with its own access token; the runner only posts, so a token that may only write to the topic is enough. `NTFY_TOPIC_URL` is the topic's full URL, `https://<ntfy host>/<topic>`, and the runner posts to it with the token as a bearer token. |
 | `CLAUDE_CODE_OAUTH_TOKEN` | `agent.env` | `claude setup-token`, run on the Mac (it works with the Max subscription). The token lasts about a year, per agentbox's notes. |
 
 **The Claude login expires.** Record the day the token was made here, and set a reminder for 11 months later to make a new one:
@@ -49,7 +49,7 @@ Each goes into one of two files on the home server, not into the repo or an imag
 
 If it lapses anyway, or the token in `agent.env` is wrong, the first session of the night can't authenticate. The runner then pushes "Claude login failed", with "Claude Code could not authenticate (CLAUDE_CODE_OAUTH_TOKEN missing, expired or invalid)", and stops the night. The article goes back to `failed` with that as its `last_error` and without a failed night counted against it, so it comes first the next night, and the push comes again each night until the token is fixed.
 
-To renew it, run `claude setup-token` again, put the new value in `/srv/narration/agent.env`, and recreate the agent so it reads the file again (a plain `restart` keeps the old environment): `docker compose -f deploy/compose.yaml up -d --force-recreate narration-agent`. Then update the date above.
+To renew it, run `claude setup-token` again, put the new value in `agent.env` in the secrets folder, and recreate the agent so it reads the file again (a plain `restart` keeps the old environment): `docker compose -f deploy/compose.yaml up -d --force-recreate narration-agent`. Then update the date above.
 
 **If Claude Code can't reach the API** for another reason (it reports the request as overloaded, rate-limited or failed) before the session's first narration tool call, the runner pushes "Claude API unreachable" with the session's error and stops the night the same way: the article goes back to `failed` without a failed night, and comes first the next night. If that push comes every night, recreate the agent (see "Name lookups" above). Once the session has called a tool, the article's text is in it, so a failed API request from then on counts against the article like any other failure (an article that made every request fail would otherwise stop every night).
 
@@ -79,13 +79,19 @@ On the home server, from scratch:
    # then fill in the values with an editor
    ```
 
-   compose stops with "env file /srv/narration/runner.env not found" if a file is missing.
+   These use the default folder, `/srv/narration`. To keep the files elsewhere, use that folder in the commands and set `NARRATION_SECRETS_DIR` to it, as an absolute path, in `deploy/.env` (step 4). A relative one would put the secrets inside the repo, beside `compose.yaml`. Docker's snap package needs this ("Docker from the snap package", below).
+
+   compose stops with "env file <the folder>/runner.env not found" if a file is missing.
 
 4. **Write `deploy/.env`** from `deploy/env.example` (`cp deploy/env.example deploy/.env`). It is git-ignored. Fill in:
    - `MAC_HOST`: the Mac's tailnet address, `tailscale ip -4` on the Mac. Use the address, not the name: the firewall makes its grant when the container starts, and a tailnet name may not resolve inside a container. The narration server accepts the address in the Host header, since the plist's `NARRATION_ALLOWED_HOSTS` lists `TAILNET_IP:8770`.
    - `MAC_PORT`: leave at `8770` unless the plist's `NARRATION_PORT` differs.
    - `RUNNER_ALLOW`: `www.thenewatlantis.com,<the ntfy host>`, plus Audiobookshelf's hostname if `AUDIOBOOKSHELF_URL` uses one. A hostname here is required: the runner doesn't start if it can't be resolved.
-   - `RUNNER_LAN`: Audiobookshelf's `address:port` if `AUDIOBOOKSHELF_URL` uses an address; otherwise empty.
+
+     The firewall opens **every port** at the addresses a hostname here resolves to. So leave out a hostname that resolves to the Docker host itself, or to any machine running other services (ntfy and Audiobookshelf behind a reverse proxy on the home server, say): that would open all of them to the runner. Put its `address:443` in `RUNNER_LAN` instead, and keep the hostname in `AUDIOBOOKSHELF_URL` and `NTFY_TOPIC_URL`: only the firewall's grant changes. For example, with both behind a proxy at 192.168.1.20: `RUNNER_ALLOW=www.thenewatlantis.com` and `RUNNER_LAN=192.168.1.20:443`.
+   - `RUNNER_LAN`: `address:port` grants, comma-separated: Audiobookshelf's if `AUDIOBOOKSHELF_URL` uses an address, and the `address:443` of any host left out of `RUNNER_ALLOW` above; otherwise empty.
+   - `NARRATION_SECRETS_DIR`: empty for `/srv/narration`, or the absolute path of the folder the secrets went into in step 3.
+   - `NARRATION_NO_NEW_PRIVILEGES`: empty, which leaves `no-new-privileges` on, or `false` on a Docker that refuses it (below).
 
    compose stops with "set MAC_HOST in deploy/.env" (or `RUNNER_ALLOW`) when one of them is unset.
 
@@ -124,6 +130,14 @@ On the home server, from scratch:
    The log shows the firewall lines as the agent's did, `verified: base hosts blocked` among them, then `next run at <time>` (01:00 New York time, as an ISO time), and the runner waits. That night it takes the articles the acceptance run's discovery queued, five a night, oldest first.
 
 `docker compose config` prints the merged configuration with the secrets from both files in it: don't paste its output anywhere.
+
+### Docker from the snap package
+
+Ubuntu's snap of Docker confines the docker command, and that changes the deploy:
+
+- **It can't read `/srv`.** compose then stops with "env file /srv/narration/runner.env not found" although the file is there. It can read the home folder of the account that runs `docker compose`, so keep the secrets in a folder there instead (mode 700, the files 600), and set `NARRATION_SECRETS_DIR` to it in `deploy/.env`: `/root/narration` when that account is root.
+- **It refuses `no-new-privileges`.** Every container that sets it fails to start with `exec ...: operation not permitted`: AppArmor refuses runc's switch to the container's profile once the setting is on, and turning the container's AppArmor profile off doesn't help. Set `NARRATION_NO_NEW_PRIVILEGES=false` in `deploy/.env`. What the setting stops is a process, running as `node`, getting root or a capability back by running a setuid program or one with a file capability. Neither image has either: the last step of each Dockerfile removes the setuid and setgid bits and stops the build if one is left or a file has a capability. agentbox itself drops root with `gosu`, which isn't setuid.
+- **It has its own `/tmp`.** A file written to `/tmp` outside it isn't there for a docker or compose command; pipe a compose file on standard input instead (`docker compose -f - ...`).
 
 ## Operate
 
@@ -186,6 +200,13 @@ This stops and removes both containers. The `narration-data` and `narration-hand
 - **A long article:** "Zoning Alone", 29:14 of audio, checked in 9 sections; 3 record rounds, 13 minutes, $0.15.
 - **The opening line:** each recording opened with the title and its byline, or the title alone for the unsigned Declaration.
 - **A fix tried before `minor`:** in "Is There Life on Mars, Pennsylvania?", `finish` refused `minor` with a mispronunciation after round 1; the session added an override for the author's surname, recorded and checked round 2, and published with notes ($0.08). The Declaration's session used two rounds without a refusal, declaring the list numbers and the web address it fixed ($0.06). Neither held.
+
+**The snap-package settings, on Docker Desktop on Brian's Mac (linux/amd64), 2026-11-03:**
+
+- **No setuid program or file capability:** after both images were built, `find / -xdev -type f \( -perm -4000 -o -perm -2000 \)` and `getcap -r /` printed nothing in either; Debian's `su` and `passwd` were mode 755. The entrypoint still applied the firewall (`verified: base hosts blocked`, `example.com` blocked) and ran the command as `node`.
+- **The build stops on a capability:** an image built on `narration-agent` that added a `cap_net_raw` program stopped at the last step, naming `/usr/local/bin/capped cap_net_raw=ep`.
+- **`NARRATION_NO_NEW_PRIVILEGES`:** unset, the runner's process showed `NoNewPrivs: 1`; with `false`, `0`, and it still started as `node` and reached the test narration server through the firewall; with `no`, Docker refused the container (`invalid --security-opt 2`).
+- **`NARRATION_SECRETS_DIR`:** set, compose loaded each service's env file from that folder; empty or unset, it looked in `/srv/narration`.
 
 **The containers on Docker Desktop on Brian's Mac (linux/amd64), 2026-11-02**, with `agentbox:latest` built from agentbox's `agentbox-base-switch` branch (agentbox PR #14), fake secrets, `MAC_HOST=host.docker.internal`, and a test narration server on the host:
 

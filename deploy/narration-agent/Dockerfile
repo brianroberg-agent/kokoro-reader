@@ -26,4 +26,14 @@ COPY pipeline/narration_pipeline/session_service.py pipeline/narration_pipeline/
 # The named volume is seeded from this empty directory, so it starts owned by node.
 RUN install -d -o node -g node -m 0700 /handoff
 
+# No setuid or setgid program and no file capability is left in the image. agentbox drops
+# root with gosu, which isn't setuid, so nothing here needs one. Running one is how a
+# process in the container, as node, would get root or a capability back; no-new-privileges
+# stops that too, on a host whose Docker allows it (docs/pipeline.md, "Docker from the snap
+# package"). The last step, so nothing installed after it brings one back.
+RUN find / -xdev -type f \( -perm -4000 -o -perm -2000 \) -exec chmod ug-s {} + \
+  && left="$( { find / -xdev -type f \( -perm -4000 -o -perm -2000 \); find / -xdev -type f -exec getcap {} +; } 2>&1)" \
+  && test -z "$left" \
+  || { printf '%s\n%s\n' "a setuid or setgid program or a file capability is left in the image, or the check couldn't run (what it found or the errors are below; a chmod error is above):" "${left:-}" >&2; exit 1; }
+
 CMD ["python3", "/opt/narration/session_service.py"]
