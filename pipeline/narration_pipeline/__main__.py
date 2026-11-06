@@ -59,6 +59,7 @@ def report_text(report: NightReport, dry_run: bool) -> str:
     lines = []
     for r in report.results:
         lines.append(f"{r.status}  {r.dry_run_action or r.outcome or '-'}  {r.title}")
+        lines += ["    " + reason.replace("\n", "\n    ") for reason in r.reasons]
         if dry_run and r.notes:
             lines.append("    " + r.notes.replace("\n", "\n    "))
     lines += [f"discovery failed: {e}" for e in report.discovery_errors]
