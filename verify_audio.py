@@ -28,8 +28,8 @@ DEFAULT_MODEL = "gemini-flash-latest"
 
 # What a Gemini request other than an upload tells Google's server it may take (the SDK
 # sends a request's timeout as X-Server-Timeout). On this side, StallLimit caps each
-# socket operation at GEMINI_STALL_S, whatever this says: that is what keeps a request on
-# a dead connection from hanging (review F3).
+# socket operation at the smaller of this and GEMINI_STALL_S: that cap is what keeps a
+# request on a dead connection from hanging (review F3).
 GEMINI_TIMEOUT_MS = 10 * 60 * 1000
 
 # The longest a narration session may run (the pipeline's MAX_TIMEOUT_S;
