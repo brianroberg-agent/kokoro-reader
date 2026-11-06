@@ -159,12 +159,18 @@ class TestVerifyAudio:
         from pathlib import Path
         import verify_audio as va
         source = Path(__file__).parent.parent / "pipeline/narration_pipeline/session_service.py"
-        found = {}
-        for node in ast.parse(source.read_text()).body:
-            if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Tuple):
-                for name, value in zip(node.targets[0].elts, node.value.elts):
-                    found[name.id] = ast.literal_eval(value)
-        assert va.LONGEST_SESSION_S >= found["MAX_TIMEOUT_S"]
+        found = None
+        for node in ast.parse(source.read_text()).body:  # only the assignment naming it (R2.8)
+            if not isinstance(node, ast.Assign):
+                continue
+            target = node.targets[0]
+            names = ([getattr(e, "id", None) for e in target.elts] if isinstance(target, ast.Tuple)
+                     else [getattr(target, "id", None)])
+            if "MAX_TIMEOUT_S" in names:
+                values = node.value.elts if isinstance(target, ast.Tuple) else [node.value]
+                found = ast.literal_eval(values[names.index("MAX_TIMEOUT_S")])
+        assert found is not None, "MAX_TIMEOUT_S not found in session_service.py"
+        assert va.LONGEST_SESSION_S >= found
         assert va.UPLOAD_TIMEOUT_MS == va.LONGEST_SESSION_S * 1000
 
     @patch("verify_audio.genai")
