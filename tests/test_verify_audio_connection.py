@@ -68,9 +68,11 @@ def tls(tmp_path_factory):
 
 class SlowReader:
     """A one-request HTTPS server on localhost. It reads the request body at `rate` bytes a
-    second and answers 200, or, with rate 0, reads none of the body."""
+    second and answers 200 (or, with answer False, never answers), or, with rate 0,
+    reads none of the body."""
 
-    def __init__(self, ctx: ssl.SSLContext, rate: int):
+    def __init__(self, ctx: ssl.SSLContext, rate: int, answer: bool = True):
+        self.answer = answer
         self.listener = socket.socket()
         self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, BUFFER)  # accepted sockets inherit it
         self.listener.bind(("127.0.0.1", 0))
@@ -108,6 +110,9 @@ class SlowReader:
             while got < length:
                 got += len(recv(min(piece, length - got)))
                 time.sleep(piece / rate)
+            if not self.answer:
+                self.stop.wait(30)
+                return
             tls.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
 
     def close(self):
@@ -120,8 +125,8 @@ class SlowReader:
 def server(tls):
     made = []
 
-    def start(rate):
-        made.append(SlowReader(tls[0], rate))
+    def start(rate, answer=True):
+        made.append(SlowReader(tls[0], rate, answer))
         return made[-1]
     yield start
     for s in made:
@@ -158,6 +163,26 @@ def test_a_slow_upload_that_keeps_moving_is_not_cut_off(tls, server):
     response = post(tls[1], slow.url, SLOW_STALL_S)
     assert response.status_code == 200 and response.text == "ok"
     assert time.monotonic() - started > SLOW_STALL_S  # longer than one stall limit: the body was slow
+
+
+def test_an_answer_that_never_comes_still_fails(tls, server):
+    # Review R6: the read side has the same stall limit. The body goes through, then the
+    # server says nothing; the client's own timeout is 60 s.
+    silent = server(RATE, answer=False)
+    started = time.monotonic()
+    with pytest.raises(httpx.ReadTimeout):
+        post(tls[1], silent.url, STALL_S)
+    assert time.monotonic() - started < 10
+
+
+def test_the_stall_limit_caps_every_kind_of_wait():
+    # Review R6: connect, read, write and pool, whatever the request asked for, and none
+    # left unlimited. The body is unchanged, only cut into pieces.
+    request = httpx.Request("POST", "https://gemini.invalid/", content=b"x" * 10,
+                            extensions={"timeout": {"connect": 60, "read": None, "write": 7200, "pool": 0.1}})
+    va.StallLimit(5)(request)
+    assert request.extensions["timeout"] == {"connect": 5, "read": 5, "write": 5, "pool": 0.1}
+    assert b"".join(request.stream) == b"x" * 10
 
 
 def test_gemini_requests_follow_the_environments_proxy(monkeypatch):
