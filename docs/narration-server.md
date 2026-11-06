@@ -78,14 +78,14 @@ The server's instructions and tool descriptions say all of this to the agent. A 
 
 ## Running the agent session
 
-The session is `claude -p` with only the six tools, as `tests/narration/smoke_claude.sh` runs it (the flag set from spike S1). Its `--mcp-config` gives the narration server a `timeout` in milliseconds, Claude Code's per-call limit for that server:
+The session is `claude -p` with only the six tools, as `tests/narration/smoke_claude.sh` runs it (the flag set from spike S1). Its `--mcp-config` gives the narration server a `timeout` in milliseconds, Claude Code's per-call limit for that server. The session service sets it to the session's own timeout (`session_timeout_s`, 5400 s by default):
 
 ```json
 {"mcpServers": {"narration": {"type": "http", "url": "http://127.0.0.1:8770/agent/mcp",
-  "timeout": 900000, "headers": {"Authorization": "Bearer <the item's agent token>"}}}}
+  "timeout": 5400000, "headers": {"Authorization": "Bearer <the item's agent token>"}}}}
 ```
 
-Without it, Claude Code gave up on a `check` after about 60 seconds while the server went on with it (2026-11-01: a check of a 12-minute recording took 70–89 seconds). The session then saw "The operation timed out.", never got the report, and spent a check each time it asked again. A long article's `record` and `check` take longer still.
+Without it, Claude Code gave up on a `check` after about 60 seconds while the server went on with it (2026-11-01: a check of a 12-minute recording took 70–89 seconds). The session then saw "The operation timed out.", never got the report, and spent a check each time it asked again. A long article's `record` and `check` take longer still. A fixed 900000 wasn't enough either: on 2026-11-05 a backup on the Mac's connection slowed a `check`'s upload to Gemini past 15 minutes. The session gave up on the call, the server refused its next calls while the check still held the work item, and the session ended without calling `finish`. With the session's own timeout as the limit, a slow call makes the session slower, and the session's timeout is what ends it.
 
 Run it with `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` and `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` in its environment. `--setting-sources ""` leaves Claude Code's auto-memory on: on 2026-11-01 a session on the Mac had a memory directory in its `init` event (`memory_paths`) and tried to write a file there (refused: it has no Write tool). A session that reads an untrusted article shouldn't carry the operator's memory or `CLAUDE.md` instructions. With both set, `memory_paths` is absent from the `init` event.
 

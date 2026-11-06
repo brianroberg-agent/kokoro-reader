@@ -241,8 +241,19 @@ def test_validate_request_never_echoes_the_token():
 # -- the session's configuration --
 
 def test_mcp_config_is_the_documented_shape():
-    assert ss.mcp_config(URL, TOKEN) == {"mcpServers": {"narration": {
-        "type": "http", "url": URL, "timeout": 900000, "headers": {"Authorization": f"Bearer {TOKEN}"}}}}
+    assert ss.mcp_config(URL, TOKEN, 5400) == {"mcpServers": {"narration": {
+        "type": "http", "url": URL, "timeout": 5400000, "headers": {"Authorization": f"Bearer {TOKEN}"}}}}
+
+
+@pytest.mark.parametrize("timeout_s", [60, 5400, 7200])
+def test_a_tool_call_may_take_as_long_as_the_session_may_run(fake_claude, cfg, timeout_s):
+    # Acceptance dry run 2: a check on a slow upload outlasted Claude Code's fixed 900 s
+    # per-call limit. The session gave up on the call, was refused while the server was
+    # still busy with it, and ended without finish. The session's own timeout is the limit.
+    bindir = fake_claude({"out": init_event()}, {"out": RESULT})
+    ss.run_session(request(timeout_s=timeout_s), cfg)
+    seen = json.loads((bindir / "seen.json").read_text())
+    assert seen["mcp"]["mcpServers"]["narration"]["timeout"] == timeout_s * 1000
 
 
 def test_claude_argv_is_the_s1_flag_set():
@@ -296,7 +307,7 @@ def test_run_session_reads_a_finished_session(fake_claude, cfg):
     seen = json.loads((bindir / "seen.json").read_text())
     assert seen["argv"] == ss.claude_argv(Path(seen["mcp_path"]), cfg.prompt, 2.0,
                                           ss.session_prompt(("Drop the box.",)))[1:]
-    assert seen["mcp"] == ss.mcp_config(URL, TOKEN)
+    assert seen["mcp"] == ss.mcp_config(URL, TOKEN, request().timeout_s)
     assert seen["mcp_mode"] == 0o600 and seen["dir_mode"] == 0o700
     assert seen["cwd"] == str(Path(seen["mcp_path"]).parent.resolve())
     assert not Path(seen["mcp_path"]).parent.exists()  # the token file is gone with its directory
