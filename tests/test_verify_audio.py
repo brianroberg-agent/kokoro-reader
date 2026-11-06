@@ -111,8 +111,9 @@ class TestVerifyAudio:
 
     @patch("verify_audio.genai")
     def test_the_gemini_client_has_a_request_timeout(self, mock_genai, tmp_path):
-        """Review F3: with no HTTP timeout, a request on a dead connection never
-        returned, and the narration server's item lock was held for good."""
+        """What each request tells Google's server it may take. Review F3 (a request on
+        a dead connection never returned, and the narration server's item lock was held
+        for good) is now kept by the stall limit, in the next test."""
         import verify_audio as va
         mock_gemini_client(mock_genai, "No issues found.")
         verify_audio(make_wav(tmp_path / "audio.wav"), "Some source text.")

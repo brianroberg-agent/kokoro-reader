@@ -26,8 +26,10 @@ load_dotenv()
 
 DEFAULT_MODEL = "gemini-flash-latest"
 
-# Longest one Gemini request (an upload, a status poll or a generate_content call)
-# may take. With none, a request on a dead connection never returned (review F3).
+# What a Gemini request other than an upload tells Google's server it may take (the SDK
+# sends a request's timeout as X-Server-Timeout). On this side, StallLimit caps each
+# socket operation at GEMINI_STALL_S, whatever this says: that is what keeps a request on
+# a dead connection from hanging (review F3).
 GEMINI_TIMEOUT_MS = 10 * 60 * 1000
 
 # What an upload's requests tell Google's server they may take (the SDK sends a request's
