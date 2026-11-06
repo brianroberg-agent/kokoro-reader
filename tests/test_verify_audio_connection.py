@@ -23,7 +23,10 @@ pytest.importorskip("cryptography")  # the test certificate; google-auth brings 
 
 BODY = b"x" * (4 * 1024 * 1024)
 RATE = 2 * 1024 * 1024  # bytes a second: the 4 MiB body takes about 2 s
-STALL_S = 0.5
+STALL_S = 0.5  # where a timeout is the expected outcome
+# Where it isn't (review R5): one 64 KiB piece takes about 31 ms at RATE, so a server
+# thread held up for less than a second doesn't fail the test.
+SLOW_STALL_S = 1.0
 # Small socket buffers on both ends, so the slow reader, not the buffers, sets the pace.
 BUFFER = 64 * 1024
 SMALL_SEND_BUFFER = [(socket.SOL_SOCKET, socket.SO_SNDBUF, BUFFER)]
@@ -152,9 +155,9 @@ def test_with_a_plain_transport_a_slow_request_body_times_out_as_a_whole(tls, se
 def test_a_slow_upload_that_keeps_moving_is_not_cut_off(tls, server):
     slow = server(RATE)
     started = time.monotonic()
-    response = post(tls[1], slow.url, STALL_S)
+    response = post(tls[1], slow.url, SLOW_STALL_S)
     assert response.status_code == 200 and response.text == "ok"
-    assert time.monotonic() - started > 2 * STALL_S  # it was slow: the stall limit was tested
+    assert time.monotonic() - started > SLOW_STALL_S  # longer than one stall limit: the body was slow
 
 
 def test_gemini_requests_follow_the_environments_proxy(monkeypatch):
