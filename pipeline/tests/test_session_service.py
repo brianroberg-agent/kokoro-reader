@@ -579,11 +579,13 @@ def test_results_the_service_writes_itself_are_category_session():
 def test_run_session_timeout_kills(fake_claude, cfg):
     bindir = fake_claude({"child": True}, {"out": init_event()}, {"sleep": 60}, {"out": RESULT})
     started = time.monotonic()
-    out = ss.run_session(request(timeout_s=1), cfg)
-    assert time.monotonic() - started < 5
+    # 5 s, not 1: on a loaded machine the fake claude (a fresh Python process) took more
+    # than 1 s to start and was killed before it wrote seen.json (2 runs in 5 on main).
+    out = ss.run_session(request(timeout_s=5), cfg)
+    assert time.monotonic() - started < 9
     seen = json.loads((bindir / "seen.json").read_text())
     assert gone(seen["pid"]) and gone(int((bindir / "child.pid").read_text()))
-    assert out["finished_ok"] is False and out["error"].startswith("timed out after 1 s")
+    assert out["finished_ok"] is False and out["error"].startswith("timed out after 5 s")
     assert not Path(seen["mcp_path"]).exists()
 
 
