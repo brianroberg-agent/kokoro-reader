@@ -123,15 +123,16 @@ class TestVerifyAudio:
     @patch("verify_audio.genai")
     def test_the_gemini_client_tells_a_slow_connection_from_a_dead_one(self, mock_genai, tmp_path):
         """Acceptance dry run 2: an upload slowed by a backup failed while it was still
-        moving. Every Gemini request goes through StallTimeoutTransport
+        moving. Every Gemini request goes through the StallLimit request hook
         (tests/test_verify_audio_connection.py), which ends only one that stops moving."""
         import verify_audio as va
         mock_gemini_client(mock_genai, "No issues found.")
         verify_audio(make_wav(tmp_path / "audio.wav"), "Some source text.")
-        transport = mock_genai.Client.call_args.kwargs["http_options"].client_args["transport"]
-        assert isinstance(transport, va.StallTimeoutTransport)
-        assert transport.stall_s == va.GEMINI_STALL_S
+        client_args = mock_genai.Client.call_args.kwargs["http_options"].client_args
+        [hook] = client_args["event_hooks"]["request"]
+        assert isinstance(hook, va.StallLimit) and hook.stall_s == va.GEMINI_STALL_S
         assert 0 < va.GEMINI_STALL_S <= 30 * 60
+        assert "transport" not in client_args  # review R1: a transport turns off env proxies
 
     @patch("verify_audio.genai")
     def test_an_upload_tells_the_server_it_may_take_long(self, mock_genai, tmp_path):

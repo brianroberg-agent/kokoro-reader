@@ -125,8 +125,13 @@ def server(tls):
         s.close()
 
 
-def post(transport, url):
-    with httpx.Client(transport=transport, timeout=60, trust_env=False) as client:
+def post(ctx, url, stall_s):
+    """POST BODY through the verifier's request hook. The test's own transport only
+    trusts the test certificate and keeps the send buffer small; the client's timeout
+    is 60 s, so any limit the test sees comes from the hook."""
+    transport = httpx.HTTPTransport(verify=ctx, socket_options=SMALL_SEND_BUFFER)
+    with httpx.Client(transport=transport, event_hooks={"request": [va.StallLimit(stall_s)]},
+                      timeout=60, trust_env=False) as client:
         return client.post(url, content=BODY)
 
 
@@ -141,24 +146,52 @@ def test_with_a_plain_transport_a_slow_request_body_times_out_as_a_whole(tls, se
     except httpx.WriteTimeout:
         return
     pytest.skip("a slow TLS request body no longer times out as a whole: "
-                "StallTimeoutTransport's pieces may no longer be needed")
+                "StallLimit's pieces may no longer be needed")
 
 
 def test_a_slow_upload_that_keeps_moving_is_not_cut_off(tls, server):
     slow = server(RATE)
-    transport = va.StallTimeoutTransport(stall_s=STALL_S, verify=tls[1], socket_options=SMALL_SEND_BUFFER)
     started = time.monotonic()
-    response = post(transport, slow.url)
+    response = post(tls[1], slow.url, STALL_S)
     assert response.status_code == 200 and response.text == "ok"
     assert time.monotonic() - started > 2 * STALL_S  # it was slow: the stall limit was tested
+
+
+def test_gemini_requests_follow_the_environments_proxy(monkeypatch):
+    # Review R1: an httpx client given its own transport ignores HTTPS_PROXY and ALL_PROXY.
+    # The SDK's client follows them, and the verifier's options must leave that alone.
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    listener.settimeout(5)
+    seen = []
+
+    def accept():
+        try:
+            conn, _ = listener.accept()
+            with conn:
+                conn.settimeout(5)
+                seen.append(conn.recv(4096))
+        except OSError:
+            pass
+    thread = threading.Thread(target=accept, daemon=True)
+    thread.start()
+    for name in ("NO_PROXY", "no_proxy", "ALL_PROXY", "all_proxy", "https_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("HTTPS_PROXY", f"http://127.0.0.1:{listener.getsockname()[1]}")
+    with httpx.Client(**va.gemini_http_options().client_args, timeout=5) as client:  # as the SDK builds it
+        with pytest.raises(httpx.HTTPError):
+            client.get("https://gemini.invalid/")
+    thread.join(5)
+    listener.close()
+    assert seen and seen[0].startswith(b"CONNECT gemini.invalid:443 ")
 
 
 def test_an_upload_that_stops_moving_still_fails(tls, server):
     # Review F3: a request on a dead connection must not hang the narration server's work
     # item for good. The client's own timeout here is 60 s; the stall limit ends it first.
     stalled = server(0)
-    transport = va.StallTimeoutTransport(stall_s=STALL_S, verify=tls[1], socket_options=SMALL_SEND_BUFFER)
     started = time.monotonic()
     with pytest.raises(httpx.WriteTimeout):
-        post(transport, stalled.url)
+        post(tls[1], stalled.url, STALL_S)
     assert time.monotonic() - started < 10

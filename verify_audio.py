@@ -8,13 +8,11 @@ mispronunciations, missing content, and other issues.
 import argparse
 import os
 import re
-import ssl
 import sys
 import tempfile
 import time
 from pathlib import Path
 
-import certifi
 import httpx
 from google import genai
 from google.genai import types as genai_types
@@ -64,28 +62,28 @@ class _InPieces(httpx.SyncByteStream):
             close()
 
 
-class StallTimeoutTransport(httpx.HTTPTransport):
-    """The transport for Gemini requests: no one socket operation waits longer than
-    stall_s, and a request body is written WRITE_PIECE bytes at a time, so a transfer
-    that keeps moving goes on however slow it is, and one that stops fails. Its TLS
-    context is the one the SDK builds for its own client (an httpx client ignores its
-    `verify` for a transport it is given)."""
+class StallLimit:
+    """An httpx request hook for Gemini requests: no one socket operation of the request
+    waits longer than stall_s, and its body is written WRITE_PIECE bytes at a time, so a
+    transfer that keeps moving goes on however slow it is, and one that stops fails.
+    A hook, not a transport: an httpx client given a transport ignores the environment's
+    proxies (review R1), and the SDK's client keeps its own TLS context."""
 
-    def __init__(self, stall_s: float = GEMINI_STALL_S, **kwargs):
-        if "verify" not in kwargs:
-            kwargs["verify"] = ssl.create_default_context(
-                cafile=os.environ.get("SSL_CERT_FILE", certifi.where()),
-                capath=os.environ.get("SSL_CERT_DIR"))
-        super().__init__(**kwargs)
+    def __init__(self, stall_s: float = GEMINI_STALL_S):
         self.stall_s = stall_s
 
-    def handle_request(self, request: httpx.Request) -> httpx.Response:
+    def __call__(self, request: httpx.Request) -> None:
         asked = request.extensions.get("timeout", {})
         request.extensions["timeout"] = {
             k: self.stall_s if asked.get(k) is None else min(asked[k], self.stall_s)
             for k in ("connect", "read", "write", "pool")}
         request.stream = _InPieces(request.stream, WRITE_PIECE)
-        return super().handle_request(request)
+
+
+def gemini_http_options() -> genai_types.HttpOptions:
+    """The options the verifier's Gemini client is built with."""
+    return genai_types.HttpOptions(timeout=GEMINI_TIMEOUT_MS,
+                                   client_args={"event_hooks": {"request": [StallLimit()]}})
 
 # Longest stretch of audio one generate_content call can be trusted with.
 # Calibrated empirically on known audio (issue #4): at 11.4 minutes,
@@ -277,10 +275,7 @@ def verify_audio(audio_path: str, source_text: str, model: str = DEFAULT_MODEL,
         audio = AudioSegment.from_wav(audio_path)
     precheck = precheck_report(audio, source_text)
 
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"),
-                          http_options=genai_types.HttpOptions(
-                              timeout=GEMINI_TIMEOUT_MS,
-                              client_args={"transport": StallTimeoutTransport()}))
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"), http_options=gemini_http_options())
 
     sections = split_sections(source_text)
     gaps = find_section_gaps(audio)
