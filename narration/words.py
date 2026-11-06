@@ -10,11 +10,11 @@ Both texts are read as the engine receives them: text_to_speech.clean_markdown_t
 (the cleaning the CLI and KokoroEngine apply), then every run of whitespace other
 than a newline made one plain space (as KokoroEngine does: misaki misplaces an
 override after a no-break, thin or ideographic space or a tab on the same line),
-then prepare_for_tts (which turns "--" into "... " before generate_audio hands
-the text to misaki). Nothing else is done to the characters: no Unicode
-normalisation (a fullwidth "＄" is not "$"). The only other edits are to drop [BREAK] markers, read a phonetic
-override as its displayed word, and read a curly apostrophe as a straight one,
-as misaki does.
+then prepare_for_tts (which turns "--" into "... " and makes a curly apostrophe
+between two letters straight before generate_audio hands the text to misaki). Nothing
+else is done to the characters: no Unicode normalisation (a fullwidth "＄" is not
+"$"). The only other edits are to drop [BREAK] markers, read a phonetic override as
+its displayed word, and read every other curly apostrophe as a straight one.
 
 Each run of non-whitespace characters is split into tokens, following what
 misaki (the engine's grapheme-to-phoneme step) was checked to voice:
@@ -268,7 +268,10 @@ def looks_like_link(phonemes: str) -> bool:
 
 
 def _straight(text: str) -> str:
-    """Curly apostrophes read as straight ones, as misaki reads them (same length)."""
+    """Curly apostrophes read as straight ones (same length), so "students’" and
+    "students'" are the same word. Those between two letters are already straight:
+    prepare_for_tts makes them so for the engine, since misaki reads "it isn’t." as
+    "it is"."""
     return text.replace("’", "'").replace("‘", "'")
 
 
@@ -531,8 +534,8 @@ def apply(source: str, prepared: str, substitutions: list[Substitution]) -> str 
 
     The result is already prepared as engine_text prepares a text (markup cleaned,
     spaces made plain, "--" made a pause, one section per line), ready for the G2P:
-    don't prepare it again, since cleaning is not idempotent ("***x***" cleaned twice
-    loses the asterisks the engine says). gate.speech_matches compares what the engine
+    don't prepare it again, since cleaning is not idempotent ("# # x" cleaned twice
+    loses the "#" the engine says "hash" for). gate.speech_matches compares what the engine
     says for this and for engine_text(prepared). The prepared text's pacing (commas,
     "--", [BREAK]s) doesn't travel, so a sign or a mark that the word check counts as
     silent but misaki voices shows up as a difference."""

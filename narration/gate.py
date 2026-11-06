@@ -140,8 +140,8 @@ def speech_matches(g2p, source: str, prepared: str, substitutions: list[Substitu
     overrides (words.apply); [] when the two sound the same. Each text is prepared for
     the engine exactly once, as the engine prepares it: the prepared text by
     words.engine_text, the article's side by apply itself (its result is already in
-    that form, and cleaning is not idempotent: "***x***" cleaned twice loses the
-    asterisks the engine says). Both go through the engine's own G2P and are compared
+    that form, and cleaning is not idempotent: "# # x" cleaned twice loses the
+    "#" the engine says "hash" for). Both go through the engine's own G2P and are compared
     as letters and stress and length marks only, so pacing punctuation, pauses and
     paragraph breaks are free. One problem at most, for the first place they differ."""
     applied, why = apply_with_reason(source, prepared, substitutions)

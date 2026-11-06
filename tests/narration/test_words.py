@@ -299,8 +299,9 @@ def test_mismatch_message_names_a_missing_word():
 # ---- every spoken character is a token; only the silent punctuation is free ----
 # misaki says "divided by" for "÷" here even with spaces round it ("five ÷ dollars":
 # fIv dᵻvIdᵻd bI dɑləɹz), though not in every sentence; spaced "~" is silent, so it is
-# tested glued, in test_tilde_and_division_sign_are_spoken.
-SPOKEN_SYMBOLS = "#*=/°×±¥¢©§√∞÷"
+# tested glued, in test_tilde_and_division_sign_are_spoken. No "*": clean_markdown_text
+# drops every asterisk, so the engine is not handed one.
+SPOKEN_SYMBOLS = "#=/°×±¥¢©§√∞÷"
 
 
 def test_signs_and_leading_points_belong_to_the_number():
@@ -936,7 +937,8 @@ SYMBOLS = ["%", "&", "@", "$", "£", "€", "=", "/", "°", "×", "±", "¥", "�
            "∞"]
 # Everything that may be glued to a word, markdown-active characters and fullwidth forms
 # included. Glued to a word or a number, misaki reads "~" as "tilde" and "÷" as "divided by".
-GLUED = SYMBOLS + ["#", "*", "+", "~", "÷", "\uff04", "\uff08", "\uff09", "\uff3b", "\uff3d"]
+# No "*": clean_markdown_text drops every asterisk, so the engine is not handed one.
+GLUED = SYMBOLS + ["#", "+", "~", "÷", "\uff04", "\uff08", "\uff09", "\uff3b", "\uff3d"]
 # Spellings the engine reads in ways that are easy to get wrong: signs and points after
 # other punctuation, apostrophes next to digits, dotted abbreviations and dotted words.
 # Each maps to other spellings misaki reads the same way (checked as above, in the middle,
@@ -1268,12 +1270,13 @@ def test_apply_puts_an_override_on_a_substituted_word():
 
 def test_apply_reads_the_article_as_the_engine_does():
     from narration.words import apply
-    # markup goes, "--" is a pause, curly apostrophes stay, and an override the article
-    # itself has (a relative link) is read as its displayed text, as words() reads it
+    # markup goes, "--" is a pause, a curly apostrophe inside a word is straight (as
+    # prepare_for_tts makes it for the engine), and an override the article itself has
+    # (a relative link) is read as its displayed text, as words() reads it
     source = "# Zoning\n\nIt’s **here** -- see [Home](/home/) today.\n\nKing Ivo XIV spoke."
     prepared = "Zoning\n\nIt’s here -- see Home today.\n\nKing Ivo the Fourteenth spoke."
     assert apply(source, prepared, [FOURTEENTH]) == (
-        "Zoning\n\nIt’s here... see Home today.\n\nKing Ivo the Fourteenth spoke.")
+        "Zoning\n\nIt's here... see Home today.\n\nKing Ivo the Fourteenth spoke.")
 
 
 @pytest.mark.parametrize("source, prepared, subs", [

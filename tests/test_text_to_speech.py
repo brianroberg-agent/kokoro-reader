@@ -121,7 +121,46 @@ class TestCleanMarkdownText:
         text = "This is **bold** and *italic* text"
         expected = "This is bold and italic text"
         assert clean_markdown_text(text) == expected
-    
+
+    @pytest.mark.parametrize("text, expected", [
+        # One italic phrase a site split in two threw the pairing of the markers off for
+        # the rest of the text, and the last italic's closing "*" was read "asterisk".
+        ("A *Tale of Two Citie**s*–style ending, as in *Moby Dick*. The end.",
+         "A Tale of Two Cities–style ending, as in Moby Dick. The end."),
+        ("It was ***truly*** fine.", "It was truly fine."),  # bold italics
+        ("The flag* was raised.", "The flag was raised."),   # a lone marker
+    ])
+    def test_no_asterisk_is_left_for_the_engine_to_read(self, text, expected):
+        assert clean_markdown_text(text) == expected
+
+    @pytest.mark.parametrize("text, expected", [
+        ("It costs 2*3 dollars.", "It costs 2 3 dollars."),  # not "23"
+        # Between letters it is most likely an emphasis marker that lost its pair, which
+        # joined the word: a pair inside a word, bold italics, a split italic's leftover.
+        ("An un*frig*believable day.", "An unfrigbelievable day."),
+        ("It was ***un***believable.", "It was unbelievable."),
+        ("The *Worl**d*s best.", "The Worlds best."),
+    ])
+    def test_a_stray_asterisk_keeps_only_digits_apart(self, text, expected):
+        assert clean_markdown_text(text) == expected
+
+    def test_an_emphasis_pair_does_not_reach_across_lines(self):
+        """A stray asterisk paired with one paragraphs later, and both were dropped as
+        markers, joining what was on either side of each."""
+        text = "It costs 2*3 dollars.\n\nLater, a*b again."
+        assert clean_markdown_text(text) == "It costs 2 3 dollars.\n\nLater, ab again."
+
+    @pytest.mark.parametrize("text, expected", [
+        # markdownify writes a literal "*" as "\*" and "_" as "\_", and misaki reads a
+        # leftover "\" as "backslash". Nor may one pair with the next italic's marker.
+        ("A footnote\\*. Then *Moby Dick* again.", "A footnote. Then Moby Dick again."),
+        ("It costs 2\\*3 dollars.", "It costs 2 3 dollars."),
+        ("Name it snake\\_case or file\\_name\\_here.", "Name it snake case or file name here."),
+        ("A cafe\u0301\\*bar.", "A cafe\u0301 bar."),  # an accent typed as a combining mark
+    ])
+    def test_an_escaped_mark_goes_with_its_backslash(self, text, expected):
+        assert clean_markdown_text(text) == expected
+
     def test_remove_underscore_emphasis(self):
         """Test removal of underscore-based emphasis."""
         text = "This is __bold__ and _italic_ text"
@@ -251,6 +290,12 @@ class TestPrepareForTTS:
         assert "He was a crank" in result
         assert "a prophet." in result
 
+    def test_leaves_curly_quotation_marks_alone(self):
+        """Only an apostrophe between two letters is made straight: a quotation mark, a
+        plural possessive's apostrophe and an elided letter at a word's edge stay."""
+        text = "She said ‘no’, the students’ books, rock ’n’ roll, the ’90s."
+        assert prepare_for_tts(text) == text
+
 
 class TestSplitSections:
     """Test the split_sections function."""
@@ -341,6 +386,23 @@ class TestGenerateAudio:
         assert call_kwargs["voice"] == "af_bella"
         assert call_kwargs["speed"] == 1.2
         assert call_kwargs["lang_code"] == "b"
+
+    @patch('text_to_speech.concatenate_audio_files')
+    @patch('text_to_speech.sf')
+    @patch('text_to_speech.load_model')
+    def test_hands_the_model_straight_apostrophes_inside_words(
+            self, mock_load_model, mock_sf, mock_concat, tmp_path):
+        """misaki reads a sentence-final "isn’t." or "wasn’t." with a curly
+        apostrophe as "is" or "was": an article's "But it isn’t." was read "But it is"."""
+        mock_model = MagicMock()
+        mock_load_model.return_value = mock_model
+        mock_result = MagicMock()
+        mock_result.audio = [0.0]
+        mock_model.generate.return_value = [mock_result]
+
+        generate_audio("But it isn’t. It wasn’t. L’Étoile.", str(tmp_path / "output.wav"))
+
+        assert mock_model.generate.call_args.kwargs["text"] == "But it isn't. It wasn't. L'Étoile."
 
     @patch('text_to_speech.concatenate_audio_files')
     @patch('text_to_speech.sf')
