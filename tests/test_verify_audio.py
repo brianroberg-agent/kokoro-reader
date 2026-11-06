@@ -4,6 +4,8 @@ Unit tests for verify_audio.py script.
 Run with: pytest test_verify_audio.py
 """
 
+import time
+
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -132,6 +134,8 @@ class TestVerifyAudio:
         client_args = mock_genai.Client.call_args.kwargs["http_options"].client_args
         [hook] = client_args["event_hooks"]["request"]
         assert isinstance(hook, va.StallLimit) and hook.stall_s == va.GEMINI_STALL_S
+        # the check's overall limit (review R2.1) counts from when its client was made
+        assert abs(hook.deadline - (time.monotonic() + va.LONGEST_SESSION_S)) < 30
         assert 0 < va.GEMINI_STALL_S <= 30 * 60
         assert "transport" not in client_args  # review R1: a transport turns off env proxies
 
@@ -160,7 +164,8 @@ class TestVerifyAudio:
             if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Tuple):
                 for name, value in zip(node.targets[0].elts, node.value.elts):
                     found[name.id] = ast.literal_eval(value)
-        assert va.UPLOAD_TIMEOUT_MS >= found["MAX_TIMEOUT_S"] * 1000
+        assert va.LONGEST_SESSION_S >= found["MAX_TIMEOUT_S"]
+        assert va.UPLOAD_TIMEOUT_MS == va.LONGEST_SESSION_S * 1000
 
     @patch("verify_audio.genai")
     def test_returns_model_response_text(self, mock_genai, tmp_path):

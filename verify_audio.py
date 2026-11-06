@@ -32,12 +32,14 @@ DEFAULT_MODEL = "gemini-flash-latest"
 # a dead connection from hanging (review F3).
 GEMINI_TIMEOUT_MS = 10 * 60 * 1000
 
+# The longest a narration session may run (the pipeline's MAX_TIMEOUT_S;
+# tests/test_verify_audio.py checks this covers it).
+LONGEST_SESSION_S = 2 * 60 * 60
+
 # What an upload's requests tell Google's server they may take (the SDK sends a request's
 # timeout as X-Server-Timeout): each carries 8 MB of audio, which on a slow connection
-# takes longer than GEMINI_TIMEOUT_MS. Two hours is the longest a narration session may
-# run (the pipeline's MAX_TIMEOUT_S; tests/test_verify_audio.py checks this covers it);
-# the stall limit below still ends a dead connection.
-UPLOAD_TIMEOUT_MS = 2 * 60 * 60 * 1000
+# takes longer than GEMINI_TIMEOUT_MS. The stall limit below still ends a dead connection.
+UPLOAD_TIMEOUT_MS = LONGEST_SESSION_S * 1000
 
 # Longest a connection to Gemini may go without sending or receiving anything before
 # it is taken as dead (review F3).
@@ -51,12 +53,13 @@ WRITE_PIECE = 64 * 1024
 
 
 class _InPieces(httpx.SyncByteStream):
-    def __init__(self, stream, size: int):
-        self._stream, self._size = stream, size
+    def __init__(self, stream, size: int, check_limit):
+        self._stream, self._size, self._check_limit = stream, size, check_limit
 
     def __iter__(self):
         for part in self._stream:
             for i in range(0, len(part), self._size):
+                self._check_limit()
                 yield part[i:i + self._size]
 
     def close(self) -> None:
@@ -66,21 +69,36 @@ class _InPieces(httpx.SyncByteStream):
 
 
 class StallLimit:
-    """An httpx request hook for Gemini requests: no one socket operation of the request
-    waits longer than stall_s, and its body is written WRITE_PIECE bytes at a time, so a
-    transfer that keeps moving goes on however slow it is, and one that stops fails.
+    """An httpx request hook for the Gemini requests of one check: no one socket
+    operation of a request waits longer than stall_s, and its body is written
+    WRITE_PIECE bytes at a time, so a transfer that keeps moving goes on however slow it
+    is, and one that stops fails.
+
+    The check as a whole stops once it has run longer than total_s, the longest a
+    narration session may run: no request starts after that, and an upload stops between
+    two pieces. By then the check's session has ended, and a check left running would go
+    on using a slow link the next run needs (review R2.1).
+
     A hook, not a transport: an httpx client given a transport ignores the environment's
     proxies (review R1), and the SDK's client keeps its own TLS context."""
 
-    def __init__(self, stall_s: float = GEMINI_STALL_S):
-        self.stall_s = stall_s
+    def __init__(self, stall_s: float = GEMINI_STALL_S, total_s: float = LONGEST_SESSION_S):
+        self.stall_s, self.total_s = stall_s, total_s
+        self.deadline = time.monotonic() + total_s
 
     def __call__(self, request: httpx.Request) -> None:
+        self._check_limit(request)
         asked = request.extensions.get("timeout", {})
         request.extensions["timeout"] = {
             k: self.stall_s if asked.get(k) is None else min(asked[k], self.stall_s)
             for k in ("connect", "read", "write", "pool")}
-        request.stream = _InPieces(request.stream, WRITE_PIECE)
+        request.stream = _InPieces(request.stream, WRITE_PIECE, lambda: self._check_limit(request))
+
+    def _check_limit(self, request: httpx.Request) -> None:
+        if time.monotonic() >= self.deadline:
+            raise httpx.TimeoutException(
+                f"the check has run longer than {self.total_s:g} s, the longest a narration "
+                "session may run", request=request)
 
 
 def gemini_http_options() -> genai_types.HttpOptions:

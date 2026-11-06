@@ -133,12 +133,12 @@ def server(tls):
         s.close()
 
 
-def post(ctx, url, stall_s):
+def post(ctx, url, stall_s, **limits):
     """POST BODY through the verifier's request hook. The test's own transport only
     trusts the test certificate and keeps the send buffer small; the client's timeout
     is 60 s, so any limit the test sees comes from the hook."""
     transport = httpx.HTTPTransport(verify=ctx, socket_options=SMALL_SEND_BUFFER)
-    with httpx.Client(transport=transport, event_hooks={"request": [va.StallLimit(stall_s)]},
+    with httpx.Client(transport=transport, event_hooks={"request": [va.StallLimit(stall_s, **limits)]},
                       timeout=60, trust_env=False) as client:
         return client.post(url, content=BODY)
 
@@ -163,6 +163,22 @@ def test_a_slow_upload_that_keeps_moving_is_not_cut_off(tls, server):
     response = post(tls[1], slow.url, SLOW_STALL_S)
     assert response.status_code == 200 and response.text == "ok"
     assert time.monotonic() - started > SLOW_STALL_S  # longer than one stall limit: the body was slow
+
+
+def test_a_check_stops_once_it_outlasts_any_session(tls, server):
+    # Review R2.1: a check whose session was killed goes on in the server. Past the
+    # longest a session may run, it stops, even mid-upload and while still moving.
+    slow = server(RATE)
+    started = time.monotonic()
+    with pytest.raises(httpx.TimeoutException, match="longest a narration session may run"):
+        post(tls[1], slow.url, SLOW_STALL_S, total_s=0.5)
+    assert time.monotonic() - started < 1.5  # before the 2 s body was through
+
+
+def test_a_request_after_the_limit_is_not_sent():
+    request = httpx.Request("POST", "https://gemini.invalid/", content=b"x")
+    with pytest.raises(httpx.TimeoutException, match="longest a narration session may run"):
+        va.StallLimit(5, total_s=0)(request)
 
 
 def test_an_answer_that_never_comes_still_fails(tls, server):
