@@ -63,9 +63,7 @@ class _InPieces(httpx.SyncByteStream):
                 yield part[i:i + self._size]
 
     def close(self) -> None:
-        close = getattr(self._stream, "close", None)
-        if close is not None:
-            close()
+        self._stream.close()  # an httpx request stream: a SyncByteStream
 
 
 class StallLimit:
