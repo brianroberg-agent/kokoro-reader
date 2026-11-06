@@ -14,7 +14,7 @@ from narration_pipeline import schedule
 from narration_pipeline.abs import Audiobookshelf, abs_check
 from narration_pipeline.config import load_settings, load_sources
 from narration_pipeline.fetch import fetch_text, run_article_assistant
-from narration_pipeline.messages import STOPPED
+from narration_pipeline.messages import STOPPED, plain
 from narration_pipeline.narration_client import NarrationClient
 from narration_pipeline.night import Deps, NightReport, NotRunnable, RunInProgress, run_night
 from narration_pipeline.push import Push
@@ -59,7 +59,7 @@ def report_text(report: NightReport, dry_run: bool) -> str:
     lines = []
     for r in report.results:
         lines.append(f"{r.status}  {r.dry_run_action or r.outcome or '-'}  {r.title}")
-        lines += ["    " + reason.replace("\n", "\n    ") for reason in r.reasons]
+        lines += ["    " + plain(reason).replace("\n", "\n    ") for reason in r.reasons]
         if dry_run and r.notes:
             lines.append("    " + r.notes.replace("\n", "\n    "))
     lines += [f"discovery failed: {e}" for e in report.discovery_errors]
