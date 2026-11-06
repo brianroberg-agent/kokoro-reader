@@ -121,6 +121,31 @@ class TestVerifyAudio:
         assert 0 < va.GEMINI_TIMEOUT_MS <= 30 * 60 * 1000
 
     @patch("verify_audio.genai")
+    def test_the_gemini_client_tells_a_slow_connection_from_a_dead_one(self, mock_genai, tmp_path):
+        """Acceptance dry run 2: an upload slowed by a backup failed while it was still
+        moving. Every Gemini request goes through StallTimeoutTransport
+        (tests/test_verify_audio_connection.py), which ends only one that stops moving."""
+        import verify_audio as va
+        mock_gemini_client(mock_genai, "No issues found.")
+        verify_audio(make_wav(tmp_path / "audio.wav"), "Some source text.")
+        transport = mock_genai.Client.call_args.kwargs["http_options"].client_args["transport"]
+        assert isinstance(transport, va.StallTimeoutTransport)
+        assert transport.stall_s == va.GEMINI_STALL_S
+        assert 0 < va.GEMINI_STALL_S <= 30 * 60
+
+    @patch("verify_audio.genai")
+    def test_an_upload_tells_the_server_it_may_take_long(self, mock_genai, tmp_path):
+        """The SDK sends a request's timeout to the server as X-Server-Timeout. An upload
+        request carries 8 MB of audio, which on a slow connection takes more than the 10
+        minutes the other requests get, so the upload's requests tell the server 2 hours,
+        the longest a session may run. The stall limit still ends a dead connection."""
+        import verify_audio as va
+        mock_client = mock_gemini_client(mock_genai, "No issues found.")
+        verify_audio(make_wav(tmp_path / "audio.wav"), "Some source text.")
+        config = mock_client.files.upload.call_args.kwargs["config"]
+        assert config["http_options"]["timeout"] == va.UPLOAD_TIMEOUT_MS == 2 * 60 * 60 * 1000
+
+    @patch("verify_audio.genai")
     def test_returns_model_response_text(self, mock_genai, tmp_path):
         """Test that verify_audio returns the model's response as a string."""
         mock_gemini_client(mock_genai, "No issues found.")
