@@ -33,7 +33,8 @@ GEMINI_TIMEOUT_MS = 10 * 60 * 1000
 # What an upload's requests tell Google's server they may take (the SDK sends a request's
 # timeout as X-Server-Timeout): each carries 8 MB of audio, which on a slow connection
 # takes longer than GEMINI_TIMEOUT_MS. Two hours is the longest a narration session may
-# run; the stall limit below still ends a dead connection.
+# run (the pipeline's MAX_TIMEOUT_S; tests/test_verify_audio.py checks this covers it);
+# the stall limit below still ends a dead connection.
 UPLOAD_TIMEOUT_MS = 2 * 60 * 60 * 1000
 
 # Longest a connection to Gemini may go without sending or receiving anything before

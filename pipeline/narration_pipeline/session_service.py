@@ -59,6 +59,8 @@ TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{43}")  # secrets.token_urlsafe(32); both m
 MAX_RULES = 20
 MAX_RULE_CHARS = 300
 MAX_BUDGET_USD = 5.00
+# verify_audio.UPLOAD_TIMEOUT_MS (the root package) is at least MAX_TIMEOUT_S: raise it with
+# this, or a slow upload's requests may be cut off before the session would end them.
 MIN_TIMEOUT_S, MAX_TIMEOUT_S = 60, 7200
 
 OAUTH_VAR = "CLAUDE_CODE_OAUTH_TOKEN"

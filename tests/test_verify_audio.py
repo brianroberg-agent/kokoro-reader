@@ -144,7 +144,22 @@ class TestVerifyAudio:
         mock_client = mock_gemini_client(mock_genai, "No issues found.")
         verify_audio(make_wav(tmp_path / "audio.wav"), "Some source text.")
         config = mock_client.files.upload.call_args.kwargs["config"]
-        assert config["http_options"]["timeout"] == va.UPLOAD_TIMEOUT_MS == 2 * 60 * 60 * 1000
+        assert config["http_options"]["timeout"] == va.UPLOAD_TIMEOUT_MS
+
+    def test_the_upload_timeout_covers_the_longest_session(self):
+        """Review R7: UPLOAD_TIMEOUT_MS is meant to be the longest a narration session may
+        run, the pipeline's MAX_TIMEOUT_S. The pipeline is another package, so its value
+        is read from its source."""
+        import ast
+        from pathlib import Path
+        import verify_audio as va
+        source = Path(__file__).parent.parent / "pipeline/narration_pipeline/session_service.py"
+        found = {}
+        for node in ast.parse(source.read_text()).body:
+            if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Tuple):
+                for name, value in zip(node.targets[0].elts, node.value.elts):
+                    found[name.id] = ast.literal_eval(value)
+        assert va.UPLOAD_TIMEOUT_MS >= found["MAX_TIMEOUT_S"] * 1000
 
     @patch("verify_audio.genai")
     def test_returns_model_response_text(self, mock_genai, tmp_path):
