@@ -3,6 +3,7 @@ env examples. It checks what agentbox needs outside its launcher, the egress, wh
 service's secrets come from, and the volumes. The live checks (the images built and
 started, and the containment) are recorded in docs/pipeline.md."""
 
+import configparser
 import json
 import re
 import shutil
@@ -114,6 +115,26 @@ def test_runner_starts_with_up_only_once_the_schedule_profile_is_on(compose):
     assert compose["services"]["narration-runner"]["profiles"] == ["schedule"]
     assert "profiles" not in compose["services"]["narration-agent"]
     assert example_names("env.example")["COMPOSE_PROFILES"] == ""
+
+
+def unit(name: str) -> configparser.ConfigParser:
+    """A systemd unit file under deploy/. No interpolation: systemd's %h and %t would trip it."""
+    parser = configparser.ConfigParser(interpolation=None, strict=False)
+    parser.optionxform = str  # systemd's keys are case-sensitive
+    parser.read_string((DEPLOY / name).read_text())
+    return parser
+
+
+def test_the_boot_unit_brings_up_what_deploy_env_enables():
+    u = unit("rootless/narration.service")
+    assert u["Unit"]["Requires"] == "podman.socket" and "podman.socket" in u["Unit"]["After"].split()
+    assert u["Service"]["Type"] == "oneshot" and u["Service"]["RemainAfterExit"] == "yes"
+    assert u["Service"]["Environment"] == "DOCKER_HOST=unix://%t/podman/podman.sock"
+    assert u["Service"]["WorkingDirectory"] == "%h/kokoro-reader"
+    # a plain up -d: which services start is deploy/.env's COMPOSE_PROFILES
+    assert u["Service"]["ExecStart"] == "%h/.local/bin/docker-compose -f deploy/compose.yaml up -d"
+    assert u["Service"]["ExecStop"] == "%h/.local/bin/docker-compose -f deploy/compose.yaml stop"  # never down
+    assert u["Install"]["WantedBy"] == "default.target"
 
 
 def test_compose_settings_come_from_deploy_env():
