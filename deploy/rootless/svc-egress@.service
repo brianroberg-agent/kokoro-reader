@@ -1,0 +1,18 @@
+# The egress limit for one rootless service account: svc-egress@ACCOUNT.service runs
+# /usr/local/sbin/svc-egress apply ACCOUNT (docs/pipeline.md, "Deploy, rootless Podman").
+# Installed by root from a pinned commit, with svc-egress, never from the account's home.
+# The account's user manager Requires= this unit (user-egress.conf), so its containers
+# start only after the chain is in, and stop if this unit stops.
+
+[Unit]
+Description=Egress limit for the %i service account (svc-egress; docs/pipeline.md)
+After=network-pre.target ufw.service netfilter-persistent.service firewalld.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/svc-egress apply %i
+ExecStop=/usr/local/sbin/svc-egress remove %i
+
+[Install]
+WantedBy=multi-user.target

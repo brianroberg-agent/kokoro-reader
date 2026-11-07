@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# svc-egress: the one place a rootless service account's network reach is set on the host
+# (docs/pipeline.md, "Deploy, rootless Podman"; the design is
+# docs/superpowers/specs/2026-11-07-rootless-podman-design.md, "The one-rule limit").
+#
+#   svc-egress apply ACCOUNT    write the account's chain and its jumps
+#   svc-egress remove ACCOUNT   delete them
+#
+# Runs as root, from /usr/local/sbin, installed from a pinned commit: never from the
+# account's home, which the account could change before root runs it.
+#
+# A rootless container's outbound connections are opened on the host by a helper process
+# (slirp4netns) running as the account, so an owner match on the account's uid covers
+# everything its containers send. A second jump on its sub-id range covers a process that
+# breaks out of a container as a sub-id. Both jump to one chain, svc-ACCOUNT:
+#   IPv4: replies; the local resolver on loopback, and nothing else there; the grants in
+#         /etc/svc-egress/ACCOUNT.conf (GRANTS="ipv4:port ..."); then the LAN, the tailnet
+#         and link-local are rejected, and the internet is let through.
+#   IPv6: everything is rejected.
+#
+# Every input is checked before the first iptables call: on a bad grant, a missing conf,
+# an unknown account or no sub-id line it exits 1, naming the problem, and changes nothing.
+# A re-apply removes the old jumps and inserts new ones, so the account is unlimited for the
+# moment between the two (milliseconds); at boot it runs before the account's user manager.
+set -euo pipefail
+
+CONF_DIR=${SVC_EGRESS_CONF_DIR:-/etc/svc-egress}
+SUBUID=${SVC_EGRESS_SUBUID:-/etc/subuid}
+PRIVATE_V4="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16"
+
+die() { echo "svc-egress: $*" >&2; exit 1; }
+usage() { echo "usage: svc-egress apply|remove ACCOUNT" >&2; exit 2; }
+
+[ $# -eq 2 ] || usage
+action=$1 account=$2
+case $action in apply|remove) ;; *) usage ;; esac
+case $account in
+  ''|*[!a-z0-9_-]*|-*) die "not an account name: $account" ;;
+esac
+chain="svc-$account"
+[ ${#chain} -le 28 ] || die "account name too long for an iptables chain: $account"
+
+uid=$(id -u "$account" 2>/dev/null) || die "no account named $account"
+
+line=$(grep "^$account:" "$SUBUID" 2>/dev/null | head -n 1 || true)
+start=$(echo "$line" | cut -d: -f2)
+count=$(echo "$line" | cut -d: -f3)
+case "$start$count" in
+  ''|*[!0-9]*) die "no sub-id range for $account in $SUBUID (subuid)" ;;
+esac
+[ -n "$start" ] && [ -n "$count" ] || die "no sub-id range for $account in $SUBUID (subuid)"
+range="$start-$((start + count - 1))"
+
+grants=""
+if [ "$action" = apply ]; then
+  conf="$CONF_DIR/$account.conf"
+  [ -r "$conf" ] || die "no $conf"
+  grep -Eq '^GRANTS="[^"]*"[[:space:]]*$' "$conf" || die "no GRANTS=\"...\" line in $conf (quoted; empty for none)"
+  grants=$(sed -n 's/^GRANTS="\(.*\)"[[:space:]]*$/\1/p' "$conf" | tail -n 1)
+  for grant in $grants; do
+    ip=${grant%:*} port=${grant##*:}
+    echo "$grant" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}:[0-9]{1,5}$' || die "bad grant (want ipv4:port): $grant"
+    for octet in $(echo "$ip" | tr . ' '); do
+      [ "$octet" -le 255 ] || die "bad grant (address): $grant"
+    done
+    [ "$port" -ge 1 ] && [ "$port" -le 65535 ] || die "bad grant (port): $grant"
+  done
+fi
+
+# The account's jumps, deleted until none is left (iptables -D removes one match at a time).
+remove_jumps() {
+  local ipt=$1 owner
+  for owner in "$uid" "$range"; do
+    while "$ipt" -w -D OUTPUT -m owner --uid-owner "$owner" -j "$chain" 2>/dev/null; do :; done
+  done
+}
+
+# An empty chain: flushed when it's there, created when it isn't.
+empty_chain() {
+  local ipt=$1
+  if "$ipt" -w -S "$chain" >/dev/null 2>&1; then
+    "$ipt" -w -F "$chain"
+  else
+    "$ipt" -w -N "$chain"
+  fi
+}
+
+insert_jumps() {
+  local ipt=$1
+  "$ipt" -w -I OUTPUT 1 -m owner --uid-owner "$uid" -j "$chain"
+  "$ipt" -w -I OUTPUT 2 -m owner --uid-owner "$range" -j "$chain"
+}
+
+if [ "$action" = remove ]; then
+  for ipt in iptables ip6tables; do
+    remove_jumps "$ipt"
+    if "$ipt" -w -S "$chain" >/dev/null 2>&1; then
+      "$ipt" -w -F "$chain"
+      "$ipt" -w -X "$chain"
+    fi
+  done
+  exit 0
+fi
+
+remove_jumps iptables
+empty_chain iptables
+iptables -w -A "$chain" -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+iptables -w -A "$chain" -o lo -p udp --dport 53 -j RETURN
+iptables -w -A "$chain" -o lo -p tcp --dport 53 -j RETURN
+iptables -w -A "$chain" -o lo -j REJECT
+for grant in $grants; do
+  iptables -w -A "$chain" -d "${grant%:*}/32" -p tcp --dport "${grant##*:}" -j RETURN
+done
+for net in $PRIVATE_V4; do
+  iptables -w -A "$chain" -d "$net" -j REJECT
+done
+iptables -w -A "$chain" -j RETURN
+insert_jumps iptables
+
+remove_jumps ip6tables
+empty_chain ip6tables
+ip6tables -w -A "$chain" -j REJECT
+insert_jumps ip6tables
