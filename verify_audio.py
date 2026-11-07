@@ -12,6 +12,8 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+
+import httpx
 from google import genai
 from google.genai import types as genai_types
 from dotenv import load_dotenv
@@ -24,9 +26,83 @@ load_dotenv()
 
 DEFAULT_MODEL = "gemini-flash-latest"
 
-# Longest one Gemini request (an upload, a status poll or a generate_content call)
-# may take. With none, a request on a dead connection never returned (review F3).
+# What a Gemini request other than an upload tells Google's server it may take (the SDK
+# sends a request's timeout as X-Server-Timeout). On this side, StallLimit caps each
+# socket operation at the smaller of this and GEMINI_STALL_S: that cap is what keeps a
+# request on a dead connection from hanging (review F3).
 GEMINI_TIMEOUT_MS = 10 * 60 * 1000
+
+# The longest a narration session may run (the pipeline's MAX_TIMEOUT_S;
+# tests/test_verify_audio.py checks this covers it).
+LONGEST_SESSION_S = 2 * 60 * 60
+
+# What an upload's requests tell Google's server they may take (the SDK sends a request's
+# timeout as X-Server-Timeout): each carries 8 MB of audio, which on a slow connection
+# takes longer than GEMINI_TIMEOUT_MS. The stall limit below still ends a dead connection.
+UPLOAD_TIMEOUT_MS = LONGEST_SESSION_S * 1000
+
+# Longest a connection to Gemini may go without sending or receiving anything before
+# it is taken as dead (review F3).
+GEMINI_STALL_S = 10 * 60
+# A request body goes out this many bytes at a time. Over TLS one socket write must
+# finish within the write timeout, however steadily it moves, and the SDK uploads in
+# 8 MB requests: in acceptance dry run 2 an upload slowed to about 30 KB/s by a backup
+# failed with "The write operation timed out". At 64 KiB per write, a stall limit of
+# 10 minutes ends only a connection that moves less than about 110 bytes a second.
+WRITE_PIECE = 64 * 1024
+
+
+class _InPieces(httpx.SyncByteStream):
+    def __init__(self, stream, size: int, check_limit):
+        self._stream, self._size, self._check_limit = stream, size, check_limit
+
+    def __iter__(self):
+        for part in self._stream:
+            for i in range(0, len(part), self._size):
+                self._check_limit()
+                yield part[i:i + self._size]
+
+    def close(self) -> None:
+        self._stream.close()  # an httpx request stream: a SyncByteStream
+
+
+class StallLimit:
+    """An httpx request hook for the Gemini requests of one check: no one socket
+    operation of a request waits longer than stall_s, and its body is written
+    WRITE_PIECE bytes at a time, so a transfer that keeps moving goes on however slow it
+    is, and one that stops fails.
+
+    The check as a whole stops once it has run longer than total_s, the longest a
+    narration session may run: no request starts after that, and an upload stops between
+    two pieces. By then the check's session has ended, and a check left running would go
+    on using a slow link the next run needs (review R2.1).
+
+    A hook, not a transport: an httpx client given a transport ignores the environment's
+    proxies (review R1), and the SDK's client keeps its own TLS context."""
+
+    def __init__(self, stall_s: float = GEMINI_STALL_S, total_s: float = LONGEST_SESSION_S):
+        self.stall_s, self.total_s = stall_s, total_s
+        self.deadline = time.monotonic() + total_s
+
+    def __call__(self, request: httpx.Request) -> None:
+        self._check_limit(request)
+        asked = request.extensions.get("timeout", {})
+        request.extensions["timeout"] = {
+            k: self.stall_s if asked.get(k) is None else min(asked[k], self.stall_s)
+            for k in ("connect", "read", "write", "pool")}
+        request.stream = _InPieces(request.stream, WRITE_PIECE, lambda: self._check_limit(request))
+
+    def _check_limit(self, request: httpx.Request) -> None:
+        if time.monotonic() >= self.deadline:
+            raise httpx.TimeoutException(
+                f"the check has run longer than {self.total_s:g} s, the longest a narration "
+                "session may run", request=request)
+
+
+def gemini_http_options() -> genai_types.HttpOptions:
+    """The options the verifier's Gemini client is built with."""
+    return genai_types.HttpOptions(timeout=GEMINI_TIMEOUT_MS,
+                                   client_args={"event_hooks": {"request": [StallLimit()]}})
 
 # Longest stretch of audio one generate_content call can be trusted with.
 # Calibrated empirically on known audio (issue #4): at 11.4 minutes,
@@ -218,8 +294,7 @@ def verify_audio(audio_path: str, source_text: str, model: str = DEFAULT_MODEL,
         audio = AudioSegment.from_wav(audio_path)
     precheck = precheck_report(audio, source_text)
 
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"),
-                          http_options=genai_types.HttpOptions(timeout=GEMINI_TIMEOUT_MS))
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"), http_options=gemini_http_options())
 
     sections = split_sections(source_text)
     gaps = find_section_gaps(audio)
@@ -269,7 +344,9 @@ def _wait_until_active(client, audio_file, poll_seconds: int = 2,
 def _verify_single(client, audio_path: str, source_text: str, model: str,
                    context_note: str = "") -> str:
     """Verify one audio file against its text in a single model call."""
-    audio_file = _wait_until_active(client, client.files.upload(file=audio_path))
+    uploaded = client.files.upload(file=audio_path,
+                                   config={"http_options": {"timeout": UPLOAD_TIMEOUT_MS}})
+    audio_file = _wait_until_active(client, uploaded)
 
     prompt = VERIFICATION_PROMPT.format(source_text=source_text)
     if context_note:

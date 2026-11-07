@@ -116,7 +116,7 @@ On the home server, from scratch:
    Then check that a runner container, not only the host, reaches the Mac over the tailnet: `docker compose -f deploy/compose.yaml run --rm narration-runner curl -s http://<MAC_HOST>:8770/health` gives `{"ok":true}`. (`run --rm` starts a one-off runner container through agentbox's entrypoint, so the firewall applies and the command runs as node; its firewall lines come first in the output, and they too include `verified: base hosts blocked`. If it can't start, the output says why: for example a hostname in `RUNNER_ALLOW` that doesn't resolve, or a missing variable in `runner.env`, named but never its value.)
 
 8. **The acceptance run:** one real article, first as a dry run, then published (the commands are in Operate, below):
-   1. A dry run of one article: `run --dry-run --only <article URL>`. Its discovery also queues every article in scope, and it reports `would publish` with the episode notes.
+   1. A dry run of one article: `run --dry-run --only <article URL>`. Its discovery also queues every article in scope, and its report line reads `queued  publish  <title>`, with the episode notes below it.
    2. The same article for real: `run --only <article URL>`. It reports `published` (or `published_with_notes`).
    3. Brian listens to the episode in Audiobookshelf.
 
@@ -149,7 +149,7 @@ Every `exec` below has `-u node`. `exec` doesn't go through agentbox's entrypoin
 docker compose -f deploy/compose.yaml exec -u node narration-runner uv run --frozen python -m narration_pipeline status
 ```
 
-**A dry run of one article.** It fetches, records and checks the article and finalizes the work item, then reports what it would have done (`would publish`, with the notes), but publishes nothing, sends no push and leaves the row `queued`. The run discovers first, and the URL must be one discovery found (now or on an earlier night); otherwise the run stops with `not discovered: <URL>`.
+**A dry run of one article.** It fetches, records and checks the article and finalizes the work item, then reports what it would have done (`publish`, `hold` or `retry`, with the notes, and the reasons when it would not publish), but publishes nothing, sends no push and leaves the row `queued`. The run discovers first, and the URL must be one discovery found (now or on an earlier night); otherwise the run stops with `not discovered: <URL>`.
 
 ```bash
 docker compose -f deploy/compose.yaml run --rm narration-runner \

@@ -59,11 +59,10 @@ TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{43}")  # secrets.token_urlsafe(32); both m
 MAX_RULES = 20
 MAX_RULE_CHARS = 300
 MAX_BUDGET_USD = 5.00
+# verify_audio.UPLOAD_TIMEOUT_MS (the root package) is at least MAX_TIMEOUT_S: raise it with
+# this, or a slow upload's requests may be cut off before the session would end them.
 MIN_TIMEOUT_S, MAX_TIMEOUT_S = 60, 7200
 
-# Claude Code's per-call limit for the narration server, in ms (docs/narration-server.md:
-# a check of a long recording takes longer than its default of about 60 s).
-MCP_TIMEOUT_MS = 900_000
 OAUTH_VAR = "CLAUDE_CODE_OAUTH_TOKEN"
 # What the session inherits from the service's environment, when the service has it.
 # USER and LOGNAME: on macOS the CLI's keychain login needs them.
@@ -166,9 +165,12 @@ def validate_request(obj) -> Request:
     return Request(obj["item_id"], token, tuple(rules), float(budget), timeout)
 
 
-def mcp_config(narration_url: str, token: str) -> dict:
-    """The session's --mcp-config, as docs/narration-server.md gives it."""
-    return {"mcpServers": {"narration": {"type": "http", "url": narration_url, "timeout": MCP_TIMEOUT_MS,
+def mcp_config(narration_url: str, token: str, timeout_s: int) -> dict:
+    """The session's --mcp-config, as docs/narration-server.md gives it. The "timeout" is
+    Claude Code's per-call limit for the narration server, in ms: the session's own
+    timeout, so a slow record or check makes the session wait rather than give up on a
+    call the server is still running (Claude Code's default is about 60 s)."""
+    return {"mcpServers": {"narration": {"type": "http", "url": narration_url, "timeout": timeout_s * 1000,
                                          "headers": {"Authorization": f"Bearer {token}"}}}}
 
 
@@ -422,7 +424,7 @@ def run_session(req: Request, cfg: ServiceConfig, beat=_no_beat) -> dict:
 
 def _run(req: Request, cfg: ServiceConfig, private: Path, started: list, secrets, beat) -> dict:
     config = private / "mcp.json"
-    _write_private(config, json.dumps(mcp_config(cfg.narration_url, req.agent_token)))
+    _write_private(config, json.dumps(mcp_config(cfg.narration_url, req.agent_token, req.timeout_s)))
     argv = claude_argv(config, cfg.prompt, req.budget_usd, session_prompt(req.text_rules))
     try:
         proc = subprocess.Popen(argv, cwd=private, env=session_env(os.environ), stdin=subprocess.DEVNULL,

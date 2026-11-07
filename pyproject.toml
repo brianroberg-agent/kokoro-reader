@@ -7,6 +7,7 @@ requires-python = ">=3.10"
 license = "MIT"
 dependencies = [
     "google-genai>=1.67.0",
+    "httpx",
     "misaki[en]",
     "mcp==2.3.0",
     "mlx-audio",
@@ -21,7 +22,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "httpx",
     "hypothesis",
     "pytest",
     "pytest-subtests",

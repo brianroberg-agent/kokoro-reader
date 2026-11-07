@@ -68,6 +68,29 @@ def test_run_dry_run_prints_a_report_and_exits_zero(tmp_path, capsys):
     assert world.abs.episodes == [] and world.push.sent == []
 
 
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_the_report_says_why_an_article_was_not_published(tmp_path, capsys, dry_run):
+    # Acceptance dry run 2 printed "queued  retry  <title>" and nothing else: the reason
+    # (the session ended without calling finish) was in the result but not in the report.
+    world = World(tmp_path)
+    world.add_article(1, script=Script(session="no_finish"))
+    assert main(["run"] + (["--dry-run"] if dry_run else []), env={},
+                deps_factory=lambda env: world.deps()) == 0
+    assert "the session ended without calling finish" in capsys.readouterr().out
+
+
+def test_the_reasons_in_the_report_carry_no_url_secrets():
+    # Review R2.3: every outgoing text goes through messages.plain (no userinfo, query or
+    # fragment in a URL), and the run's output goes to the container's log.
+    from narration_pipeline.night import ItemResult, NightReport
+    reason = "fetch failed: https://reader:pa55word@example.test/a/b?token=synthetic-secret#frag"
+    result = ItemResult(url="https://example.test/a", title="Article 1", status="queued", outcome=None,
+                        reasons=[reason], cost_usd=0.0, gemini_usd=0.0, dry_run_action="retry")
+    out = cli.report_text(NightReport(results=[result]), dry_run=True)
+    assert "https://example.test/a/b" in out
+    assert not any(s in out for s in ("reader", "pa55word", "synthetic-secret", "frag"))
+
+
 def test_run_only_a_url(tmp_path, capsys):
     world = World(tmp_path)
     url = world.add_article(1)

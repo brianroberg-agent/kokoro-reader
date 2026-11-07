@@ -4,6 +4,8 @@ Unit tests for verify_audio.py script.
 Run with: pytest test_verify_audio.py
 """
 
+import time
+
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -111,14 +113,65 @@ class TestVerifyAudio:
 
     @patch("verify_audio.genai")
     def test_the_gemini_client_has_a_request_timeout(self, mock_genai, tmp_path):
-        """Review F3: with no HTTP timeout, a request on a dead connection never
-        returned, and the narration server's item lock was held for good."""
+        """What each request tells Google's server it may take. Review F3 (a request on
+        a dead connection never returned, and the narration server's item lock was held
+        for good) is now kept by the stall limit, in the next test."""
         import verify_audio as va
         mock_gemini_client(mock_genai, "No issues found.")
         verify_audio(make_wav(tmp_path / "audio.wav"), "Some source text.")
         options = mock_genai.Client.call_args.kwargs["http_options"]
         assert options.timeout == va.GEMINI_TIMEOUT_MS
         assert 0 < va.GEMINI_TIMEOUT_MS <= 30 * 60 * 1000
+
+    @patch("verify_audio.genai")
+    def test_the_gemini_client_tells_a_slow_connection_from_a_dead_one(self, mock_genai, tmp_path):
+        """Acceptance dry run 2: an upload slowed by a backup failed while it was still
+        moving. Every Gemini request goes through the StallLimit request hook
+        (tests/test_verify_audio_connection.py), which ends only one that stops moving."""
+        import verify_audio as va
+        mock_gemini_client(mock_genai, "No issues found.")
+        verify_audio(make_wav(tmp_path / "audio.wav"), "Some source text.")
+        client_args = mock_genai.Client.call_args.kwargs["http_options"].client_args
+        [hook] = client_args["event_hooks"]["request"]
+        assert isinstance(hook, va.StallLimit) and hook.stall_s == va.GEMINI_STALL_S
+        # the check's overall limit (review R2.1) counts from when its client was made
+        assert abs(hook.deadline - (time.monotonic() + va.LONGEST_SESSION_S)) < 30
+        assert 0 < va.GEMINI_STALL_S <= 30 * 60
+        assert "transport" not in client_args  # review R1: a transport turns off env proxies
+
+    @patch("verify_audio.genai")
+    def test_an_upload_tells_the_server_it_may_take_long(self, mock_genai, tmp_path):
+        """The SDK sends a request's timeout to the server as X-Server-Timeout. An upload
+        request carries 8 MB of audio, which on a slow connection takes more than the 10
+        minutes the other requests get, so the upload's requests tell the server 2 hours,
+        the longest a session may run. The stall limit still ends a dead connection."""
+        import verify_audio as va
+        mock_client = mock_gemini_client(mock_genai, "No issues found.")
+        verify_audio(make_wav(tmp_path / "audio.wav"), "Some source text.")
+        config = mock_client.files.upload.call_args.kwargs["config"]
+        assert config["http_options"]["timeout"] == va.UPLOAD_TIMEOUT_MS
+
+    def test_the_upload_timeout_covers_the_longest_session(self):
+        """Review R7: UPLOAD_TIMEOUT_MS is meant to be the longest a narration session may
+        run, the pipeline's MAX_TIMEOUT_S. The pipeline is another package, so its value
+        is read from its source."""
+        import ast
+        from pathlib import Path
+        import verify_audio as va
+        source = Path(__file__).parent.parent / "pipeline/narration_pipeline/session_service.py"
+        found = None
+        for node in ast.parse(source.read_text()).body:  # only the assignment naming it (R2.8)
+            if not isinstance(node, ast.Assign):
+                continue
+            target = node.targets[0]
+            names = ([getattr(e, "id", None) for e in target.elts] if isinstance(target, ast.Tuple)
+                     else [getattr(target, "id", None)])
+            if "MAX_TIMEOUT_S" in names:
+                values = node.value.elts if isinstance(target, ast.Tuple) else [node.value]
+                found = ast.literal_eval(values[names.index("MAX_TIMEOUT_S")])
+        assert found is not None, "MAX_TIMEOUT_S not found in session_service.py"
+        assert va.LONGEST_SESSION_S >= found
+        assert va.UPLOAD_TIMEOUT_MS == va.LONGEST_SESSION_S * 1000
 
     @patch("verify_audio.genai")
     def test_returns_model_response_text(self, mock_genai, tmp_path):
