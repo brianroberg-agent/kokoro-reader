@@ -14,8 +14,9 @@
 # everything its containers send. A second jump on its sub-id range covers a process that
 # breaks out of a container as a sub-id. Both jump to one chain, svc-ACCOUNT:
 #   IPv4: replies; the local resolver on loopback, and nothing else there; the grants in
-#         /etc/svc-egress/ACCOUNT.conf (GRANTS="ipv4:port ..."); then the LAN, the tailnet
-#         and link-local are rejected, and the internet is let through.
+#         /etc/svc-egress/ACCOUNT.conf (GRANTS="ipv4:port ..."); then the LAN, the tailnet,
+#         link-local, multicast, broadcast and reserved addresses are rejected, and the
+#         internet is let through.
 #   IPv6: everything is rejected.
 #
 # Every input is checked before the first iptables call: on a bad grant, a missing conf,
@@ -26,7 +27,9 @@ set -euo pipefail
 
 CONF_DIR=${SVC_EGRESS_CONF_DIR:-/etc/svc-egress}
 SUBUID=${SVC_EGRESS_SUBUID:-/etc/subuid}
-PRIVATE_V4="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16"
+# The LAN, the tailnet and link-local; "this network" (0.0.0.0 reaches the host itself);
+# multicast (mDNS and SSDP answer from devices at home); the reserved block, broadcast in it.
+PRIVATE_V4="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16 0.0.0.0/8 224.0.0.0/4 240.0.0.0/4"
 
 die() { echo "svc-egress: $*" >&2; exit 1; }
 usage() { echo "usage: svc-egress apply|remove ACCOUNT" >&2; exit 2; }

@@ -19,7 +19,10 @@ ACCOUNT, UID, SUBUID_START, SUBUID_COUNT = "narration", 1001, 231072, 65536
 RANGE = f"{SUBUID_START}-{SUBUID_START + SUBUID_COUNT - 1}"  # 231072-296607
 GRANTS = "100.64.0.5:8770 192.168.50.20:13378"
 CHAIN = f"svc-{ACCOUNT}"
-PRIVATE = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16"]
+# the LAN, the tailnet and link-local; then "this network" (0.0.0.0 reaches the host itself),
+# multicast (mDNS and SSDP answer from devices at home) and the reserved block with broadcast
+PRIVATE = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16",
+           "0.0.0.0/8", "224.0.0.0/4", "240.0.0.0/4"]
 V4_RULES = [
     "-m conntrack --ctstate ESTABLISHED,RELATED -j RETURN",  # replies, the agent's own ssh among them
     "-o lo -p udp --dport 53 -j RETURN",  # the local resolver
