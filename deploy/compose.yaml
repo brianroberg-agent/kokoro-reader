@@ -22,6 +22,11 @@ name: narration
 
 services:
   narration-runner:
+    # A plain `up -d` (the account's boot unit, deploy/rootless/narration.service) starts
+    # the runner only once COMPOSE_PROFILES=schedule is set in deploy/.env, after the
+    # acceptance run. `run --rm narration-runner ...` and `up -d narration-runner` name it,
+    # which turns its profile on for that command.
+    profiles: ["schedule"]
     build:
       context: ..
       dockerfile: deploy/narration-runner/Dockerfile

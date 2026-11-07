@@ -108,10 +108,19 @@ def test_volumes(compose):
     assert compose["services"]["narration-agent"]["volumes"] == ["narration-handoff:/handoff"]
 
 
+def test_runner_starts_with_up_only_once_the_schedule_profile_is_on(compose):
+    # The account's boot unit runs a plain `up -d`: until Brian has listened to the acceptance
+    # episode, that starts the agent alone. COMPOSE_PROFILES=schedule in deploy/.env adds the runner.
+    assert compose["services"]["narration-runner"]["profiles"] == ["schedule"]
+    assert "profiles" not in compose["services"]["narration-agent"]
+    assert example_names("env.example")["COMPOSE_PROFILES"] == ""
+
+
 def test_compose_settings_come_from_deploy_env():
     text = (DEPLOY / "compose.yaml").read_text()
     used = re.findall(r"\$\{([A-Z_]+)([^}]*)\}", text)
-    assert {name for name, _ in used} == set(example_names("env.example"))
+    # COMPOSE_PROFILES isn't used in the file: compose reads it from deploy/.env itself
+    assert {name for name, _ in used} | {"COMPOSE_PROFILES"} == set(example_names("env.example"))
     optional = {"MAC_PORT": ":-8770", "RUNNER_LAN": ":-", "NARRATION_SECRETS_DIR": ":-/srv/narration",
                 "NARRATION_NO_NEW_PRIVILEGES": ":-true"}
     for name, rest in used:  # compose stops, naming the setting, when a required one is unset
