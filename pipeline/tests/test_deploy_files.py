@@ -3,6 +3,7 @@ env examples. It checks what agentbox needs outside its launcher, the egress, wh
 service's secrets come from, and the volumes. The live checks (the images built and
 started, and the containment) are recorded in docs/pipeline.md."""
 
+import configparser
 import json
 import re
 import shutil
@@ -108,10 +109,63 @@ def test_volumes(compose):
     assert compose["services"]["narration-agent"]["volumes"] == ["narration-handoff:/handoff"]
 
 
+def test_runner_starts_with_up_only_once_the_schedule_profile_is_on(compose):
+    # The account's boot unit runs a plain `up -d`: until Brian has listened to the acceptance
+    # episode, that starts the agent alone. COMPOSE_PROFILES=schedule in deploy/.env adds the runner.
+    assert compose["services"]["narration-runner"]["profiles"] == ["schedule"]
+    assert "profiles" not in compose["services"]["narration-agent"]
+    assert example_names("env.example")["COMPOSE_PROFILES"] == ""
+
+
+def unit(name: str) -> configparser.ConfigParser:
+    """A systemd unit file under deploy/. No interpolation: systemd's %h and %t would trip it."""
+    parser = configparser.ConfigParser(interpolation=None, strict=False)
+    parser.optionxform = str  # systemd's keys are case-sensitive
+    parser.read_string((DEPLOY / name).read_text())
+    return parser
+
+
+def test_the_boot_unit_brings_up_what_deploy_env_enables():
+    u = unit("rootless/narration.service")
+    assert u["Unit"]["Requires"] == "podman.socket" and "podman.socket" in u["Unit"]["After"].split()
+    # Review R9: stopped before the podman API it talks to, so its `stop` is a clean one
+    assert "podman.service" in u["Unit"]["After"].split()
+    assert u["Service"]["Type"] == "oneshot" and u["Service"]["RemainAfterExit"] == "yes"
+    assert u["Service"]["Environment"] == "DOCKER_HOST=unix://%t/podman/podman.sock"
+    assert u["Service"]["WorkingDirectory"] == "%h/kokoro-reader"
+    # a plain up -d: which services start is deploy/.env's COMPOSE_PROFILES
+    # Round 3, #9: never builds at boot (a missing image fails at once; images are built by
+    # hand), and gives up after 5 minutes rather than hanging as "activating"
+    assert u["Service"]["ExecStart"] == "%h/.local/bin/docker-compose -f deploy/compose.yaml up -d --no-build"
+    assert u["Service"]["TimeoutStartSec"] == "5min"
+    # Round 2, #4 and #5: podman itself, not compose through the API. At shutdown the
+    # socket-activated API may already be gone, and compose's `stop` skips a service whose
+    # profile isn't on, the runner started by name among them. Never `down`.
+    stop = u["Service"]["ExecStop"]
+    assert "podman stop" in stop and "label=com.docker.compose.project=narration" in stop
+    assert "docker-compose" not in stop and " down" not in stop and " rm" not in stop
+    assert u["Install"]["WantedBy"] == "default.target"
+
+
+def test_every_build_in_the_guide_builds_the_runner_too():
+    # Review R5: with the runner in the schedule profile, a plain `build` or `up -d --build`
+    # skips it until COMPOSE_PROFILES=schedule, and its image goes stale beside the agent's.
+    guide = (DEPLOY.parent / "docs" / "pipeline.md").read_text()
+    verified = guide.index("## Verified")  # what ran before the profile, as it ran
+    # round 2, #8: the compose file's own header too
+    text = guide[:verified] + "\n" + (DEPLOY / "compose.yaml").read_text()
+    builds = [line for line in text.splitlines()
+              if re.search(r"compose[^`]* (build|up [^`]*--build)", line)]
+    assert builds
+    for line in builds:
+        assert "--profile schedule" in line, line
+
+
 def test_compose_settings_come_from_deploy_env():
     text = (DEPLOY / "compose.yaml").read_text()
     used = re.findall(r"\$\{([A-Z_]+)([^}]*)\}", text)
-    assert {name for name, _ in used} == set(example_names("env.example"))
+    # COMPOSE_PROFILES isn't used in the file: compose reads it from deploy/.env itself
+    assert {name for name, _ in used} | {"COMPOSE_PROFILES"} == set(example_names("env.example"))
     optional = {"MAC_PORT": ":-8770", "RUNNER_LAN": ":-", "NARRATION_SECRETS_DIR": ":-/srv/narration",
                 "NARRATION_NO_NEW_PRIVILEGES": ":-true"}
     for name, rest in used:  # compose stops, naming the setting, when a required one is unset

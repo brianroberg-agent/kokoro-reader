@@ -1,0 +1,32 @@
+# The narration pipeline's containers, in the rootless service account's systemd user
+# manager (docs/pipeline.md, "Deploy, rootless Podman"). Linked into
+# ~/.config/systemd/user/ and enabled there; with linger on, it starts at boot.
+#
+# A plain `up -d`: which services it starts is COMPOSE_PROFILES in deploy/.env. Empty,
+# that's narration-agent alone; `schedule` adds narration-runner after the acceptance run.
+# Stopping the unit stops every container of the project, the runner too, and keeps them and
+# their volumes (never `down`).
+
+[Unit]
+Description=Narration pipeline containers (rootless Podman; docs/pipeline.md)
+Requires=podman.socket
+# After podman.service as well (review R9). ExecStop below calls podman itself, so a stop at
+# shutdown doesn't depend on the API still being there.
+After=podman.socket podman.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=DOCKER_HOST=unix://%t/podman/podman.sock
+WorkingDirectory=%h/kokoro-reader
+# --no-build: images are built by hand (docs/pipeline.md); a missing one fails here at once.
+ExecStart=%h/.local/bin/docker-compose -f deploy/compose.yaml up -d --no-build
+# A oneshot has no start timeout of its own: give up rather than hang as "activating".
+TimeoutStartSec=5min
+# podman itself, not compose through the API: at shutdown the socket-activated API may be
+# gone already, and compose's `stop` skips a service whose profile isn't on (the runner,
+# started by name). Every container of the project, stopped and kept.
+ExecStop=/bin/sh -c 'podman ps -q --filter label=com.docker.compose.project=narration | xargs -r podman stop -t 10'
+
+[Install]
+WantedBy=default.target

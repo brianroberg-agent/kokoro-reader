@@ -1,0 +1,13 @@
+# Runs svc-egress-check@ACCOUNT.service every 30 s (docs/pipeline.md, "The account's reach").
+# On the clock, not counted from the check's last run, which never comes if the first check
+# after boot fails. Started by svc-egress@ACCOUNT (its Wants=) and stopped with it (PartOf=):
+# it has no [Install] of its own.
+
+[Unit]
+Description=Check the egress limit for the %i service account every 30 s
+PartOf=svc-egress@%i.service
+
+[Timer]
+OnCalendar=*:*:0/30
+AccuracySec=5s
+Unit=svc-egress-check@%i.service
