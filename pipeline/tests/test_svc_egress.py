@@ -365,6 +365,10 @@ def test_the_egress_unit_runs_apply_and_remove():
     u = unit("rootless/svc-egress@.service")
     assert u["Service"]["ExecStart"] == "/usr/local/sbin/svc-egress apply %i"
     assert u["Service"]["ExecStop"] == "/usr/local/sbin/svc-egress remove %i"
+    # Review R8: a new grant goes in with `systemctl reload`, which re-applies in place. A
+    # restart would restart the account's user manager too (it Requires= this unit), and
+    # with it every container.
+    assert u["Service"]["ExecReload"] == "/usr/local/sbin/svc-egress apply %i"
     assert u["Service"]["Type"] == "oneshot" and u["Service"]["RemainAfterExit"] == "yes"
     assert u["Install"]["WantedBy"] == "multi-user.target"
     # after the host's own firewall tools, so a full reload of theirs at boot comes first

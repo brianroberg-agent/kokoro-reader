@@ -13,6 +13,9 @@ Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/local/sbin/svc-egress apply %i
 ExecStop=/usr/local/sbin/svc-egress remove %i
+# A changed grant: `systemctl reload`, which re-applies in place. Not `restart`: the account's
+# user manager Requires= this unit, so a restart restarts it too, and every container.
+ExecReload=/usr/local/sbin/svc-egress apply %i
 
 [Install]
 WantedBy=multi-user.target

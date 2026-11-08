@@ -111,7 +111,9 @@ systemctl enable --now svc-egress@narration.service
 iptables -S svc-narration; ip6tables -S svc-narration; iptables -S OUTPUT | head -n 4
 ```
 
-The grants are the same as in `deploy/.env`: the Mac's narration port, and Audiobookshelf's address and port. If ufw or another tool manages the host's firewall, reload it and run the three `-S` commands again: the chain must still be there.
+The grants are the same as in `deploy/.env`: the Mac's narration port, and Audiobookshelf's address and port.
+
+**To change a grant later**, edit `/etc/svc-egress/narration.conf`, then `systemctl reload svc-egress@narration.service`. That re-applies the chain in place. Don't `restart` it: the account's user manager requires that unit, so a restart restarts the manager too, and every container under it. A runner mid-article would leave its article `in_progress`. If ufw or another tool manages the host's firewall, reload it and run the three `-S` commands again: the chain must still be there.
 
 **R3b, the secrets, once the chain checks pass.** Copy the two files into the account; they're never shown or typed again. Then stop the root deployment's agent, with `stop`, never `down -v`:
 
