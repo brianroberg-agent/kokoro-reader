@@ -22,8 +22,8 @@
 #
 # Every input is checked before the first iptables call: on a bad grant, a missing conf,
 # an unknown account or no sub-id line it exits 1, naming the problem, and changes nothing.
-# A re-apply removes the old jumps and inserts new ones, so the account is unlimited for the
-# moment between the two (milliseconds); at boot it runs before the account's user manager.
+# Each family loads in one iptables-restore, so a failed apply leaves that family as it was,
+# and a re-apply keeps the jumps in place throughout.
 set -euo pipefail
 
 CONF_DIR=${SVC_EGRESS_CONF_DIR:-/etc/svc-egress}
@@ -94,22 +94,6 @@ remove_jumps() {
   done
 }
 
-# An empty chain: flushed when it's there, created when it isn't.
-empty_chain() {
-  local ipt=$1
-  if "$ipt" -w -S "$chain" >/dev/null 2>&1; then
-    "$ipt" -w -F "$chain"
-  else
-    "$ipt" -w -N "$chain"
-  fi
-}
-
-insert_jumps() {
-  local ipt=$1
-  "$ipt" -w -I OUTPUT 1 -m owner --uid-owner "$uid" -j "$chain"
-  "$ipt" -w -I OUTPUT 2 -m owner --uid-owner "$range" -j "$chain"
-}
-
 if [ "$action" = remove ]; then
   for ipt in iptables ip6tables; do
     remove_jumps "$ipt"
@@ -121,29 +105,55 @@ if [ "$action" = remove ]; then
   exit 0
 fi
 
-remove_jumps iptables
-empty_chain iptables
-iptables -w -A "$chain" -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
-# Name lookups: the host's own stub resolver, for the account's shell; then the upstream
-# resolvers the conf names, which a compose network's aardvark-dns forwards to.
-iptables -w -A "$chain" -o lo -p udp --dport 53 -j RETURN
-iptables -w -A "$chain" -o lo -p tcp --dport 53 -j RETURN
-for resolver in $resolvers; do
-  iptables -w -A "$chain" -d "$resolver/32" -p udp --dport 53 -j RETURN
-  iptables -w -A "$chain" -d "$resolver/32" -p tcp --dport 53 -j RETURN
-done
-# The grants before loopback: a grant to one of the server's own addresses goes out over lo.
-for grant in $grants; do
-  iptables -w -A "$chain" -d "${grant%:*}/32" -p tcp --dport "${grant##*:}" -j RETURN
-done
-iptables -w -A "$chain" -o lo -j REJECT
-for net in $PRIVATE_V4; do
-  iptables -w -A "$chain" -d "$net" -j REJECT
-done
-iptables -w -A "$chain" -j RETURN
-insert_jumps iptables
+# The account's IPv4 chain, as iptables-restore lines.
+v4_rules() {
+  printf '%s\n' "-A $chain -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN"
+  # Name lookups: the host's own stub resolver, for the account's shell; then the upstream
+  # resolvers the conf names, which a compose network's aardvark-dns forwards to.
+  printf '%s\n' "-A $chain -o lo -p udp --dport 53 -j RETURN" "-A $chain -o lo -p tcp --dport 53 -j RETURN"
+  for resolver in $resolvers; do
+    printf '%s\n' "-A $chain -d $resolver/32 -p udp --dport 53 -j RETURN" \
+      "-A $chain -d $resolver/32 -p tcp --dport 53 -j RETURN"
+  done
+  # The grants before loopback: a grant to one of the server's own addresses goes out over lo.
+  for grant in $grants; do
+    printf '%s\n' "-A $chain -d ${grant%:*}/32 -p tcp --dport ${grant##*:} -j RETURN"
+  done
+  printf '%s\n' "-A $chain -o lo -j REJECT"
+  for net in $PRIVATE_V4; do
+    printf '%s\n' "-A $chain -d $net -j REJECT"
+  done
+  printf '%s\n' "-A $chain -j RETURN"
+}
 
-remove_jumps ip6tables
-empty_chain ip6tables
-ip6tables -w -A "$chain" -j REJECT
-insert_jumps ip6tables
+# The account's IPv6 chain: nothing gets out.
+v6_rules() {
+  printf '%s\n' "-A $chain -j REJECT"
+}
+
+# One family's chain and jumps in a single iptables-restore --noflush: all of it takes, or
+# none of it does, and the rest of the table is left alone. Declaring the chain creates it,
+# or empties it to be filled again in the same load. Jumps already the first two rules of
+# OUTPUT stay where they are, so a re-apply has no moment without them; otherwise every
+# jump to the chain is deleted and the pair inserted at the top, in the same load.
+load() {
+  local ipt=$1 rules=$2 output top want
+  output=$("$ipt" -w -S OUTPUT)
+  top=$(printf '%s\n' "$output" | grep '^-A OUTPUT ' | head -n 2 || true)
+  want=$(printf '%s\n' "-A OUTPUT -m owner --uid-owner $uid -j $chain" \
+    "-A OUTPUT -m owner --uid-owner $range -j $chain")
+  {
+    printf '%s\n' '*filter' ":$chain - [0:0]"
+    "$rules"
+    if [ "$top" != "$want" ]; then
+      printf '%s\n' "$output" | grep -E "^-A OUTPUT .* -j $chain\$" | sed 's/^-A /-D /' || true
+      printf '%s\n' "-I OUTPUT 1 -m owner --uid-owner $uid -j $chain" \
+        "-I OUTPUT 2 -m owner --uid-owner $range -j $chain"
+    fi
+    printf '%s\n' COMMIT
+  } | "$ipt-restore" -w --noflush
+}
+
+# IPv6 first: if it fails, IPv4 is left as it was, and the exit status says so.
+load ip6tables v6_rules
+load iptables v4_rules

@@ -46,59 +46,87 @@ JUMPS = [f"-m owner --uid-owner {UID} -j {CHAIN}", f"-m owner --uid-owner {RANGE
 
 FAKE_IPTABLES = r'''
 import json, os, sys
-family = "v6" if os.path.basename(sys.argv[0]).startswith("ip6") else "v4"
+prog = os.path.basename(sys.argv[0])
+family = "v6" if prog.startswith("ip6") else "v4"
 args = [a for a in sys.argv[1:] if a != "-w"]
-with open(os.environ["FAKE_IPT_LOG"], "a") as log:
-    log.write(" ".join([os.path.basename(sys.argv[0])] + args) + "\n")
+log = open(os.environ["FAKE_IPT_LOG"], "a")
 path = os.environ["FAKE_IPT_STATE"]
 state = json.load(open(path))
-chains = state[family]
-op, rest = args[0], args[1:]
 
-def fail(msg):
-    print(msg, file=sys.stderr)
-    sys.exit(1)
 
-if op == "-S":
-    names = rest[:1] or list(chains)
-    for name in names:
-        if name not in chains:
-            fail(f"iptables: No chain/target/match by that name.")
-        print(f"-P {name} ACCEPT" if name in ("INPUT", "OUTPUT", "FORWARD") else f"-N {name}")
-        for rule in chains[name]:
-            print(f"-A {name} {rule}")
-    sys.exit(0)
-name = rest[0]
-if op == "-N":
-    if name in chains:
-        fail("iptables: Chain already exists.")
-    chains[name] = []
-elif name not in chains:
-    fail("iptables: No chain/target/match by that name.")
-elif op == "-F":
-    chains[name] = []
-elif op == "-X":
-    if chains[name] or any(r.endswith(f"-j {name}") for c in chains.values() for r in c):
-        fail("iptables: Directory not empty.")
-    del chains[name]
-elif op == "-A":
-    chains[name].append(" ".join(rest[1:]))
-elif op == "-I":
-    pos, rule = (int(rest[1]), rest[2:]) if len(rest) > 1 and rest[1].isdigit() else (1, rest[1:])
-    chains[name].insert(pos - 1, " ".join(rule))
-elif op in ("-D", "-C"):
-    if len(rest) == 2 and rest[1].isdigit():
-        if op == "-C" or int(rest[1]) > len(chains[name]):
-            fail("iptables: Index of deletion too big.")
-        del chains[name][int(rest[1]) - 1]
-    else:
-        rule = " ".join(rest[1:])
+class Fail(Exception):
+    pass
+
+
+def run_op(chains, args):
+    # One iptables command against chains, changed in place; Fail as iptables would.
+    op, name, rest = args[0], args[1], args[2:]
+    if op == "-N":
+        if name in chains:
+            raise Fail("iptables: Chain already exists.")
+        chains[name] = []
+    elif name not in chains:
+        raise Fail("iptables: No chain/target/match by that name.")
+    elif op == "-F":
+        chains[name] = []
+    elif op == "-X":
+        if chains[name] or any(r.endswith(f"-j {name}") for c in chains.values() for r in c):
+            raise Fail("iptables: Directory not empty.")
+        del chains[name]
+    elif op == "-A":
+        chains[name].append(" ".join(rest))
+    elif op == "-I":
+        pos, rule = (int(rest[0]), rest[1:]) if rest and rest[0].isdigit() else (1, rest)
+        chains[name].insert(pos - 1, " ".join(rule))
+    elif op in ("-D", "-C"):
+        rule = " ".join(rest)
         if rule not in chains[name]:
-            fail("iptables: Bad rule (does a matching rule exist in that chain?).")
+            raise Fail("iptables: Bad rule (does a matching rule exist in that chain?).")
         if op == "-D":
             chains[name].remove(rule)
-else:
-    fail(f"fake iptables: unsupported {op}")
+    else:
+        raise Fail(f"fake iptables: unsupported {op}")
+
+
+try:
+    if prog.endswith("-restore"):
+        lines = sys.stdin.read().splitlines()
+        log.write(" ".join([prog] + args) + "\n" + "".join(f"  {line}\n" for line in lines))
+        if os.environ.get("FAKE_IPT_FAIL") == family:
+            raise Fail(f"{prog}: line 3 failed")
+        # One load: every line takes, or none does. Without --noflush the table is replaced.
+        work = json.loads(json.dumps(state[family]))
+        if "--noflush" not in args:
+            work = {"INPUT": [], "OUTPUT": [], "FORWARD": []}
+        committed = False
+        for line in lines:
+            if not line or line.startswith("#") or line == "*filter":
+                continue
+            if line == "COMMIT":
+                committed = True
+                break
+            if line.startswith(":"):
+                work[line[1:].split()[0]] = []  # declared: created, or flushed
+                continue
+            run_op(work, line.split())
+        if not committed:
+            raise Fail(f"{prog}: no COMMIT line")
+        state[family] = work
+    else:
+        log.write(" ".join([prog] + args) + "\n")
+        chains = state[family]
+        if args[0] == "-S":
+            for name in args[1:2] or list(chains):
+                if name not in chains:
+                    raise Fail("iptables: No chain/target/match by that name.")
+                print(f"-P {name} ACCEPT" if name in ("INPUT", "OUTPUT", "FORWARD") else f"-N {name}")
+                for rule in chains[name]:
+                    print(f"-A {name} {rule}")
+            sys.exit(0)
+        run_op(chains, args)
+except Fail as e:
+    print(e, file=sys.stderr)
+    sys.exit(1)
 json.dump(state, open(path, "w"))
 '''
 
@@ -112,7 +140,7 @@ def host(tmp_path):
     """A fake host: iptables, ip6tables and id on PATH, a conf dir and a subuid file."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    for name in ("iptables", "ip6tables"):
+    for name in ("iptables", "ip6tables", "iptables-restore", "ip6tables-restore"):
         fake = bin_dir / name
         fake.write_text(f"#!{sys.executable}\n{FAKE_IPTABLES}")
         fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
@@ -129,8 +157,8 @@ def host(tmp_path):
     return tmp_path
 
 
-def run(host: Path, *args: str) -> subprocess.CompletedProcess:
-    env = {"PATH": f"{host / 'bin'}:/usr/bin:/bin", "SVC_EGRESS_CONF_DIR": str(host / "conf"),
+def run(host: Path, *args: str, **extra_env: str) -> subprocess.CompletedProcess:
+    env = {**extra_env, "PATH": f"{host / 'bin'}:/usr/bin:/bin", "SVC_EGRESS_CONF_DIR": str(host / "conf"),
            "SVC_EGRESS_SUBUID": str(host / "subuid"), "FAKE_IPT_STATE": str(host / "state.json"),
            "FAKE_IPT_LOG": str(host / "log")}
     return subprocess.run(["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True)
@@ -245,6 +273,46 @@ def test_a_missing_conf_or_account_stops_and_changes_nothing(host, problem, need
     r = run(host, "apply", account)
     assert r.returncode == 1 and needle in r.stderr
     assert (host / "log").read_text() == ""
+
+
+def test_a_failed_load_leaves_that_family_as_it_was(host):
+    # Review R3: a re-apply that fails part-way must not leave the account unlimited.
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    (host / "conf" / f"{ACCOUNT}.conf").write_text(conf(grants=GRANTS + " 10.20.30.40:443"))
+    r = run(host, "apply", ACCOUNT, FAKE_IPT_FAIL="v4")
+    assert r.returncode != 0
+    s = state(host)
+    assert s["v4"][CHAIN] == V4_RULES and s["v4"]["OUTPUT"] == JUMPS + ["-o lo -j ACCEPT"]
+    assert s["v6"][CHAIN] == ["-j REJECT"] and s["v6"]["OUTPUT"] == JUMPS + ["-o lo -j ACCEPT"]
+
+
+def test_ipv6_goes_first_and_a_failure_there_stops_before_ipv4(host):
+    r = run(host, "apply", ACCOUNT, FAKE_IPT_FAIL="v6")
+    assert r.returncode != 0
+    assert CHAIN not in state(host)["v4"] and state(host)["v4"]["OUTPUT"] == ["-o lo -j ACCEPT"]
+    assert "iptables-restore" not in (host / "log").read_text().replace("ip6tables-restore", "")
+
+
+def test_a_reapply_leaves_the_jumps_where_they_are(host):
+    # Review R3: no moment without the jumps. The chain is reloaded in place; the jumps,
+    # already the first two rules of OUTPUT, are neither deleted nor inserted again.
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    (host / "log").write_text("")
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    log = (host / "log").read_text()
+    assert "-D OUTPUT" not in log and "-I OUTPUT" not in log
+    assert state(host)["v4"][CHAIN] == V4_RULES
+
+
+def test_jumps_moved_down_go_back_to_the_top(host):
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    s = state(host)
+    for fam in ("v4", "v6"):  # another tool inserted a rule above them
+        s[fam]["OUTPUT"].insert(0, "-j ACCEPT")
+    (host / "state.json").write_text(json.dumps(s))
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    for fam in ("v4", "v6"):
+        assert state(host)[fam]["OUTPUT"] == JUMPS + ["-j ACCEPT", "-o lo -j ACCEPT"]
 
 
 def test_remove_leaves_no_chain_or_jump(host):
