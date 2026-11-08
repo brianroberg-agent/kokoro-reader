@@ -1,0 +1,13 @@
+# Puts the account's egress chain back if something took it away: a reload of the host's own
+# firewall (ufw, netfilter-persistent, firewalld) can flush it while svc-egress@ still shows
+# active. Run every 30 s by svc-egress-check@.timer. Requisite=: it runs only while
+# svc-egress@ is on, so disabling that unit for a rollback isn't undone (docs/pipeline.md).
+
+[Unit]
+Description=Check the egress limit for the %i service account (svc-egress)
+Requisite=svc-egress@%i.service
+After=svc-egress@%i.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/svc-egress check %i

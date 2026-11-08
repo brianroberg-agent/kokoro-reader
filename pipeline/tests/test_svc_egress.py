@@ -324,6 +324,59 @@ def test_remove_leaves_no_chain_or_jump(host):
         assert state(host)[fam]["OUTPUT"] == ["-o lo -j ACCEPT"]
 
 
+def test_check_leaves_an_intact_chain_alone(host):
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    (host / "log").write_text("")
+    r = run(host, "check", ACCOUNT)
+    assert r.returncode == 0 and r.stderr == ""
+    assert "-restore" not in (host / "log").read_text()
+
+
+def flushed(s: dict) -> dict:
+    """What a reload of the host's own firewall can leave: the chains emptied or gone, the jumps gone."""
+    for fam in ("v4", "v6"):
+        s[fam]["OUTPUT"] = [r for r in s[fam]["OUTPUT"] if CHAIN not in r]
+    s["v4"][CHAIN] = []
+    del s["v6"][CHAIN]
+    return s
+
+
+def test_check_puts_back_what_a_firewall_reload_took(host):
+    # Review R2: a reload that drops the chain must not leave the account unlimited until the
+    # next boot. The check timer runs this every 30 seconds.
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    (host / "state.json").write_text(json.dumps(flushed(state(host))))
+    r = run(host, "check", ACCOUNT)
+    assert r.returncode == 0 and "applying it again" in r.stderr
+    s = state(host)
+    assert s["v4"][CHAIN] == V4_RULES and s["v6"][CHAIN] == ["-j REJECT"]
+    for fam in ("v4", "v6"):
+        assert s[fam]["OUTPUT"][:2] == JUMPS
+
+
+@pytest.mark.parametrize("fam", ["v4", "v6"])
+def test_check_puts_back_jumps_that_moved_down(host, fam):
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    s = state(host)
+    s[fam]["OUTPUT"].insert(0, "-j ACCEPT")
+    (host / "state.json").write_text(json.dumps(s))
+    assert run(host, "check", ACCOUNT).returncode == 0
+    assert state(host)[fam]["OUTPUT"][:2] == JUMPS
+
+
+def test_the_check_timer_runs_check_while_the_limit_is_on():
+    timer = unit("rootless/svc-egress-check@.timer")
+    assert timer["Timer"]["OnUnitActiveSec"] == "30s" and timer["Timer"]["OnBootSec"] == "30s"
+    assert timer["Timer"]["Unit"] == "svc-egress-check@%i.service"
+    assert timer["Install"]["WantedBy"] == "timers.target"
+    service = unit("rootless/svc-egress-check@.service")
+    assert service["Service"]["ExecStart"] == "/usr/local/sbin/svc-egress check %i"
+    assert service["Service"]["Type"] == "oneshot"
+    # only while svc-egress@ is on: disabling it for a rollback isn't undone 30 seconds later
+    assert service["Unit"]["Requisite"] == "svc-egress@%i.service"
+    assert service["Unit"]["After"] == "svc-egress@%i.service"
+
+
 def test_remove_works_once_the_account_and_its_range_are_gone(host):
     # Review R7: after userdel, remove must still take the chain and its jumps away.
     assert run(host, "apply", ACCOUNT).returncode == 0
@@ -356,7 +409,7 @@ def test_remove_without_a_chain_is_not_an_error(host):
 
 
 def test_usage_errors_change_nothing(host):
-    for args in ([], ["apply"], ["frobnicate", ACCOUNT]):
+    for args in ([], ["apply"], ["check"], ["frobnicate", ACCOUNT]):
         assert run(host, *args).returncode == 2
     assert (host / "log").read_text() == ""
 

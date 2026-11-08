@@ -1,0 +1,12 @@
+# Runs svc-egress-check@ACCOUNT.service every 30 s (docs/pipeline.md, "The account's reach").
+
+[Unit]
+Description=Check the egress limit for the %i service account every 30 s
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+Unit=svc-egress-check@%i.service
+
+[Install]
+WantedBy=timers.target

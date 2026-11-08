@@ -4,6 +4,9 @@
 # docs/superpowers/specs/2026-11-07-rootless-podman-design.md, "The one-rule limit").
 #
 #   svc-egress apply ACCOUNT    write the account's chain and its jumps
+#   svc-egress check ACCOUNT    apply again if the chain or its jumps are missing or changed
+#                               (svc-egress-check@.timer, every 30 s: a reload of the host's
+#                               own firewall can drop them)
 #   svc-egress remove ACCOUNT   delete them
 #
 # Runs as root, from /usr/local/sbin, installed from a pinned commit: never from the
@@ -34,11 +37,11 @@ SUBUID=${SVC_EGRESS_SUBUID:-/etc/subuid}
 PRIVATE_V4="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16 0.0.0.0/8 224.0.0.0/4 240.0.0.0/4"
 
 die() { echo "svc-egress: $*" >&2; exit 1; }
-usage() { echo "usage: svc-egress apply|remove ACCOUNT" >&2; exit 2; }
+usage() { echo "usage: svc-egress apply|check|remove ACCOUNT" >&2; exit 2; }
 
 [ $# -eq 2 ] || usage
 action=$1 account=$2
-case $action in apply|remove) ;; *) usage ;; esac
+case $action in apply|check|remove) ;; *) usage ;; esac
 case $account in
   ''|*[!a-z0-9_-]*|-*) die "not an account name: $account" ;;
 esac
@@ -137,12 +140,16 @@ v6_rules() {
 # or empties it to be filled again in the same load. Jumps already the first two rules of
 # OUTPUT stay where they are, so a re-apply has no moment without them; otherwise every
 # jump to the chain is deleted and the pair inserted at the top, in the same load.
+# The account's two jumps as `iptables -S OUTPUT` prints them.
+jumps() {
+  printf '%s\n' "-A OUTPUT -m owner --uid-owner $uid -j $chain" "-A OUTPUT -m owner --uid-owner $range -j $chain"
+}
+
 load() {
   local ipt=$1 rules=$2 output top want
   output=$("$ipt" -w -S OUTPUT)
   top=$(printf '%s\n' "$output" | grep '^-A OUTPUT ' | head -n 2 || true)
-  want=$(printf '%s\n' "-A OUTPUT -m owner --uid-owner $uid -j $chain" \
-    "-A OUTPUT -m owner --uid-owner $range -j $chain")
+  want=$(jumps)
   {
     printf '%s\n' '*filter' ":$chain - [0:0]"
     "$rules"
@@ -154,6 +161,24 @@ load() {
     printf '%s\n' COMMIT
   } | "$ipt-restore" -w --noflush
 }
+
+# Whether a family's chain has as many rules as apply writes and its jumps are the first two
+# rules of OUTPUT. Counted, not compared: iptables -S prints rules in its own words.
+intact() {
+  local ipt=$1 rules=$2 listing have top
+  listing=$("$ipt" -w -S "$chain" 2>/dev/null) || return 1
+  have=$(printf '%s\n' "$listing" | grep -c '^-A ' || true)
+  [ "$have" -eq "$("$rules" | grep -c .)" ] || return 1
+  top=$("$ipt" -w -S OUTPUT | grep '^-A OUTPUT ' | head -n 2 || true)
+  [ "$top" = "$(jumps)" ]
+}
+
+if [ "$action" = check ]; then
+  if intact ip6tables v6_rules && intact iptables v4_rules; then
+    exit 0
+  fi
+  echo "svc-egress: the chain for $account was missing or changed; applying it again" >&2
+fi
 
 # IPv6 first: if it fails, IPv4 is left as it was, and the exit status says so.
 load ip6tables v6_rules

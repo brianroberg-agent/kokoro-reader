@@ -93,27 +93,33 @@ modprobe -a ip_set ip_set_hash_net xt_set
 apt install catatonit
 ```
 
-**R3a, the account's chain**, before any real secret reaches the account (see "The account's reach" below). The commit and the three sums come from the PR or the operator.
+**R3a, the account's chain**, before any real secret reaches the account (see "The account's reach" below). The commit and the five sums come from the PR or the operator.
 
 ```bash
 sha=<commit>
-for f in svc-egress svc-egress@.service user-egress.conf; do
+for f in svc-egress svc-egress@.service svc-egress-check@.service svc-egress-check@.timer user-egress.conf; do
   curl -fsSLO "https://raw.githubusercontent.com/brianroberg/kokoro-reader/$sha/deploy/rootless/$f"
 done
-sha256sum svc-egress svc-egress@.service user-egress.conf    # compare with the published sums
+sha256sum svc-egress svc-egress@.service svc-egress-check@.service svc-egress-check@.timer user-egress.conf
+                                                             # compare with the published sums
 install -m 755 svc-egress /usr/local/sbin/svc-egress
-install -m 644 svc-egress@.service /etc/systemd/system/
+install -m 644 svc-egress@.service svc-egress-check@.service svc-egress-check@.timer /etc/systemd/system/
 install -D -m 644 user-egress.conf "/etc/systemd/system/user@$(id -u narration).service.d/svc-egress.conf"
 install -d -m 755 /etc/svc-egress
-echo 'GRANTS="<MAC_HOST>:<MAC_PORT> <Audiobookshelf address>:<port>"' > /etc/svc-egress/narration.conf
+printf '%s\n' 'GRANTS="<MAC_HOST>:<MAC_PORT> <Audiobookshelf address>:<port>"' \
+  'RESOLVERS="<the host'"'"'s upstream resolvers, from resolvectl dns>"' > /etc/svc-egress/narration.conf
 systemctl daemon-reload
-systemctl enable --now svc-egress@narration.service
+systemctl enable --now svc-egress@narration.service svc-egress-check@narration.timer
 iptables -S svc-narration; ip6tables -S svc-narration; iptables -S OUTPUT | head -n 4
 ```
 
-The grants are the same as in `deploy/.env`: the Mac's narration port, and Audiobookshelf's address and port.
+The grants are the same as in `deploy/.env`: the Mac's narration port, and Audiobookshelf's address and port. `RESOLVERS` names the upstream DNS servers the host uses (`resolvectl dns`, IPv4 only): the containers' lookups go to them through the account, and port 53 is open to these and no others.
 
-**To change a grant later**, edit `/etc/svc-egress/narration.conf`, then `systemctl reload svc-egress@narration.service`. That re-applies the chain in place. Don't `restart` it: the account's user manager requires that unit, so a restart restarts the manager too, and every container under it. A runner mid-article would leave its article `in_progress`. If ufw or another tool manages the host's firewall, reload it and run the three `-S` commands again: the chain must still be there.
+The timer runs `svc-egress check` every 30 seconds. If a reload of the host's own firewall has taken the chain or its jumps away, the check puts them back, and says so in the journal (`journalctl -u svc-egress-check@narration`).
+
+**To change a grant later**, edit `/etc/svc-egress/narration.conf`, then `systemctl reload svc-egress@narration.service`. That re-applies the chain in place. Don't `restart` it: the account's user manager requires that unit, so a restart restarts the manager too, and every container under it. A runner mid-article would leave its article `in_progress`.
+
+If ufw or another tool manages the host's firewall, reload it. Then, within 30 seconds, run the three `-S` commands again: the chain must be there, either kept or put back by the check.
 
 **R3b, the secrets, once the chain checks pass.** Copy the two files into the account; they're never shown or typed again. Then stop the root deployment's agent, with `stop`, never `down -v`:
 
