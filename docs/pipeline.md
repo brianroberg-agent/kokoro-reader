@@ -55,7 +55,158 @@ To renew it, run `claude setup-token` again, put the new value in `agent.env` in
 
 ## Deploy
 
-On the home server, from scratch:
+The pipeline runs in its own unprivileged account on the home server, under rootless Podman ("Deploy, rootless Podman", next). The earlier setup, root's Docker, follows it ("Deploy, root Docker"). It stays as the way back until root step R5 removes it. The design is `docs/superpowers/specs/2026-11-07-rootless-podman-design.md`.
+
+### Deploy, rootless Podman
+
+**What changes and what doesn't:**
+- **The same:** the compose file, the images and agentbox's firewall inside each container.
+- **The account:** `narration` runs them. It has no `sudo`, `docker` or `lxd`.
+- **How they run:** rootless Podman runs the containers, and Docker's standalone Compose drives them through the account's Podman socket. A systemd user unit starts them at boot.
+- **The host's limit:** one chain limits what the account may reach (`svc-egress`, "The account's reach" below).
+- **Operating it:** the agent that operates the pipeline does so over ssh as `narration`, with a key only that account accepts.
+
+Brian does the root steps (R1 to R5). **Root never runs anything from the account's home or its clone of this repo**, which the account could change first. `svc-egress` and its units are fetched from a pinned commit and checked against their sha256 sums.
+
+#### The root steps
+
+**R1, first. The account, and the agent's way in:**
+
+```bash
+useradd --create-home --shell /bin/bash --user-group narration
+id narration                               # only the narration group
+grep narration /etc/subuid /etc/subgid     # one line each, 65536 ids
+loginctl enable-linger narration           # its containers run without a login, and start at boot
+install -d -m 700 -o narration -g narration ~narration/.ssh
+echo 'from="<the Mac'"'"'s tailnet address>",no-agent-forwarding,no-port-forwarding,no-X11-forwarding,no-user-rc <the agent'"'"'s public key>' \
+  | install -m 600 -o narration -g narration /dev/stdin ~narration/.ssh/authorized_keys
+sshd -T | grep -Ei '^(allow|deny)(users|groups)'   # if anything is listed, let the account in
+```
+
+Also check whether Tailscale SSH is on for the server. If it is, the tailnet's policy, not `authorized_keys`, decides who gets in as whom.
+
+**R2, only if the account's checks find them missing.** agentbox's firewall needs the `ip_set`, `ip_set_hash_net` and `xt_set` kernel modules, which a rootless container can't load. Compose's `init: true` needs `catatonit`.
+
+```bash
+printf '%s\n' ip_set ip_set_hash_net xt_set > /etc/modules-load.d/svc-egress.conf
+modprobe -a ip_set ip_set_hash_net xt_set
+apt install catatonit
+```
+
+**R3a, the account's chain**, before any real secret reaches the account (see "The account's reach" below). The commit and the three sums come from the PR or the operator.
+
+```bash
+sha=<commit>
+for f in svc-egress svc-egress@.service user-egress.conf; do
+  curl -fsSLO "https://raw.githubusercontent.com/brianroberg/kokoro-reader/$sha/deploy/rootless/$f"
+done
+sha256sum svc-egress svc-egress@.service user-egress.conf    # compare with the published sums
+install -m 755 svc-egress /usr/local/sbin/svc-egress
+install -m 644 svc-egress@.service /etc/systemd/system/
+install -D -m 644 user-egress.conf "/etc/systemd/system/user@$(id -u narration).service.d/svc-egress.conf"
+install -d -m 755 /etc/svc-egress
+echo 'GRANTS="<MAC_HOST>:<MAC_PORT> <Audiobookshelf address>:<port>"' > /etc/svc-egress/narration.conf
+systemctl daemon-reload
+systemctl enable --now svc-egress@narration.service
+iptables -S svc-narration; ip6tables -S svc-narration; iptables -S OUTPUT | head -n 4
+```
+
+The grants are the same as in `deploy/.env`: the Mac's narration port, and Audiobookshelf's address and port. If ufw or another tool manages the host's firewall, reload it and run the three `-S` commands again: the chain must still be there.
+
+**R3b, the secrets, once the chain checks pass.** Copy the two files into the account; they're never shown or typed again. Then stop the root deployment's agent, with `stop`, never `down -v`:
+
+```bash
+install -d -m 700 -o narration -g narration ~narration/secrets
+install -m 600 -o narration -g narration <root's secrets folder>/runner.env <root's secrets folder>/agent.env ~narration/secrets/
+docker compose -f deploy/compose.yaml stop narration-agent      # in root's checkout
+```
+
+**R5, once the rootless setup has published for real and Brian has listened.** Remove the root deployment: `down` first (without `-v`), then its volumes once he's sure. Also remove root's secrets folder, and any Claude login or GitHub credential root holds for this work.
+
+#### The account's side
+
+As `narration`, from its home:
+
+1. **Podman's socket, and the variable that points Compose at it:**
+
+   ```bash
+   systemctl --user enable --now podman.socket
+   ```
+
+   Then put `export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock` near the top of `~/.bashrc`, above the line that returns early for non-interactive shells, so commands run over ssh get it too.
+
+2. **Docker Compose**, the standalone binary, from Docker's GitHub releases. Pick a release at least 7 days old, check it against its `.sha256`, and put it at `~/.local/bin/docker-compose`.
+   - Ubuntu's snap `docker-compose` can't reach the account's socket.
+   - `podman-compose` ignores `depends_on: condition: service_healthy`.
+   - Under this account, every `docker compose ...` command in this guide is `docker-compose ...`.
+
+3. **Short image names.** agentbox's Dockerfile starts `FROM node:...`, and the host defines no registries to search. Write `~/.config/containers/registries.conf` with one line:
+
+   ```toml
+   unqualified-search-registries = ["docker.io"]
+   ```
+
+4. **The sources:**
+   - **This repo:** clone it to `~/kokoro-reader`.
+   - **agentbox:** the repo is private, and the account holds no GitHub credential. The operator copies its `image/` folder in from a checkout elsewhere (`git archive origin/main image | ssh narration 'mkdir -p ~/agentbox && tar -x -C ~/agentbox'`). Then:
+
+     ```bash
+     podman build -t agentbox:latest ~/agentbox/image/
+     ```
+
+5. **`deploy/.env`**, from `deploy/env.example`, as in "Deploy, root Docker", step 4, with three differences:
+   - `NARRATION_SECRETS_DIR=/home/narration/secrets`;
+   - `NARRATION_NO_NEW_PRIVILEGES` empty (Podman keeps `no-new-privileges` on);
+   - `COMPOSE_PROFILES` empty until the acceptance run.
+
+6. **Build, and start at boot:**
+
+   ```bash
+   cd ~/kokoro-reader
+   docker-compose -f deploy/compose.yaml build
+   mkdir -p ~/.config/systemd/user
+   ln -s ~/kokoro-reader/deploy/rootless/narration.service ~/.config/systemd/user/
+   systemctl --user daemon-reload
+   systemctl --user enable --now narration.service
+   ```
+
+   The unit runs a plain `up -d`. With `COMPOSE_PROFILES` empty, that starts `narration-agent` alone. Check its start as in "Deploy, root Docker", step 7.
+
+7. **The acceptance run**, as in "Deploy, root Docker", step 8. Then turn on the schedule: set `COMPOSE_PROFILES=schedule` in `deploy/.env`, and `systemctl --user restart narration.service`. The runner's log shows `next run at <time>`.
+
+#### The account's reach
+
+`svc-egress` (`deploy/rootless/`) writes one chain, `svc-narration`, on the host:
+- **How it's entered:** from `OUTPUT`, by an owner match on the account's uid, and a second on its sub-id range.
+- **Why that covers the containers:** a rootless container's outbound connections are opened on the host by a helper process running as the account, so the match covers everything its containers send. The sub-id jump covers a process that breaks out of a container as a sub-id.
+
+**IPv4, in order:**
+1. Replies go through.
+2. Name lookups to the local resolver go through; the rest of the host's own loopback is rejected.
+3. The grants in `/etc/svc-egress/narration.conf` go through.
+4. The LAN, the tailnet, link-local, multicast, broadcast and `0.0.0.0/8` are rejected. Multicast reaches devices at home, and `0.0.0.0` reaches the host itself.
+5. The internet goes through.
+
+**IPv6:** everything is rejected.
+
+**What the tests cover:** `pipeline/tests/test_svc_egress.py` checks:
+- the chain's order;
+- the jumps at the top of `OUTPUT`;
+- that a second `apply` leaves one pair of jumps;
+- that it stops before it changes anything on a bad grant, a missing conf or account, or a missing sub-id line;
+- that it also stops when the account has more than one sub-id range, since one jump covers one range.
+
+**Fail-closed at start:** `user-egress.conf` makes the account's systemd user manager require `svc-egress@narration.service`. The account's containers start only after the chain is in, and they stop if that unit stops.
+
+**What it doesn't stop: the internet is open to the account.**
+- agentbox's firewall limits each container. A process that breaks out of one skips that firewall, and lands in an account whose chain lets the whole internet through.
+- The account holds the pipeline's secrets, so such a process could send them anywhere.
+- Brian accepted this for the pipeline, which "doesn't handle sensitive data. It may not be acceptable for future applications." (2026-11-07)
+- A service that needs more would open the internet only while it builds, and otherwise allow only the hosts it uses.
+
+### Deploy, root Docker
+
+The earlier setup, kept as the way back until R5. On the home server, from scratch:
 
 1. **Build agentbox's image** from agentbox `main` (once the `AGENTBOX_BASE` change has merged: both containers set `AGENTBOX_BASE=off`, which needs it):
 
@@ -131,7 +282,7 @@ On the home server, from scratch:
 
 `docker compose config` prints the merged configuration with the secrets from both files in it: don't paste its output anywhere.
 
-### Docker from the snap package
+#### Docker from the snap package
 
 Ubuntu's snap of Docker confines the docker command, and that changes the deploy:
 
@@ -140,6 +291,8 @@ Ubuntu's snap of Docker confines the docker command, and that changes the deploy
 - **It has its own `/tmp`.** A file written to `/tmp` outside it isn't there for a docker or compose command; pipe a compose file on standard input instead (`docker compose -f - ...`).
 
 ## Operate
+
+Under the rootless account, every `docker compose` below is `docker-compose`, the standalone binary. Start and stop the containers there with `systemctl --user start` or `stop narration.service`; its own log is `journalctl --user -u narration.service`.
 
 Every `exec` below has `-u node`. `exec` doesn't go through agentbox's entrypoint, so without it the command runs as root, and files it leaves in `/data` or `/handoff` would belong to root, where the node processes may then fail to write. `run --rm` does go through the entrypoint (firewall, then node), so it needs no `-u`.
 
@@ -179,6 +332,13 @@ The columns are in `pipeline/narration_pipeline/record.py`. The ones worth readi
 
 ## Rollback
 
+**From the rootless account back to root's Docker, until R5:**
+- As `narration`: `systemctl --user disable --now narration.service`. That stops the account's containers and keeps their volumes.
+- As root, in root's checkout: `docker compose -f deploy/compose.yaml up -d narration-agent`. The runner comes back the same way, once it had been started there.
+- The account's chain comes off with `systemctl disable --now svc-egress@narration.service`. This also stops the account's user manager, and any container still running under it.
+
+**Within either setup:**
+
 ```bash
 docker compose -f deploy/compose.yaml down
 ```
@@ -188,6 +348,17 @@ This stops and removes both containers. The `narration-data` and `narration-hand
 `down -v` would delete the volumes, and the record with them: the next night would start from an empty record, so it would queue the articles already published and could record and publish them again. To go back to an earlier version instead, check it out and rebuild: `git checkout <commit> && docker compose -f deploy/compose.yaml up -d --build`.
 
 ## Verified
+
+**Still open: rootless Podman on the home server.** Each of these gets checked on the host before cutover, and its result goes here:
+- the account's privileges;
+- whether a rootless container's egress carries the account's uid;
+- agentbox's firewall under rootless Podman;
+- reach to the Mac and to Audiobookshelf;
+- a compose-started container restarting under Podman (the runner's nightly restart);
+- the boot unit;
+- the chain, with a refused LAN address, a refused loopback port and refused IPv6, while the grants still answer;
+- fail-closed;
+- a firewall reload.
 
 **Still open: the home server.** Nothing here has run there yet: the deploy above end to end (the tailnet from both containers, Brian's Audiobookshelf), and the acceptance run with Brian's listen. Brian's ntfy and a login from `claude setup-token` were used on the Mac (below). Also not yet run: the spec's containment test of a real session asked to run a shell command, read a file and fetch a URL (each session's tool list is checked when it starts, and that check passed against the real init event in the sessions below).
 
