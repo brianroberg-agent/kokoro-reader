@@ -170,6 +170,7 @@ The new route gives the agent only `narration`. Goal 4 holds fully only when the
   - Open the internet to the account only while it builds images.
   - The rest of the time, allow only the hosts the service uses (for the pipeline: the Anthropic API, the source site and the ntfy host), the way agentbox's allowlist does inside the container.
   - The cost: the chain then needs a build-time switch, and a host's addresses resolved and kept current outside any container.
+- **The home's own public address counts as internet** (review R10, accepted). Through the router's hairpin NAT, it reaches port-forwarded services and the router's WAN-side admin page. Rejecting it would need a host-specific rule kept current with the address.
 - **For each next service,** the recipe asks this question before its chain is written: does an open internet expose anything that matters?
 
 **Keeping the rules across reboots.** How the server keeps its firewall rules is checked at the first ssh: ufw, netfilter-persistent, or none (alongside Docker's own rules). The persistence goes in root step R3 to match.

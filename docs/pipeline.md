@@ -222,6 +222,7 @@ What it doesn't cover:
 - agentbox's firewall limits each container. A process that breaks out of one skips that firewall, and lands in an account whose chain lets the whole internet through.
 - The account holds the pipeline's secrets, so such a process could send them anywhere.
 - Brian accepted this for the pipeline, which "doesn't handle sensitive data. It may not be acceptable for future applications." (2026-11-07)
+- **The home's own public address counts as internet too.** Through the router's hairpin NAT, the account can reach any port forwarded to a device at home, and the router's admin page if it answers on that side. Rejecting that address would take a rule kept current with the address; it isn't done here.
 - A service that needs more would open the internet only while it builds, and otherwise allow only the hosts it uses.
 
 ### Deploy, root Docker
