@@ -2,7 +2,7 @@
 # /usr/local/sbin/svc-egress apply ACCOUNT (docs/pipeline.md, "Deploy, rootless Podman").
 # Installed by root from a pinned commit, with svc-egress, never from the account's home.
 # The account's user manager Requires= this unit (user-egress.conf), so its containers
-# start only after the chain is in, and stop if this unit stops.
+# start only after the table is in, and stop if this unit stops.
 
 [Unit]
 Description=Egress limit for the %i service account (svc-egress; docs/pipeline.md)

@@ -93,7 +93,7 @@ modprobe -a ip_set ip_set_hash_net xt_set
 apt install catatonit
 ```
 
-**R3a, the account's chain**, before any real secret reaches the account (see "The account's reach" below). The commit and the five sums come from the PR or the operator.
+**R3a, the account's table**, before any real secret reaches the account (see "The account's reach" below). The commit and the five sums come from the PR or the operator.
 
 ```bash
 sha=<commit>
@@ -110,18 +110,20 @@ printf '%s\n' 'GRANTS="<MAC_HOST>:<MAC_PORT> <Audiobookshelf address>:<port>"' \
   'RESOLVERS="<the host'"'"'s upstream resolvers, from resolvectl dns>"' > /etc/svc-egress/narration.conf
 systemctl daemon-reload
 systemctl enable --now svc-egress@narration.service svc-egress-check@narration.timer
-iptables -S svc-narration; ip6tables -S svc-narration; iptables -S OUTPUT | head -n 4
+nft list table inet svc_egress_narration
 ```
 
 The grants are the same as in `deploy/.env`: the Mac's narration port, and Audiobookshelf's address and port. `RESOLVERS` names the upstream DNS servers the host uses (`resolvectl dns`, IPv4 only): the containers' lookups go to them through the account, and port 53 is open to these and no others.
 
-The timer runs `svc-egress check` every 30 seconds. If a reload of the host's own firewall has taken the chain or its jumps away, the check puts them back, and says so in the journal (`journalctl -u svc-egress-check@narration`).
+The timer runs `svc-egress check` every 30 seconds. If something has taken the table away (someone else's full `nft flush ruleset`), the check loads again what `apply` last loaded, without reading the conf. It says so in the journal (`journalctl -u svc-egress-check@narration`). If it can't, it stops `svc-egress@narration`, and with it the account's user manager and every container.
 
-**To change a grant later**, edit `/etc/svc-egress/narration.conf`, then `systemctl reload svc-egress@narration.service`. That re-applies the chain in place. Don't `restart` it: the account's user manager requires that unit, so a restart restarts the manager too, and every container under it. A runner mid-article would leave its article `in_progress`.
+**Never enable `nftables.service` on the home server, and never put the table in `/etc/nftables.conf`.** Its stock config begins with `flush ruleset`, which would wipe Docker's and ufw's rules too. The table is loaded by `svc-egress@narration` alone.
 
-If ufw or another tool manages the host's firewall, reload it. Then, within 30 seconds, run the three `-S` commands again: the chain must be there, either kept or put back by the check.
+**To change a grant later**, edit `/etc/svc-egress/narration.conf`, then `systemctl reload svc-egress@narration.service`. That loads the table again in place, in one transaction. Don't `restart` it: the account's user manager requires that unit, so a restart restarts the manager too, and every container under it. A runner mid-article would leave its article `in_progress`.
 
-**R3b, the secrets, once the chain checks pass.** Copy the two files into the account with `install`, so they aren't shown or typed again. Then stop the root deployment, with `stop`, never `down -v`:
+If ufw or another tool manages the host's firewall, reload it, then run the `nft list` command again: the table must still be there. A reload of theirs works on their own tables, not this one.
+
+**R3b, the secrets, once the table's checks pass.** Copy the two files into the account with `install`, so they aren't shown or typed again. Then stop the root deployment, with `stop`, never `down -v`:
 
 ```bash
 install -d -m 700 -o narration -g narration ~narration/secrets
@@ -184,42 +186,42 @@ As `narration`, from its home:
 
 #### The account's reach
 
-`svc-egress` (`deploy/rootless/`) writes one chain, `svc-narration`, on the host:
-- **How it's entered:** from `OUTPUT`, by an owner match on the account's uid, and a second on its sub-id range.
-- **Why that covers the containers:** a rootless container's outbound connections are opened on the host by a helper process running as the account, so the match covers everything its containers send. The sub-id jump covers a process that breaks out of a container as a sub-id.
+`svc-egress` (`deploy/rootless/`) loads one nftables table on the host, `inet svc_egress_narration`, with a base chain on the output hook:
+- **What it holds:** in nftables every table's base chain on a hook sees each packet, and a reject in any of them is final. So this limit holds whatever Docker's or ufw's own tables accept, and reloading theirs doesn't touch it. Each further service account gets a table of its own.
+- **Who it applies to:** the output chain sends the account's uid, and its sub-id range, to the `reach` chain, which applies the rules below.
+- **Why that should cover the containers:** a rootless container's outbound connections are opened on the host by a helper process (slirp4netns) running as the account. Matching the account should therefore cover what its containers send, and the first on-host test checks it. The sub-id match covers a process that breaks out of a container as a sub-id.
 
-**IPv4, in order:**
-1. Replies go through.
-2. Name lookups go through to the host's own stub resolver (for the account's shell) and to the conf's `RESOLVERS`, which a compose network's DNS server forwards to. Port 53 is open to these and no others.
-3. The grants in `/etc/svc-egress/narration.conf` go through, before loopback: a grant to one of the server's own addresses goes out over loopback.
-4. The rest of the host's own loopback is rejected.
-5. The LAN, the tailnet, link-local, multicast, broadcast and `0.0.0.0/8` are rejected. Multicast reaches devices at home, and `0.0.0.0` reaches the host itself.
-6. The internet goes through.
-
-**IPv6:** everything is rejected.
+**In order:**
+1. IPv6 is rejected, first.
+2. Replies go through.
+3. Name lookups go through to the host's own stub resolver (for the account's shell) and to the conf's `RESOLVERS`, which a compose network's DNS server forwards to. Port 53 is open to these and no others.
+4. The grants in `/etc/svc-egress/narration.conf` go through, before loopback: a grant to one of the server's own addresses goes out over loopback.
+5. The rest of the host's own loopback is rejected.
+6. The LAN, the tailnet, link-local, multicast, broadcast and `0.0.0.0/8` are rejected. Multicast reaches devices at home, and `0.0.0.0` reaches the host itself.
+7. The internet goes through.
 
 **What the tests cover:** `pipeline/tests/test_svc_egress.py` checks:
-- the chain's order;
-- the jumps at the top of `OUTPUT`;
-- that a second `apply` leaves one pair of jumps;
+- the rules' order, and that the account and its sub-ids are sent through them;
+- that `apply` loads once, leaves other tables alone, and gives the same table twice over;
+- that each account gets its own table;
 - that it stops before it changes anything on a bad grant or resolver, a missing conf or account, or a missing sub-id line;
 - that it also stops when the account has more than one sub-id range, since one jump covers one range;
-- that a failed load leaves that family as it was, and a re-apply keeps the jumps in place;
-- that `check` puts back a flushed chain and jumps moved down, and leaves an intact chain alone;
+- that a failed load leaves the table as it was;
+- that `check` leaves an intact table alone, loads the saved copy back when the table is gone or emptied (even with the conf gone bad since), and stops the account when it can't;
 - that `remove` works after the account is gone.
 
-These run against a fake `iptables`. What the real host does is checked there and recorded under "Verified".
+These run against a fake `nft`. The generated table was also loaded into the real `nft` 1.0.9 of Ubuntu 24.04 (see "Verified"). What the home server does is checked there.
 
-**The account's user manager depends on the chain.** `user-egress.conf` makes the manager require `svc-egress@narration.service` and start after it. The tests check what the drop-in says; the host check is under "Verified". What that covers:
-- **At boot,** the manager, and with it the boot unit's containers, starts after the chain is in.
+**The account's user manager depends on the table.** `user-egress.conf` makes the manager require `svc-egress@narration.service` and start after it. The tests check what the drop-in says; the host check is under "Verified". What that covers:
+- **At boot,** the manager, and with it the boot unit's containers, starts after the table is in.
 - **Stopping the egress unit** stops the manager and its containers.
 
 What it doesn't cover:
-- **A firewall reload** can take the chain away while everything keeps running. `svc-egress check` puts it back within 30 seconds.
-- **A container started some other way while the manager isn't running** has no chain behind it. An example is `podman run` in an ssh session after the chain's unit failed. Check `systemctl status svc-egress@narration` before working around a stopped manager.
+- **Someone else's full flush** (`nft flush ruleset`) can take the table away while everything keeps running. `svc-egress check` puts it back within 30 seconds.
+- **A container started some other way while the manager isn't running** has no table behind it. An example is `podman run` in an ssh session after the table's unit failed. Check `systemctl status svc-egress@narration` before working around a stopped manager.
 
 **What it doesn't stop: the internet is open to the account.**
-- agentbox's firewall limits each container. A process that breaks out of one skips that firewall, and lands in an account whose chain lets the whole internet through.
+- agentbox's firewall limits each container. A process that breaks out of one skips that firewall, and lands in an account whose table lets the whole internet through.
 - The account holds the pipeline's secrets, so such a process could send them anywhere.
 - Brian accepted this for the pipeline, which "doesn't handle sensitive data. It may not be acceptable for future applications." (2026-11-07)
 - **The home's own public address counts as internet too.** Through the router's hairpin NAT, the account can reach any port forwarded to a device at home, and the router's admin page if it answers on that side. Rejecting that address would take a rule kept current with the address; it isn't done here.
@@ -377,9 +379,9 @@ This stops and removes both containers. The `narration-data` and `narration-hand
 - reach to the Mac and to Audiobookshelf;
 - a compose-started container restarting under Podman (the runner's nightly restart);
 - the boot unit;
-- the chain, with a refused LAN address, a refused loopback port and refused IPv6, while the grants and lookups still work;
+- the table, with a refused LAN address, a refused loopback port and refused IPv6, while the grants and lookups still work;
 - the account's user manager stopping with the egress unit, and coming back after it;
-- a firewall reload, and `svc-egress check` putting the chain back.
+- a firewall reload leaving the table alone, and `svc-egress check` putting it back after it's deleted.
 
 **Still open: the home server.** Nothing here has run there yet: the deploy above end to end (the tailnet from both containers, Brian's Audiobookshelf), and the acceptance run with Brian's listen. Brian's ntfy and a login from `claude setup-token` were used on the Mac (below). Also not yet run: the spec's containment test of a real session asked to run a shell command, read a file and fetch a URL (each session's tool list is checked when it starts, and that check passed against the real init event in the sessions below).
 

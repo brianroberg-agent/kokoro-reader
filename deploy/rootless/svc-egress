@@ -3,38 +3,45 @@
 # (docs/pipeline.md, "Deploy, rootless Podman"; the design is
 # docs/superpowers/specs/2026-11-07-rootless-podman-design.md, "The one-rule limit").
 #
-#   svc-egress apply ACCOUNT    write the account's chain and its jumps
-#   svc-egress check ACCOUNT    apply again if the chain or its jumps are missing or changed
-#                               (svc-egress-check@.timer, every 30 s: a reload of the host's
-#                               own firewall can drop them)
-#   svc-egress remove ACCOUNT   delete them
+#   svc-egress apply ACCOUNT    load the account's nftables table
+#   svc-egress check ACCOUNT    load it again if it is missing or changed (svc-egress-check@.timer,
+#                               every 30 s: someone else's `nft flush ruleset` would take it)
+#   svc-egress remove ACCOUNT   delete it
 #
 # Runs as root, from /usr/local/sbin, installed from a pinned commit: never from the
 # account's home, which the account could change before root runs it.
 #
-# A rootless container's outbound connections are opened on the host by a helper process
-# (slirp4netns) running as the account, so an owner match on the account's uid covers
-# everything its containers send. A second jump on its sub-id range covers a process that
-# breaks out of a container as a sub-id. Both jump to one chain, svc-ACCOUNT:
+# Each account gets its own table, inet svc_egress_ACCOUNT, with a base chain on the output
+# hook. In nftables every table's base chain on a hook sees the packet, and a reject in any
+# of them is final: so this limit holds whatever Docker's or ufw's tables accept, and a reload
+# of theirs doesn't touch it. A rootless container's outbound connections are opened on the
+# host by a helper process (slirp4netns) running as the account, so matching the account's
+# uid should cover what its containers send (the first on-host test checks it). A second
+# match, on its sub-id range, covers a process that breaks out of a container as a sub-id.
+#   IPv6: rejected, first.
 #   IPv4: replies; name lookups to the host's stub and to the conf's RESOLVERS; the grants in
 #         /etc/svc-egress/ACCOUNT.conf (GRANTS="ipv4:port ..."); nothing else on loopback;
-#         then the LAN, the tailnet,
-#         link-local, multicast, broadcast and reserved addresses are rejected, and the
-#         internet is let through.
-#   IPv6: everything is rejected.
+#         then the LAN, the tailnet, link-local, multicast, broadcast and reserved addresses
+#         are rejected, and the internet is let through.
 #
-# apply checks every input before its first iptables call: on a bad grant or resolver, a
-# missing conf, an unknown account or not exactly one sub-id range it exits 1, naming the
-# problem, and changes nothing. remove needs only the chain's name.
-# Each family loads in one iptables-restore, so a failed apply leaves that family as it was,
-# and a re-apply keeps the jumps in place throughout.
+# On the home server this table is loaded by svc-egress@ACCOUNT.service alone. Never enable
+# nftables.service there, and never put the table in /etc/nftables.conf: its stock config
+# begins with a full flush, which would wipe Docker's and ufw's rules too.
+#
+# apply checks every input before its first nft call: on a bad grant or resolver, a missing
+# conf, an unknown account or not exactly one sub-id range it exits 1, naming the problem,
+# and changes nothing. The table loads in one transaction: all of it takes, or none does.
+# apply keeps a copy of what it loaded (root's alone), which check loads again without
+# reading the conf; when check can't, it stops svc-egress@ACCOUNT, and with it the account.
+# remove needs only the account's name.
 set -euo pipefail
 
 CONF_DIR=${SVC_EGRESS_CONF_DIR:-/etc/svc-egress}
 SUBUID=${SVC_EGRESS_SUBUID:-/etc/subuid}
+STATE_DIR=${SVC_EGRESS_STATE_DIR:-/run/svc-egress}
 # The LAN, the tailnet and link-local; "this network" (0.0.0.0 reaches the host itself);
 # multicast (mDNS and SSDP answer from devices at home); the reserved block, broadcast in it.
-PRIVATE_V4="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16 0.0.0.0/8 224.0.0.0/4 240.0.0.0/4"
+PRIVATE_V4="10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16, 0.0.0.0/8, 224.0.0.0/4, 240.0.0.0/4"
 
 die() { echo "svc-egress: $*" >&2; exit 1; }
 usage() { echo "usage: svc-egress apply|check|remove ACCOUNT" >&2; exit 2; }
@@ -45,34 +52,40 @@ case $action in apply|check|remove) ;; *) usage ;; esac
 case $account in
   ''|*[!a-z0-9_-]*|-*) die "not an account name: $account" ;;
 esac
-chain="svc-$account"
-[ ${#chain} -le 28 ] || die "account name too long for an iptables chain: $account"
-
-# remove needs neither the account nor its sub-ids, which may be gone already (userdel): it
-# deletes every rule that jumps to the chain, then the chain, one load per family. A family
-# that fails doesn't stop the other; the exit status says it failed.
-unload() {
-  local ipt=$1 table
-  table=$("$ipt" -w -S) || return 1
-  printf '%s\n' "$table" | grep -qx -- "-N $chain" || return 0
-  {
-    printf '%s\n' '*filter'
-    printf '%s\n' "$table" | grep -E "^-A [^ ]+ .* -j $chain\$" | sed 's/^-A /-D /' || true
-    printf '%s\n' "-F $chain" "-X $chain" COMMIT
-  } | "$ipt-restore" -w --noflush
-}
+table="svc_egress_${account//-/_}"   # nft names take no hyphen
+saved="$STATE_DIR/$account.nft"      # what apply last loaded
+saved_count="$STATE_DIR/$account.rules"
 
 if [ "$action" = remove ]; then
   status=0
-  unload ip6tables || status=1
-  unload iptables || status=1
+  if nft list table inet "$table" >/dev/null 2>&1; then
+    nft delete table inet "$table" || status=1
+  fi
+  rm -f "$saved" "$saved_count"
   exit "$status"
+fi
+
+# Fail-closed: stopping svc-egress@ACCOUNT stops the account's user manager, which Requires=
+# it, and every container under it. --no-block: the check's own unit is bound to that one.
+fail_closed() {
+  echo "svc-egress: $*; stopping svc-egress@$account.service and the account with it" >&2
+  systemctl --no-block stop "svc-egress@$account.service"
+  exit 1
+}
+
+if [ "$action" = check ]; then
+  [ -r "$saved" ] && [ -r "$saved_count" ] || fail_closed "no saved table for $account"
+  have=$(nft -j list table inet "$table" 2>/dev/null | grep -o '"rule"' | wc -l | tr -d ' ' || true)
+  [ "$have" = "$(cat "$saved_count")" ] && exit 0
+  echo "svc-egress: the table for $account was missing or changed; loading it again" >&2
+  nft -f "$saved" || fail_closed "could not load the saved table for $account"
+  exit 0
 fi
 
 uid=$(id -u "$account" 2>/dev/null) || die "no account named $account"
 
-# The account's sub-id ranges: lines naming it or its uid. One jump covers one range, so a
-# second range would leave its sub-ids outside the chain: refuse instead.
+# The account's sub-id ranges: lines naming it or its uid. One rule covers one range, so a
+# second range would leave its sub-ids outside the limit: refuse instead.
 lines=$(grep -E "^($account|$uid):" "$SUBUID" 2>/dev/null || true)
 [ "$(printf '%s\n' "$lines" | grep -c .)" -le 1 ] \
   || die "more than one sub-id range for $account in $SUBUID; svc-egress covers one"
@@ -85,7 +98,7 @@ esac
 [ -n "$start" ] && [ -n "$count" ] || die "no sub-id range for $account in $SUBUID (subuid)"
 range="$start-$((start + count - 1))"
 
-# apply: the root-owned conf's grants and resolvers.
+# The root-owned conf's grants and resolvers.
 conf="$CONF_DIR/$account.conf"
 [ -r "$conf" ] || die "no $conf"
 grep -Eq '^GRANTS="[^"]*"[[:space:]]*$' "$conf" || die "no GRANTS=\"...\" line in $conf (quoted; empty for none)"
@@ -109,77 +122,38 @@ for resolver in $resolvers; do
   done
 done
 
-# The account's IPv4 chain, as iptables-restore lines.
-v4_rules() {
-  printf '%s\n' "-A $chain -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN"
+# The reach chain's rules, one per line, in order. (Not "limit": that's a keyword in nft.)
+reach_rules() {
+  printf '%s\n' "meta nfproto ipv6 reject" "ct state established,related accept"
   # Name lookups: the host's own stub resolver, for the account's shell; then the upstream
   # resolvers the conf names, which a compose network's aardvark-dns forwards to.
-  printf '%s\n' "-A $chain -o lo -p udp --dport 53 -j RETURN" "-A $chain -o lo -p tcp --dport 53 -j RETURN"
+  printf '%s\n' 'oifname "lo" udp dport 53 accept' 'oifname "lo" tcp dport 53 accept'
   for resolver in $resolvers; do
-    printf '%s\n' "-A $chain -d $resolver/32 -p udp --dport 53 -j RETURN" \
-      "-A $chain -d $resolver/32 -p tcp --dport 53 -j RETURN"
+    printf '%s\n' "ip daddr $resolver udp dport 53 accept" "ip daddr $resolver tcp dport 53 accept"
   done
   # The grants before loopback: a grant to one of the server's own addresses goes out over lo.
   for grant in $grants; do
-    printf '%s\n' "-A $chain -d ${grant%:*}/32 -p tcp --dport ${grant##*:} -j RETURN"
+    printf '%s\n' "ip daddr ${grant%:*} tcp dport ${grant##*:} accept"
   done
-  printf '%s\n' "-A $chain -o lo -j REJECT"
-  for net in $PRIVATE_V4; do
-    printf '%s\n' "-A $chain -d $net -j REJECT"
-  done
-  printf '%s\n' "-A $chain -j RETURN"
+  printf '%s\n' 'oifname "lo" reject' "ip daddr { $PRIVATE_V4 } reject" "accept"
 }
 
-# The account's IPv6 chain: nothing gets out.
-v6_rules() {
-  printf '%s\n' "-A $chain -j REJECT"
+# The whole table, as one nft transaction. Declaring the table, deleting it and defining it
+# again replaces it whether or not it was there, with no moment in between.
+ruleset() {
+  printf '%s\n' "table inet $table" "delete table inet $table" "table inet $table {" "	chain reach {"
+  reach_rules | sed 's/^/		/'
+  printf '%s\n' "	}" "	chain output {" \
+    "		type filter hook output priority 0; policy accept;" \
+    "		meta skuid $uid jump reach" \
+    "		meta skuid $range jump reach" \
+    "	}" "}"
 }
 
-# One family's chain and jumps in a single iptables-restore --noflush: all of it takes, or
-# none of it does, and the rest of the table is left alone. Declaring the chain creates it,
-# or empties it to be filled again in the same load. Jumps already the first two rules of
-# OUTPUT stay where they are, so a re-apply has no moment without them; otherwise every
-# jump to the chain is deleted and the pair inserted at the top, in the same load.
-# The account's two jumps as `iptables -S OUTPUT` prints them.
-jumps() {
-  printf '%s\n' "-A OUTPUT -m owner --uid-owner $uid -j $chain" "-A OUTPUT -m owner --uid-owner $range -j $chain"
-}
-
-load() {
-  local ipt=$1 rules=$2 output top want
-  output=$("$ipt" -w -S OUTPUT)
-  top=$(printf '%s\n' "$output" | grep '^-A OUTPUT ' | head -n 2 || true)
-  want=$(jumps)
-  {
-    printf '%s\n' '*filter' ":$chain - [0:0]"
-    "$rules"
-    if [ "$top" != "$want" ]; then
-      printf '%s\n' "$output" | grep -E "^-A OUTPUT .* -j $chain\$" | sed 's/^-A /-D /' || true
-      printf '%s\n' "-I OUTPUT 1 -m owner --uid-owner $uid -j $chain" \
-        "-I OUTPUT 2 -m owner --uid-owner $range -j $chain"
-    fi
-    printf '%s\n' COMMIT
-  } | "$ipt-restore" -w --noflush
-}
-
-# Whether a family's chain has as many rules as apply writes and its jumps are the first two
-# rules of OUTPUT. Counted, not compared: iptables -S prints rules in its own words.
-intact() {
-  local ipt=$1 rules=$2 listing have top
-  listing=$("$ipt" -w -S "$chain" 2>/dev/null) || return 1
-  have=$(printf '%s\n' "$listing" | grep -c '^-A ' || true)
-  [ "$have" -eq "$("$rules" | grep -c .)" ] || return 1
-  top=$("$ipt" -w -S OUTPUT | grep '^-A OUTPUT ' | head -n 2 || true)
-  [ "$top" = "$(jumps)" ]
-}
-
-if [ "$action" = check ]; then
-  if intact ip6tables v6_rules && intact iptables v4_rules; then
-    exit 0
-  fi
-  echo "svc-egress: the chain for $account was missing or changed; applying it again" >&2
-fi
-
-# IPv6 first: if it fails, IPv4 is left as it was, and the exit status says so.
-load ip6tables v6_rules
-load iptables v4_rules
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
+next="$saved.next"
+ruleset > "$next"
+nft -f "$next" || { rm -f "$next"; die "nft could not load the table for $account; it is as it was"; }
+mv "$next" "$saved"
+echo $(( $(reach_rules | grep -c .) + 2 )) > "$saved_count"
