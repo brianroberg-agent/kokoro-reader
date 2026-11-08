@@ -508,7 +508,11 @@ def test_the_users_manager_needs_the_limit():
     # after the table is in, and stops if the limit's unit stops.
     u = unit("rootless/user-egress.conf")
     assert u["Unit"]["Requires"] == "svc-egress@narration.service"
-    assert u["Unit"]["After"] == "svc-egress@narration.service"
+    after = u["Unit"]["After"].split()
+    assert "svc-egress@narration.service" in after
+    # Round 3, #4: and after the network is up, as root's docker.service was: agentbox's
+    # firewall looks its hosts up when a container starts.
+    assert "network-online.target" in after and u["Unit"]["Wants"] == "network-online.target"
 
 
 def test_nothing_writes_the_nftables_service_or_its_conf():
