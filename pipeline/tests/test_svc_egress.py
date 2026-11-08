@@ -493,7 +493,9 @@ def test_the_check_timer_runs_check_while_the_limit_is_on():
     # Round 2, #6: bound to the limit, so stopping it stops a check under way before the
     # limit's ExecStop denies the account (a check can't load the table back over the deny),
     # and stops the timer too, which would otherwise fail every 30 s.
-    assert service["Unit"]["BindsTo"] == "svc-egress@%i.service"
+    # Round 3, #1: PartOf=, not BindsTo=. BindsTo= also pulls the limit's unit in, so a check
+    # would start a limit that was stopped on purpose (a rollback).
+    assert service["Unit"]["PartOf"] == "svc-egress@%i.service" and "BindsTo" not in service["Unit"]
     assert timer["Unit"]["PartOf"] == "svc-egress@%i.service"
 
 
