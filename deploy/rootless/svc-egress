@@ -106,10 +106,12 @@ fail_closed() {
 
 if [ "$action" = check ]; then
   lock
-  [ -r "$saved" ] && [ -r "$listed" ] || fail_closed "no saved table for $account"
+  [ -r "$saved" ] && [ -s "$listed" ] || fail_closed "no saved table for $account"
   # The table as nft lists it now, against how it listed it after apply: any change, not
-  # only a missing table or a different number of rules.
-  if [ "$(nft list table inet "$table" 2>/dev/null || true)" = "$(cat "$listed")" ]; then
+  # only a missing table or a different number of rules. A listing that fails or comes back
+  # empty is a change, never a match.
+  now=$(nft list table inet "$table" 2>/dev/null || true)
+  if [ -n "$now" ] && [ "$now" = "$(cat "$listed")" ]; then
     exit 0
   fi
   echo "svc-egress: the table for $account was missing or changed; loading it again" >&2
@@ -205,4 +207,8 @@ nft -f "$next" || { rm -f "$next"; die "nft could not load the table for $accoun
 mv "$next" "$saved"
 deny_ruleset > "$denied"
 echo "$uid" > "$uid_file"
-nft list table inet "$table" > "$listed"
+if ! { nft list table inet "$table" > "$listed.next" && [ -s "$listed.next" ]; }; then
+  rm -f "$listed.next"
+  die "nft loaded the table for $account but could not list it; check keeps the last listing"
+fi
+mv "$listed.next" "$listed"

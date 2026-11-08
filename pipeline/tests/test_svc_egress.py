@@ -136,6 +136,8 @@ else:
     as_json = args[:1] == ["-j"]
     args = args[1:] if as_json else args
     if args[:2] == ["list", "table"]:
+        if os.environ.get("FAKE_NFT_LIST_FAIL"):
+            fail("Error: netlink: Error: Operation not permitted")
         name = f"{args[2]} {args[3]}"
         if name not in tables:
             fail(f"Error: No such file or directory; did you mean table {name}?")
@@ -458,6 +460,27 @@ def test_each_action_on_the_table_takes_the_accounts_lock(host, action):
     run(host, action, ACCOUNT)
     assert (host / "flock.log").read_text() == "flock -w 60 9\n"
     assert (host / "run" / f"{ACCOUNT}.lock").exists()
+
+
+def test_an_empty_saved_listing_fails_closed(host):
+    # Security review S5: an empty baseline must not match an empty listing of a table that is
+    # gone. The check treats either as "can't tell" and denies the account.
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    (host / "run" / f"{ACCOUNT}.listed").write_text("")
+    t = tables(host)
+    del t[TABLE]
+    set_tables(host, t)
+    r = run(host, "check", ACCOUNT)
+    assert r.returncode == 1
+    assert (host / "systemctl.log").read_text() == f"systemctl --no-block stop user@{UID}.service\n"
+
+
+def test_apply_that_cannot_list_the_table_fails_and_keeps_the_last_listing(host):
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    before = (host / "run" / f"{ACCOUNT}.listed").read_text()
+    r = run(host, "apply", ACCOUNT, FAKE_NFT_LIST_FAIL="1")
+    assert r.returncode != 0 and "list" in r.stderr
+    assert (host / "run" / f"{ACCOUNT}.listed").read_text() == before != ""
 
 
 def test_the_saved_copy_is_roots_alone(host):
