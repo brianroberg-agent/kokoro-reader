@@ -4,8 +4,9 @@
 #                     the narration runner token (runner.env in the secrets folder)
 #   narration-agent   one locked-down Claude Code session at a time; holds only the
 #                     Claude login (agent.env in the secrets folder)
-# From the repo root: docker compose -f deploy/compose.yaml build, then up -d narration-agent;
-# the runner (up -d narration-runner) only after the acceptance run (docs/pipeline.md, Deploy).
+# From the repo root: docker compose -f deploy/compose.yaml --profile schedule build (both
+# images: the runner is in the schedule profile), then up -d, which starts the agent alone
+# until COMPOSE_PROFILES=schedule in deploy/.env, set after the acceptance run (docs/pipeline.md, Deploy).
 # MAC_HOST, MAC_PORT, RUNNER_ALLOW, RUNNER_LAN, NARRATION_SECRETS_DIR and
 # NARRATION_NO_NEW_PRIVILEGES come from deploy/.env, written from deploy/env.example;
 # compose reads the .env beside this file.

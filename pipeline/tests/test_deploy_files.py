@@ -149,7 +149,9 @@ def test_every_build_in_the_guide_builds_the_runner_too():
     # skips it until COMPOSE_PROFILES=schedule, and its image goes stale beside the agent's.
     guide = (DEPLOY.parent / "docs" / "pipeline.md").read_text()
     verified = guide.index("## Verified")  # what ran before the profile, as it ran
-    builds = [line for line in guide[:verified].splitlines()
+    # round 2, #8: the compose file's own header too
+    text = guide[:verified] + "\n" + (DEPLOY / "compose.yaml").read_text()
+    builds = [line for line in text.splitlines()
               if re.search(r"compose[^`]* (build|up [^`]*--build)", line)]
     assert builds
     for line in builds:
