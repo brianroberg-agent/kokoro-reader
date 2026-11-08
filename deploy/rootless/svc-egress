@@ -4,7 +4,7 @@
 # docs/superpowers/specs/2026-11-07-rootless-podman-design.md, "The one-rule limit").
 #
 #   svc-egress apply ACCOUNT    load the account's nftables table
-#   svc-egress check ACCOUNT    load it again if it is missing or changed (svc-egress-check@.timer,
+#   svc-egress check ACCOUNT    load it again if it is missing or changed in any way (svc-egress-check@.timer,
 #                               every 30 s: someone else's `nft flush ruleset` would take it)
 #   svc-egress deny ACCOUNT     reject everything the account sends (svc-egress@'s ExecStop)
 #   svc-egress remove ACCOUNT   delete it: deprovisioning, by hand
@@ -56,7 +56,7 @@ case $account in
 esac
 table="svc_egress_${account//-/_}"   # nft names take no hyphen
 saved="$STATE_DIR/$account.nft"      # what apply last loaded
-saved_count="$STATE_DIR/$account.rules"
+listed="$STATE_DIR/$account.listed"  # the table as nft listed it after apply loaded it
 denied="$STATE_DIR/$account.deny.nft"  # the table that rejects all the account sends
 uid_file="$STATE_DIR/$account.uid"
 
@@ -65,7 +65,7 @@ if [ "$action" = remove ]; then
   if nft list table inet "$table" >/dev/null 2>&1; then
     nft delete table inet "$table" || status=1
   fi
-  rm -f "$saved" "$saved_count" "$denied" "$uid_file"
+  rm -f "$saved" "$listed" "$denied" "$uid_file"
   exit "$status"
 fi
 
@@ -95,9 +95,12 @@ fail_closed() {
 }
 
 if [ "$action" = check ]; then
-  [ -r "$saved" ] && [ -r "$saved_count" ] || fail_closed "no saved table for $account"
-  have=$(nft -j list table inet "$table" 2>/dev/null | grep -o '"rule"' | wc -l | tr -d ' ' || true)
-  [ "$have" = "$(cat "$saved_count")" ] && exit 0
+  [ -r "$saved" ] && [ -r "$listed" ] || fail_closed "no saved table for $account"
+  # The table as nft lists it now, against how it listed it after apply: any change, not
+  # only a missing table or a different number of rules.
+  if [ "$(nft list table inet "$table" 2>/dev/null || true)" = "$(cat "$listed")" ]; then
+    exit 0
+  fi
   echo "svc-egress: the table for $account was missing or changed; loading it again" >&2
   nft -f "$saved" || fail_closed "could not load the saved table for $account"
   exit 0
@@ -192,4 +195,4 @@ nft -f "$next" || { rm -f "$next"; die "nft could not load the table for $accoun
 mv "$next" "$saved"
 deny_ruleset > "$denied"
 echo "$uid" > "$uid_file"
-echo $(( $(reach_rules | grep -c .) + 2 )) > "$saved_count"
+nft list table inet "$table" > "$listed"

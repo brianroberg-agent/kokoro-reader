@@ -370,6 +370,18 @@ def test_check_leaves_an_intact_table_alone(host):
     assert "nft -f" not in log(host)
 
 
+def test_check_puts_back_a_table_changed_without_changing_its_count(host):
+    # Round 3, #6: one reject turned into an accept keeps the rule count; the check compares
+    # the table as nft lists it with what apply listed, not a count.
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    t = tables(host)
+    t[TABLE]["reach"] = [r.replace('oifname "lo" reject', 'oifname "lo" accept') for r in t[TABLE]["reach"]]
+    set_tables(host, t)
+    r = run(host, "check", ACCOUNT)
+    assert r.returncode == 0 and "loading it again" in r.stderr
+    assert tables(host)[TABLE]["reach"] == REACH
+
+
 @pytest.mark.parametrize("damage", ["gone", "emptied"])
 def test_check_puts_back_what_a_full_flush_took(host, damage):
     # Review R2 and round 2 #1: someone else's `nft flush ruleset` takes the table; the check
