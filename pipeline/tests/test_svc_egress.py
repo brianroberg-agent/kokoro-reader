@@ -324,6 +324,33 @@ def test_remove_leaves_no_chain_or_jump(host):
         assert state(host)[fam]["OUTPUT"] == ["-o lo -j ACCEPT"]
 
 
+def test_remove_works_once_the_account_and_its_range_are_gone(host):
+    # Review R7: after userdel, remove must still take the chain and its jumps away.
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    (host / "bin" / "id").write_text('#!/bin/sh\necho "id: $2: no such user" >&2; exit 1\n')
+    (host / "subuid").write_text("someoneelse:100000:65536\n")
+    r = run(host, "remove", ACCOUNT)
+    assert r.returncode == 0, r.stderr
+    for fam in ("v4", "v6"):
+        assert CHAIN not in state(host)[fam] and state(host)[fam]["OUTPUT"] == ["-o lo -j ACCEPT"]
+
+
+def test_remove_takes_a_jump_for_an_old_range_too(host):
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    s = state(host)
+    s["v4"]["OUTPUT"].append(f"-m owner --uid-owner 500000-565535 -j {CHAIN}")  # before a usermod
+    (host / "state.json").write_text(json.dumps(s))
+    assert run(host, "remove", ACCOUNT).returncode == 0
+    assert CHAIN not in state(host)["v4"] and state(host)["v4"]["OUTPUT"] == ["-o lo -j ACCEPT"]
+
+
+def test_remove_goes_on_to_ipv6_when_ipv4_fails(host):
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    r = run(host, "remove", ACCOUNT, FAKE_IPT_FAIL="v4")
+    assert r.returncode != 0
+    assert CHAIN not in state(host)["v6"] and CHAIN in state(host)["v4"]
+
+
 def test_remove_without_a_chain_is_not_an_error(host):
     assert run(host, "remove", ACCOUNT).returncode == 0
 

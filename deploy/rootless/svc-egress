@@ -20,8 +20,9 @@
 #         internet is let through.
 #   IPv6: everything is rejected.
 #
-# Every input is checked before the first iptables call: on a bad grant, a missing conf,
-# an unknown account or no sub-id line it exits 1, naming the problem, and changes nothing.
+# apply checks every input before its first iptables call: on a bad grant or resolver, a
+# missing conf, an unknown account or not exactly one sub-id range it exits 1, naming the
+# problem, and changes nothing. remove needs only the chain's name.
 # Each family loads in one iptables-restore, so a failed apply leaves that family as it was,
 # and a re-apply keeps the jumps in place throughout.
 set -euo pipefail
@@ -44,6 +45,27 @@ esac
 chain="svc-$account"
 [ ${#chain} -le 28 ] || die "account name too long for an iptables chain: $account"
 
+# remove needs neither the account nor its sub-ids, which may be gone already (userdel): it
+# deletes every rule that jumps to the chain, then the chain, one load per family. A family
+# that fails doesn't stop the other; the exit status says it failed.
+unload() {
+  local ipt=$1 table
+  table=$("$ipt" -w -S) || return 1
+  printf '%s\n' "$table" | grep -qx -- "-N $chain" || return 0
+  {
+    printf '%s\n' '*filter'
+    printf '%s\n' "$table" | grep -E "^-A [^ ]+ .* -j $chain\$" | sed 's/^-A /-D /' || true
+    printf '%s\n' "-F $chain" "-X $chain" COMMIT
+  } | "$ipt-restore" -w --noflush
+}
+
+if [ "$action" = remove ]; then
+  status=0
+  unload ip6tables || status=1
+  unload iptables || status=1
+  exit "$status"
+fi
+
 uid=$(id -u "$account" 2>/dev/null) || die "no account named $account"
 
 # The account's sub-id ranges: lines naming it or its uid. One jump covers one range, so a
@@ -60,50 +82,29 @@ esac
 [ -n "$start" ] && [ -n "$count" ] || die "no sub-id range for $account in $SUBUID (subuid)"
 range="$start-$((start + count - 1))"
 
-grants="" resolvers=""
-if [ "$action" = apply ]; then
-  conf="$CONF_DIR/$account.conf"
-  [ -r "$conf" ] || die "no $conf"
-  grep -Eq '^GRANTS="[^"]*"[[:space:]]*$' "$conf" || die "no GRANTS=\"...\" line in $conf (quoted; empty for none)"
-  grants=$(sed -n 's/^GRANTS="\(.*\)"[[:space:]]*$/\1/p' "$conf" | tail -n 1)
-  for grant in $grants; do
-    ip=${grant%:*} port=${grant##*:}
-    echo "$grant" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}:[0-9]{1,5}$' || die "bad grant (want ipv4:port): $grant"
-    for octet in $(echo "$ip" | tr . ' '); do
-      [ "$octet" -le 255 ] || die "bad grant (address): $grant"
-    done
-    [ "$port" -ge 1 ] && [ "$port" -le 65535 ] || die "bad grant (port): $grant"
+# apply: the root-owned conf's grants and resolvers.
+conf="$CONF_DIR/$account.conf"
+[ -r "$conf" ] || die "no $conf"
+grep -Eq '^GRANTS="[^"]*"[[:space:]]*$' "$conf" || die "no GRANTS=\"...\" line in $conf (quoted; empty for none)"
+grants=$(sed -n 's/^GRANTS="\(.*\)"[[:space:]]*$/\1/p' "$conf" | tail -n 1)
+for grant in $grants; do
+  ip=${grant%:*} port=${grant##*:}
+  echo "$grant" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}:[0-9]{1,5}$' || die "bad grant (want ipv4:port): $grant"
+  for octet in $(echo "$ip" | tr . ' '); do
+    [ "$octet" -le 255 ] || die "bad grant (address): $grant"
   done
-  # The upstream resolvers the host uses (resolvectl dns): a compose network's aardvark-dns
-  # forwards lookups to them from the account, so port 53 is open to these and no others.
-  grep -Eq '^RESOLVERS="[^"]*"[[:space:]]*$' "$conf" || die "no RESOLVERS=\"...\" line in $conf (quoted; empty for none)"
-  resolvers=$(sed -n 's/^RESOLVERS="\(.*\)"[[:space:]]*$/\1/p' "$conf" | tail -n 1)
-  for resolver in $resolvers; do
-    echo "$resolver" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$' || die "bad resolver (want an ipv4 address): $resolver"
-    for octet in $(echo "$resolver" | tr . ' '); do
-      [ "$octet" -le 255 ] || die "bad resolver (address): $resolver"
-    done
+  [ "$port" -ge 1 ] && [ "$port" -le 65535 ] || die "bad grant (port): $grant"
+done
+# The upstream resolvers the host uses (resolvectl dns): a compose network's aardvark-dns
+# forwards lookups to them from the account, so port 53 is open to these and no others.
+grep -Eq '^RESOLVERS="[^"]*"[[:space:]]*$' "$conf" || die "no RESOLVERS=\"...\" line in $conf (quoted; empty for none)"
+resolvers=$(sed -n 's/^RESOLVERS="\(.*\)"[[:space:]]*$/\1/p' "$conf" | tail -n 1)
+for resolver in $resolvers; do
+  echo "$resolver" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$' || die "bad resolver (want an ipv4 address): $resolver"
+  for octet in $(echo "$resolver" | tr . ' '); do
+    [ "$octet" -le 255 ] || die "bad resolver (address): $resolver"
   done
-fi
-
-# The account's jumps, deleted until none is left (iptables -D removes one match at a time).
-remove_jumps() {
-  local ipt=$1 owner
-  for owner in "$uid" "$range"; do
-    while "$ipt" -w -D OUTPUT -m owner --uid-owner "$owner" -j "$chain" 2>/dev/null; do :; done
-  done
-}
-
-if [ "$action" = remove ]; then
-  for ipt in iptables ip6tables; do
-    remove_jumps "$ipt"
-    if "$ipt" -w -S "$chain" >/dev/null 2>&1; then
-      "$ipt" -w -F "$chain"
-      "$ipt" -w -X "$chain"
-    fi
-  done
-  exit 0
-fi
+done
 
 # The account's IPv4 chain, as iptables-restore lines.
 v4_rules() {
