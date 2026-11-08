@@ -369,6 +369,16 @@ def test_a_missing_conf_or_account_stops_and_changes_nothing(host, problem, need
     assert log(host) == ""
 
 
+@pytest.mark.parametrize("name", ["0", "1001", "svc_a", "-x", "Svc", "a" * 33])
+def test_an_account_name_starts_with_a_letter_and_has_no_underscore(host, name):
+    # Round 3, #10: an all-digit name reads as a uid to `id` ("0" is root). #8: with
+    # hyphens made underscores in the table's name, "svc-a" and "svc_a" would share a table.
+    (host / "ids").write_text(f"{name} 0\n")
+    r = run(host, "apply", name)
+    assert r.returncode == 1 and "not an account name" in r.stderr
+    assert log(host) == ""
+
+
 def test_check_leaves_an_intact_table_alone(host):
     assert run(host, "apply", ACCOUNT).returncode == 0
     (host / "log").write_text("")

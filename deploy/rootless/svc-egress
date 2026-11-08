@@ -51,9 +51,10 @@ usage() { echo "usage: svc-egress apply|check|deny|remove ACCOUNT" >&2; exit 2; 
 [ $# -eq 2 ] || usage
 action=$1 account=$2
 case $action in apply|check|deny|remove) ;; *) usage ;; esac
-case $account in
-  ''|*[!a-z0-9_-]*|-*) die "not an account name: $account" ;;
-esac
+# A letter first, then lowercase letters, digits and hyphens, up to 32: an all-digit name
+# would read as a uid to `id` ("0" is root), and an underscore could share a table name with
+# a hyphen ("svc-a" and "svc_a" both make svc_egress_svc_a).
+echo "$account" | grep -Eq '^[a-z][a-z0-9-]{0,31}$' || die "not an account name: $account"
 table="svc_egress_${account//-/_}"   # nft names take no hyphen
 saved="$STATE_DIR/$account.nft"      # what apply last loaded
 listed="$STATE_DIR/$account.listed"  # the table as nft listed it after apply loaded it
