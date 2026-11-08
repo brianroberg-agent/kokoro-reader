@@ -377,13 +377,22 @@ This stops and removes both containers. The `narration-data` and `narration-hand
 
 ## Verified
 
+**Rootless Podman on the home server, 2026-11-08**, as the service account, with placeholder secrets (before the limit and the real secrets):
+
+- **The account:** its own group only, linger on, no `sudo`, and neither Docker socket writable. ssh reaches it with the agent's key.
+- **The host:** `ip_set`, `ip_set_hash_net` and `xt_set` loaded; `catatonit` and `nft` 1.0.9 installed; Podman 4.9.3 with netavark and slirp4netns, cgroups v2. The host's firewall tool is netfilter-persistent; ufw, firewalld and `nftables.service` are off.
+- **Whose traffic it is:** while a rootless container downloaded, the host-side socket belonged to `slirp4netns`, running as the account's uid, and the container's own process showed on the host as one of the account's sub-ids. So matching the account's uid covers its containers' traffic, and the sub-id match covers a process that breaks out as a sub-id.
+- **Tools:** the standalone Docker Compose (v5.6.1, checked against its published sha256) worked against the account's Podman socket. A user-level `registries.conf` let `FROM node:...` resolve.
+- **Builds:** agentbox's image built under rootless Podman. Both pipeline images built on it with `--profile schedule build`: `FROM agentbox:latest` found the local image, and each image's check (no setuid program, no file capability) passed.
+- **agentbox's firewall in a rootless container** (the agent): `verified: example.com blocked`, `api.anthropic.com reachable`, `api.github.com blocked` and `base hosts blocked`, then `profile=restricted applied`, `dropping privileges to node` and `serving /handoff ...`. Name lookups went through Podman's DNS. `no-new-privileges` was on. A plain `up -d` with `COMPOSE_PROFILES` empty started the agent alone.
+- **Reach from a one-off runner** (`run --rm narration-runner`, its profile off):
+  - the Mac's `/health` answered `{"ok":true}` over the tailnet;
+  - the server's own reverse proxy (Audiobookshelf's grant) accepted the TCP connection; TLS by bare IP has no certificate, and the pipeline uses the hostname;
+  - `example.com` was refused.
+- **Restarts:** a compose-started container with `restart: unless-stopped` that exits after 5 s had been restarted 3 times after 28 s, the runner's nightly pattern.
+- **The boot unit:** enabled and active. `systemctl --user stop` stopped the agent through `podman stop` on Compose's project label in about 7 s, and `start` brought it back.
+
 **Still open: rootless Podman on the home server.** Each of these gets checked on the host before cutover, and its result goes here:
-- the account's privileges;
-- whether a rootless container's egress carries the account's uid;
-- agentbox's firewall under rootless Podman;
-- reach to the Mac and to Audiobookshelf;
-- a compose-started container restarting under Podman (the runner's nightly restart);
-- the boot unit;
 - the table, with a refused LAN address, a refused loopback port and refused IPv6, while the grants and lookups still work;
 - the account's user manager stopping with the egress unit, and coming back after it;
 - a firewall reload leaving the table alone, and `svc-egress check` putting it back after it's deleted.

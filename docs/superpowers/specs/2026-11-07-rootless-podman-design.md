@@ -145,12 +145,12 @@ The new route gives the agent only `narration`. Goal 4 holds fully only when the
 
 ### The one-rule limit (my policy, for veto)
 
-**Changed in the build (Brian, 2026-11-07 19:49, through `assistant`): its own nftables table, not jumps in iptables' `OUTPUT`.**
+**Changed in the build: its own nftables table, not jumps in iptables' `OUTPUT`.** The coordinating session (`assistant`) answered yes to this on Brian's behalf at 2026-11-07 19:49, recorded for his veto.
 - **What changed:** each account gets a table `inet svc_egress_ACCOUNT`, with a base chain on the output hook, loaded in one `nft -f`. The policy below is unchanged; only the mechanism is.
 - **Why:** the second review round found that jumps in the shared `OUTPUT` chain lose to an ACCEPT another tool puts above them. A reload of the filter table drops them, and two accounts fight over the top two rules. In nftables a reject in any table's base chain is final, other tools' reloads don't touch the table, one load covers IPv4 and IPv6, and each account has its own table.
 - **What stays:** the check timer, now a guard against someone else's full `nft flush ruleset`.
-- **On the home server:** never enable `nftables.service`, and never put the table in `/etc/nftables.conf`. Its stock config begins with `flush ruleset`, which would wipe Docker's and ufw's rules.
-- **Review:** the rewrite gets one more Opus round, scoped to `svc-egress` and its units, past the usual two-round cap.
+- **On the home server** (a constraint from the coordinating session's record of the server, not Brian's decision): never enable `nftables.service`, and never put the table in `/etc/nftables.conf`. Its stock config begins with `flush ruleset`, which would wipe Docker's and ufw's rules.
+- **Review:** the rewrite gets one more Opus round, scoped to `svc-egress` and its units, past the usual two-round cap. That was the coordinating session's call, on Brian's behalf.
 - The text below still says "chain" and "jump", as approved; read them as the table's chains.
 
 **How it's entered.** On the host, a chain `svc-narration` is entered from `OUTPUT` by the owner match: `-m owner --uid-owner narration -j svc-narration`. A second jump with the account's sub-id range (`--uid-owner <first>-<last>`) catches a process that breaks out of a container as a sub-id. The chain is the one place the account's reach is set. For the next service, it's one more chain and its jumps.
