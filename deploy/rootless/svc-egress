@@ -45,7 +45,12 @@ chain="svc-$account"
 
 uid=$(id -u "$account" 2>/dev/null) || die "no account named $account"
 
-line=$(grep "^$account:" "$SUBUID" 2>/dev/null | head -n 1 || true)
+# The account's sub-id ranges: lines naming it or its uid. One jump covers one range, so a
+# second range would leave its sub-ids outside the chain: refuse instead.
+lines=$(grep -E "^($account|$uid):" "$SUBUID" 2>/dev/null || true)
+[ "$(printf '%s\n' "$lines" | grep -c .)" -le 1 ] \
+  || die "more than one sub-id range for $account in $SUBUID; svc-egress covers one"
+line=$lines
 start=$(echo "$line" | cut -d: -f2)
 count=$(echo "$line" | cut -d: -f3)
 case "$start$count" in

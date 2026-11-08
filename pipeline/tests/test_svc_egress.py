@@ -182,6 +182,24 @@ def test_an_empty_grants_line_means_no_grants(host):
     assert state(host)["v4"][CHAIN] == [r for r in V4_RULES if "--dport 8770" not in r and "13378" not in r]
 
 
+@pytest.mark.parametrize("lines", [
+    f"{ACCOUNT}:{SUBUID_START}:{SUBUID_COUNT}\n{ACCOUNT}:400000:65536\n",  # usermod --add-subuids
+    f"{ACCOUNT}:{SUBUID_START}:{SUBUID_COUNT}\n{UID}:400000:65536\n",  # a range listed by uid number
+])
+def test_a_second_subid_range_stops_and_changes_nothing(host, lines):
+    # One jump covers one range: a second would leave its sub-ids outside the chain.
+    (host / "subuid").write_text(lines)
+    r = run(host, "apply", ACCOUNT)
+    assert r.returncode == 1 and "more than one sub-id range" in r.stderr
+    assert (host / "log").read_text() == ""
+
+
+def test_a_range_listed_by_uid_number_is_the_accounts(host):
+    (host / "subuid").write_text(f"someoneelse:100000:65536\n{UID}:{SUBUID_START}:{SUBUID_COUNT}\n")
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    assert state(host)["v4"]["OUTPUT"][:2] == JUMPS
+
+
 def test_no_subuid_line_stops_and_changes_nothing(host):
     (host / "subuid").write_text("someoneelse:100000:65536\n")
     r = run(host, "apply", ACCOUNT)
