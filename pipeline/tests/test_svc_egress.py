@@ -179,7 +179,8 @@ def host(tmp_path):
                        'echo "id: $2: no such user" >&2; exit 1\n')
     fake_id.chmod(0o755)
     fake_flock = bin_dir / "flock"
-    fake_flock.write_text(f'#!/bin/sh\necho "flock $*" >> {tmp_path / "flock.log"}\n')
+    fake_flock.write_text(f'#!/bin/sh\necho "flock $*" >> {tmp_path / "flock.log"}\n'
+                          '[ -z "$FAKE_FLOCK_FAIL" ]\n')
     fake_flock.chmod(0o755)
     (tmp_path / "flock.log").write_text("")
     fake_systemctl = bin_dir / "systemctl"
@@ -481,6 +482,30 @@ def test_apply_that_cannot_list_the_table_fails_and_keeps_the_last_listing(host)
     r = run(host, "apply", ACCOUNT, FAKE_NFT_LIST_FAIL="1")
     assert r.returncode != 0 and "list" in r.stderr
     assert (host / "run" / f"{ACCOUNT}.listed").read_text() == before != ""
+
+
+def test_a_check_that_cannot_take_the_lock_fails_closed(host):
+    # Security review S6: a stuck lock holder must not keep the check from acting.
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    r = run(host, "check", ACCOUNT, FAKE_FLOCK_FAIL="1")
+    assert r.returncode == 1 and "lock" in r.stderr
+    assert tables(host)[TABLE] == {"output": DENY}
+    assert (host / "systemctl.log").read_text() == f"systemctl --no-block stop user@{UID}.service\n"
+
+
+def test_deny_goes_ahead_without_the_lock(host):
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    r = run(host, "deny", ACCOUNT, FAKE_FLOCK_FAIL="1")
+    assert r.returncode != 0 and "lock" in r.stderr
+    assert tables(host)[TABLE] == {"output": DENY}
+
+
+def test_apply_without_the_lock_changes_nothing(host):
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    before = tables(host)
+    (host / "log").write_text("")
+    r = run(host, "apply", ACCOUNT, FAKE_FLOCK_FAIL="1")
+    assert r.returncode == 1 and "nft -f" not in log(host) and tables(host) == before
 
 
 def test_the_saved_copy_is_roots_alone(host):

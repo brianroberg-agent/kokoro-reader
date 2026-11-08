@@ -71,21 +71,25 @@ fi
 
 # One svc-egress at a time per account: a check during a reload would otherwise load the old
 # saved table back over the new one. apply, check and deny hold the lock while they work.
+# Not getting it never weakens the limit: apply stops, check fails closed, and deny denies
+# anyway (its load is atomic).
 lock() {
   mkdir -p "$STATE_DIR"
   chmod 700 "$STATE_DIR"
-  exec 9>"$STATE_DIR/$account.lock"
-  flock -w 60 9 || die "another svc-egress is still working on $account"
+  { exec 9>"$STATE_DIR/$account.lock"; } 2>/dev/null || return 1
+  flock -w 60 9
 }
 
 # deny: what a stopped limit leaves (svc-egress@'s ExecStop): the account rejected outright,
 # not unlimited. It needs no conf and no account, only what apply saved; before any apply
 # there is nothing of the account's to deny.
 if [ "$action" = deny ]; then
-  lock
+  locked=yes
+  lock || { locked=no; echo "svc-egress: could not take the lock for $account; denying it anyway" >&2; }
   [ -r "$denied" ] || exit 0
   nft -f "$denied"
-  exit 0
+  [ "$locked" = yes ]
+  exit
 fi
 
 # Fail-closed, without deleting anything: the account gets the deny table, then its user
@@ -105,7 +109,7 @@ fail_closed() {
 }
 
 if [ "$action" = check ]; then
-  lock
+  lock || fail_closed "could not take the lock for $account"
   [ -r "$saved" ] && [ -s "$listed" ] || fail_closed "no saved table for $account"
   # The table as nft lists it now, against how it listed it after apply: any change, not
   # only a missing table or a different number of rules. A listing that fails or comes back
@@ -200,7 +204,7 @@ deny_ruleset() {
     "	}" "}"
 }
 
-lock
+lock || die "could not take the lock for $account (another svc-egress is still working on it)"
 next="$saved.next"
 ruleset > "$next"
 nft -f "$next" || { rm -f "$next"; die "nft could not load the table for $account; it is as it was"; }
