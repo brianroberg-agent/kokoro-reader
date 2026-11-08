@@ -171,7 +171,7 @@ As `narration`, from its home:
 
    ```bash
    cd ~/kokoro-reader
-   docker-compose -f deploy/compose.yaml build
+   docker-compose -f deploy/compose.yaml --profile schedule build
    mkdir -p ~/.config/systemd/user
    ln -s ~/kokoro-reader/deploy/rootless/narration.service ~/.config/systemd/user/
    systemctl --user daemon-reload
@@ -259,7 +259,7 @@ The earlier setup, kept as the way back until R5. On the home server, from scrat
 6. **Build both images, and start only the agent.** The runner's schedule waits until the acceptance run below (spec, "Acceptance": Brian listens to the first article before the schedule is turned on):
 
    ```bash
-   docker compose -f deploy/compose.yaml build
+   docker compose -f deploy/compose.yaml --profile schedule build
    docker compose -f deploy/compose.yaml up -d narration-agent
    ```
 
@@ -336,7 +336,7 @@ The columns are in `pipeline/narration_pipeline/record.py`. The ones worth readi
 
 **"Narration session service not running".** The agent's session service touches `/handoff/heartbeat` every 2 seconds, also while a session runs. Before each article the runner reads it: when it is missing or more than 60 seconds old, the runner sends this push and starts no article that night; an article whose session got no result while the heartbeat stopped goes back to `failed` without a failed night. Look at `docker compose -f deploy/compose.yaml ps` and the agent's log, then start it again: `docker compose -f deploy/compose.yaml up -d narration-agent`. When the runner stops waiting for a result, it withdraws the request if the service hasn't taken it yet, and the service answers a request older than its timeout plus 300 seconds with "stale request" instead of starting a session.
 
-**Updating** after a `git pull`: first the Mac (pull its checkout, `uv sync --inexact`, and restart the LaunchAgent, `docs/narration-server.md`), then `docker compose -f deploy/compose.yaml up -d --build`. The Mac goes first because the agent's prompt, built into the image, can name what only a newer narration server accepts (the `omission` issue kind, for one); in the other order such a `finish` is refused until the Mac is updated. Do it in the daytime: a runner restarted mid-night leaves its article `in_progress`, and the next night recovers it.
+**Updating** after a `git pull`: first the Mac (pull its checkout, `uv sync --inexact`, and restart the LaunchAgent, `docs/narration-server.md`), then `docker compose -f deploy/compose.yaml --profile schedule build` and `docker compose -f deploy/compose.yaml up -d`. `--profile schedule` builds the runner too: it's in that profile, and a plain `build` (or `up -d --build`) skips it until `COMPOSE_PROFILES=schedule` is set, leaving its image older than the agent's. The plain `up -d` then starts what `COMPOSE_PROFILES` turns on. The Mac goes first because the agent's prompt, built into the image, can name what only a newer narration server accepts (the `omission` issue kind, for one); in the other order such a `finish` is refused until the Mac is updated. Do it in the daytime: a runner restarted mid-night leaves its article `in_progress`, and the next night recovers it.
 
 ## Rollback
 
@@ -353,7 +353,7 @@ docker compose -f deploy/compose.yaml down
 
 This stops and removes both containers. The `narration-data` and `narration-handoff` volumes stay, and with them the record, so the next `up -d` carries on where it stopped. The Mac's work folders (`~/narration-data`) stay too. Episodes already published stay in Audiobookshelf; delete one there by hand if it shouldn't be up.
 
-`down -v` would delete the volumes, and the record with them: the next night would start from an empty record, so it would queue the articles already published and could record and publish them again. To go back to an earlier version instead, check it out and rebuild: `git checkout <commit> && docker compose -f deploy/compose.yaml up -d --build`.
+`down -v` would delete the volumes, and the record with them: the next night would start from an empty record, so it would queue the articles already published and could record and publish them again. To go back to an earlier version instead, check it out and rebuild: `git checkout <commit> && docker compose -f deploy/compose.yaml --profile schedule build && docker compose -f deploy/compose.yaml up -d`.
 
 ## Verified
 

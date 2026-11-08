@@ -139,6 +139,18 @@ def test_the_boot_unit_brings_up_what_deploy_env_enables():
     assert u["Install"]["WantedBy"] == "default.target"
 
 
+def test_every_build_in_the_guide_builds_the_runner_too():
+    # Review R5: with the runner in the schedule profile, a plain `build` or `up -d --build`
+    # skips it until COMPOSE_PROFILES=schedule, and its image goes stale beside the agent's.
+    guide = (DEPLOY.parent / "docs" / "pipeline.md").read_text()
+    verified = guide.index("## Verified")  # what ran before the profile, as it ran
+    builds = [line for line in guide[:verified].splitlines()
+              if re.search(r"compose[^`]* (build|up [^`]*--build)", line)]
+    assert builds
+    for line in builds:
+        assert "--profile schedule" in line, line
+
+
 def test_compose_settings_come_from_deploy_env():
     text = (DEPLOY / "compose.yaml").read_text()
     used = re.findall(r"\$\{([A-Z_]+)([^}]*)\}", text)
