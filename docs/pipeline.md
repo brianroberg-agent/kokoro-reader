@@ -121,7 +121,7 @@ The timer runs `svc-egress check` every 30 seconds. If a reload of the host's ow
 
 If ufw or another tool manages the host's firewall, reload it. Then, within 30 seconds, run the three `-S` commands again: the chain must be there, either kept or put back by the check.
 
-**R3b, the secrets, once the chain checks pass.** Copy the two files into the account; they're never shown or typed again. Then stop the root deployment's agent, with `stop`, never `down -v`:
+**R3b, the secrets, once the chain checks pass.** Copy the two files into the account with `install`, so they aren't shown or typed again. Then stop the root deployment's agent, with `stop`, never `down -v`:
 
 ```bash
 install -d -m 700 -o narration -g narration ~narration/secrets
@@ -190,10 +190,11 @@ As `narration`, from its home:
 
 **IPv4, in order:**
 1. Replies go through.
-2. Name lookups to the local resolver go through; the rest of the host's own loopback is rejected.
-3. The grants in `/etc/svc-egress/narration.conf` go through.
-4. The LAN, the tailnet, link-local, multicast, broadcast and `0.0.0.0/8` are rejected. Multicast reaches devices at home, and `0.0.0.0` reaches the host itself.
-5. The internet goes through.
+2. Name lookups go through to the host's own stub resolver (for the account's shell) and to the conf's `RESOLVERS`, which a compose network's DNS server forwards to. Port 53 is open to these and no others.
+3. The grants in `/etc/svc-egress/narration.conf` go through, before loopback: a grant to one of the server's own addresses goes out over loopback.
+4. The rest of the host's own loopback is rejected.
+5. The LAN, the tailnet, link-local, multicast, broadcast and `0.0.0.0/8` are rejected. Multicast reaches devices at home, and `0.0.0.0` reaches the host itself.
+6. The internet goes through.
 
 **IPv6:** everything is rejected.
 
@@ -201,10 +202,21 @@ As `narration`, from its home:
 - the chain's order;
 - the jumps at the top of `OUTPUT`;
 - that a second `apply` leaves one pair of jumps;
-- that it stops before it changes anything on a bad grant, a missing conf or account, or a missing sub-id line;
-- that it also stops when the account has more than one sub-id range, since one jump covers one range.
+- that it stops before it changes anything on a bad grant or resolver, a missing conf or account, or a missing sub-id line;
+- that it also stops when the account has more than one sub-id range, since one jump covers one range;
+- that a failed load leaves that family as it was, and a re-apply keeps the jumps in place;
+- that `check` puts back a flushed chain and jumps moved down, and leaves an intact chain alone;
+- that `remove` works after the account is gone.
 
-**Fail-closed at start:** `user-egress.conf` makes the account's systemd user manager require `svc-egress@narration.service`. The account's containers start only after the chain is in, and they stop if that unit stops.
+These run against a fake `iptables`. What the real host does is checked there and recorded under "Verified".
+
+**The account's user manager depends on the chain.** `user-egress.conf` makes the manager require `svc-egress@narration.service` and start after it. The tests check what the drop-in says; the host check is under "Verified". What that covers:
+- **At boot,** the manager, and with it the boot unit's containers, starts after the chain is in.
+- **Stopping the egress unit** stops the manager and its containers.
+
+What it doesn't cover:
+- **A firewall reload** can take the chain away while everything keeps running. `svc-egress check` puts it back within 30 seconds.
+- **A container started some other way while the manager isn't running** has no chain behind it. An example is `podman run` in an ssh session after the chain's unit failed. Check `systemctl status svc-egress@narration` before working around a stopped manager.
 
 **What it doesn't stop: the internet is open to the account.**
 - agentbox's firewall limits each container. A process that breaks out of one skips that firewall, and lands in an account whose chain lets the whole internet through.
@@ -364,9 +376,9 @@ This stops and removes both containers. The `narration-data` and `narration-hand
 - reach to the Mac and to Audiobookshelf;
 - a compose-started container restarting under Podman (the runner's nightly restart);
 - the boot unit;
-- the chain, with a refused LAN address, a refused loopback port and refused IPv6, while the grants still answer;
-- fail-closed;
-- a firewall reload.
+- the chain, with a refused LAN address, a refused loopback port and refused IPv6, while the grants and lookups still work;
+- the account's user manager stopping with the egress unit, and coming back after it;
+- a firewall reload, and `svc-egress check` putting the chain back.
 
 **Still open: the home server.** Nothing here has run there yet: the deploy above end to end (the tailnet from both containers, Brian's Audiobookshelf), and the acceptance run with Brian's listen. Brian's ntfy and a login from `claude setup-token` were used on the Mac (below). Also not yet run: the spec's containment test of a real session asked to run a shell command, read a file and fetch a URL (each session's tool list is checked when it starts, and that check passed against the real init event in the sessions below).
 
