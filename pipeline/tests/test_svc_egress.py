@@ -271,7 +271,10 @@ def test_a_hyphen_in_the_account_becomes_an_underscore_in_the_table(host):
 
 
 @pytest.mark.parametrize("grant", ["host.example:80", "10.0.0.1", "10.0.0.1:99999", "10.0.0.1:0",
-                                   "10.0.0.256:80", "10.0.0:80", "10.0.0.1:80;reboot"])
+                                   "10.0.0.256:80", "10.0.0:80", "10.0.0.1:80;reboot",
+                                   # round 2, #7: a leading zero can be read as octal, opening a
+                                   # different host or port (050 is 40)
+                                   "192.168.050.20:13378", "10.0.0.1:0443", "010.0.0.1:80"])
 def test_a_bad_grant_stops_with_its_name_and_changes_nothing(host, grant):
     (host / "conf" / f"{ACCOUNT}.conf").write_text(conf(grants=f"100.64.0.5:8770 {grant}"))
     before = tables(host)
@@ -295,12 +298,18 @@ def test_an_empty_grants_line_means_no_grants(host):
     assert tables(host)[TABLE]["reach"] == [r for r in REACH if "8770" not in r and "13378" not in r]
 
 
-@pytest.mark.parametrize("resolver", ["resolver.example", "192.168.50.1:53", "192.168.50.300", "::1"])
+@pytest.mark.parametrize("resolver", ["resolver.example", "192.168.50.1:53", "192.168.50.300", "::1",
+                                      "192.168.050.1"])
 def test_a_bad_resolver_stops_with_its_name_and_changes_nothing(host, resolver):
     (host / "conf" / f"{ACCOUNT}.conf").write_text(conf(resolvers=f"192.168.50.1 {resolver}"))
     r = run(host, "apply", ACCOUNT)
     assert r.returncode == 1 and resolver in r.stderr
     assert log(host) == ""
+
+
+def test_zero_itself_is_a_number_not_a_leading_zero(host):
+    (host / "conf" / f"{ACCOUNT}.conf").write_text(conf(grants="10.0.0.1:8770 100.64.0.5:8770"))
+    assert run(host, "apply", ACCOUNT).returncode == 0
 
 
 def test_a_conf_without_a_quoted_resolvers_line_stops_and_changes_nothing(host):
