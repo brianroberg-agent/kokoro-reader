@@ -134,7 +134,10 @@ def test_the_boot_unit_brings_up_what_deploy_env_enables():
     assert u["Service"]["Environment"] == "DOCKER_HOST=unix://%t/podman/podman.sock"
     assert u["Service"]["WorkingDirectory"] == "%h/kokoro-reader"
     # a plain up -d: which services start is deploy/.env's COMPOSE_PROFILES
-    assert u["Service"]["ExecStart"] == "%h/.local/bin/docker-compose -f deploy/compose.yaml up -d"
+    # Round 3, #9: never builds at boot (a missing image fails at once; images are built by
+    # hand), and gives up after 5 minutes rather than hanging as "activating"
+    assert u["Service"]["ExecStart"] == "%h/.local/bin/docker-compose -f deploy/compose.yaml up -d --no-build"
+    assert u["Service"]["TimeoutStartSec"] == "5min"
     # Round 2, #4 and #5: podman itself, not compose through the API. At shutdown the
     # socket-activated API may already be gone, and compose's `stop` skips a service whose
     # profile isn't on, the runner started by name among them. Never `down`.

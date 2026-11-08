@@ -19,7 +19,10 @@ Type=oneshot
 RemainAfterExit=yes
 Environment=DOCKER_HOST=unix://%t/podman/podman.sock
 WorkingDirectory=%h/kokoro-reader
-ExecStart=%h/.local/bin/docker-compose -f deploy/compose.yaml up -d
+# --no-build: images are built by hand (docs/pipeline.md); a missing one fails here at once.
+ExecStart=%h/.local/bin/docker-compose -f deploy/compose.yaml up -d --no-build
+# A oneshot has no start timeout of its own: give up rather than hang as "activating".
+TimeoutStartSec=5min
 # podman itself, not compose through the API: at shutdown the socket-activated API may be
 # gone already, and compose's `stop` skips a service whose profile isn't on (the runner,
 # started by name). Every container of the project, stopped and kept.

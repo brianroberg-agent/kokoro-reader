@@ -180,7 +180,7 @@ As `narration`, from its home:
    systemctl --user enable --now narration.service
    ```
 
-   The unit runs a plain `up -d`. With `COMPOSE_PROFILES` empty, that starts `narration-agent` alone. Check its start as in "Deploy, root Docker", step 7.
+   The unit runs a plain `up -d --no-build`. With `COMPOSE_PROFILES` empty, that starts `narration-agent` alone. It never builds: after a `git pull`, build by hand (`--profile schedule build`), then `systemctl --user restart narration.service`. A missing image makes the unit fail at once, with the reason in `journalctl --user -u narration.service`. Check its start as in "Deploy, root Docker", step 7.
 
 7. **The acceptance run**, as in "Deploy, root Docker", step 8. Then turn on the schedule: set `COMPOSE_PROFILES=schedule` in `deploy/.env`, and `systemctl --user restart narration.service`. The runner's log shows `next run at <time>`.
 
