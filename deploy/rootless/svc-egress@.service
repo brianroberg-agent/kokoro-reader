@@ -14,7 +14,8 @@ Wants=svc-egress-check@%i.timer
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/local/sbin/svc-egress apply %i
-# Stopped, the account is denied outright, not left unlimited. Lifting it is `svc-egress remove`.
+# Stopped, the account is denied, not left unlimited, until this unit starts again: the
+# account's user manager Requires= it, so its next login or boot starts it, with the normal table.
 ExecStop=/usr/local/sbin/svc-egress deny %i
 # A changed grant: `systemctl reload`, which re-applies in place. Not `restart`: the account's
 # user manager Requires= this unit, so a restart restarts it too, and every container.

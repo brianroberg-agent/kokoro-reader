@@ -34,8 +34,10 @@
 # and changes nothing. The table loads in one transaction: all of it takes, or none does.
 # apply keeps a copy of what it loaded (root's alone), which check loads again without
 # reading the conf; when check can't, it denies the account everything and stops its user
-# manager. A stopped limit leaves the account denied; only remove lifts it, and remove needs
-# only the account's name.
+# manager. Stopping the limit (deny) leaves the account denied, not unlimited, until the
+# limit starts again: by hand, or pulled in by the account's user manager, which Requires=
+# it, at the account's next login or boot; that start loads the normal table. remove
+# deletes the table, and needs only the account's name.
 set -euo pipefail
 
 CONF_DIR=${SVC_EGRESS_CONF_DIR:-/etc/svc-egress}

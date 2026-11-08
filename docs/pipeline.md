@@ -360,8 +360,10 @@ The columns are in `pipeline/narration_pipeline/record.py`. The ones worth readi
 **From the rootless account back to root's Docker, until R5:**
 - As `narration`: `systemctl --user disable --now narration.service`. That stops the account's containers and keeps their volumes.
 - As root, in root's checkout: `docker compose -f deploy/compose.yaml up -d narration-agent`. The runner comes back the same way, once it had been started there.
-- `systemctl disable --now svc-egress@narration.service` stops the limit and its check's timer. A stopped limit leaves the account denied outright, not unlimited. It also stops the account's user manager, and any container still running under it.
-- To lift the deny as well, deprovisioning the account: `svc-egress remove narration`. Remove `/etc/systemd/system/user@<uid>.service.d/svc-egress.conf` too, or linger's start of the account's user manager at the next boot pulls the limit's unit back in.
+- `systemctl disable --now svc-egress@narration.service` stops the limit and its check's timer, and the account's user manager with any container under it. A stopped limit leaves the account denied, not unlimited.
+  - **The deny lasts only until the account's user manager starts again,** at an ssh login as the account or at a boot through linger. The manager requires the limit, so its start brings the limit back with the normal table. The account is never left without a table.
+  - **To keep the account out for good,** also `loginctl disable-linger narration`, and remove its `~narration/.ssh/authorized_keys` and the drop-in `/etc/systemd/system/user@<uid>.service.d/svc-egress.conf`.
+- **Deprovisioning:** `svc-egress remove narration` deletes the table and its saved state; then remove the account.
 
 **Within either setup:**
 
