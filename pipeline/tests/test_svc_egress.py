@@ -25,8 +25,10 @@ PRIVATE = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "16
            "0.0.0.0/8", "224.0.0.0/4", "240.0.0.0/4"]
 V4_RULES = [
     "-m conntrack --ctstate ESTABLISHED,RELATED -j RETURN",  # replies, the agent's own ssh among them
-    "-o lo -p udp --dport 53 -j RETURN",  # the local resolver
-    "-o lo -p tcp --dport 53 -j RETURN",
+    # name lookups to any resolver: a compose network's aardvark-dns forwards to the host's
+    # upstream servers (the router, the tailnet's), not to its loopback stub (review R1)
+    "-p udp --dport 53 -j RETURN",
+    "-p tcp --dport 53 -j RETURN",
     # the grants, in the conf's order, before loopback: a grant to one of the server's own
     # addresses (a service on the home server itself) goes out over lo (review R4)
     "-d 100.64.0.5/32 -p tcp --dport 8770 -j RETURN",

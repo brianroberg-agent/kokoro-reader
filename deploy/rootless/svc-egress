@@ -13,8 +13,9 @@
 # (slirp4netns) running as the account, so an owner match on the account's uid covers
 # everything its containers send. A second jump on its sub-id range covers a process that
 # breaks out of a container as a sub-id. Both jump to one chain, svc-ACCOUNT:
-#   IPv4: replies; the local resolver on loopback, and nothing else there; the grants in
-#         /etc/svc-egress/ACCOUNT.conf (GRANTS="ipv4:port ..."); then the LAN, the tailnet,
+#   IPv4: replies; name lookups (port 53, to any resolver); the grants in
+#         /etc/svc-egress/ACCOUNT.conf (GRANTS="ipv4:port ..."); nothing else on loopback;
+#         then the LAN, the tailnet,
 #         link-local, multicast, broadcast and reserved addresses are rejected, and the
 #         internet is let through.
 #   IPv6: everything is rejected.
@@ -113,8 +114,10 @@ fi
 remove_jumps iptables
 empty_chain iptables
 iptables -w -A "$chain" -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
-iptables -w -A "$chain" -o lo -p udp --dport 53 -j RETURN
-iptables -w -A "$chain" -o lo -p tcp --dport 53 -j RETURN
+# Name lookups to any resolver: a compose network's aardvark-dns forwards to the host's
+# upstream servers (the router, the tailnet's), from the account, not to the loopback stub.
+iptables -w -A "$chain" -p udp --dport 53 -j RETURN
+iptables -w -A "$chain" -p tcp --dport 53 -j RETURN
 # The grants before loopback: a grant to one of the server's own addresses goes out over lo.
 for grant in $grants; do
   iptables -w -A "$chain" -d "${grant%:*}/32" -p tcp --dport "${grant##*:}" -j RETURN
