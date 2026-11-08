@@ -45,6 +45,10 @@ SUBUID=${SVC_EGRESS_SUBUID:-/etc/subuid}
 STATE_DIR=${SVC_EGRESS_STATE_DIR:-/run/svc-egress}
 # The LAN, the tailnet and link-local; "this network" (0.0.0.0 reaches the host itself);
 # multicast (mDNS and SSDP answer from devices at home); the reserved block, broadcast in it.
+# The output chain runs before NAT (dstnat is -100). Docker DNATs locally generated connections
+# to a port it publishes on the host's own address, and after that the address a grant names
+# is gone: the chain would see the container's bridge address and reject it as LAN.
+PRIORITY=-150
 PRIVATE_V4="10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16, 0.0.0.0/8, 224.0.0.0/4, 240.0.0.0/4"
 
 die() { echo "svc-egress: $*" >&2; exit 1; }
@@ -192,7 +196,7 @@ ruleset() {
   printf '%s\n' "table inet $table" "delete table inet $table" "table inet $table {" "	chain reach {"
   reach_rules | sed 's/^/		/'
   printf '%s\n' "	}" "	chain output {" \
-    "		type filter hook output priority 0; policy accept;" \
+    "		type filter hook output priority $PRIORITY; policy accept;" \
     "		meta skuid $uid jump reach" \
     "		meta skuid $range jump reach" \
     "	}" "}"
@@ -201,7 +205,7 @@ ruleset() {
 # The deny table: the account and its sub-ids rejected outright.
 deny_ruleset() {
   printf '%s\n' "table inet $table" "delete table inet $table" "table inet $table {" "	chain output {" \
-    "		type filter hook output priority 0; policy accept;" \
+    "		type filter hook output priority $PRIORITY; policy accept;" \
     "		meta skuid $uid reject" \
     "		meta skuid $range reject" \
     "	}" "}"

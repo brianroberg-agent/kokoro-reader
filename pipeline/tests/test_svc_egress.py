@@ -43,13 +43,18 @@ REACH = [
     f"ip daddr {{ {PRIVATE} }} reject",
     "accept",  # the internet (Brian, 2026-11-07: accepted for this service)
 ]
+# Before NAT (dstnat is -100): Docker DNATs locally generated connections to a published port
+# on the host's own address, and after that the grant's address is gone; the chain would see
+# the container's bridge address and reject it as LAN. Found on the home server at R3a:
+# the grant for its own reverse proxy was refused.
+HOOK = "type filter hook output priority -150; policy accept;"
 DENY = [  # what the account gets when the limit is stopped, or can't be put back
-    "type filter hook output priority 0; policy accept;",
+    HOOK,
     f"meta skuid {UID} reject",
     f"meta skuid {RANGE} reject",
 ]
 OUTPUT = [
-    "type filter hook output priority 0; policy accept;",
+    HOOK,
     f"meta skuid {UID} jump reach",  # the account
     f"meta skuid {RANGE} jump reach",  # its sub-ids: a process that breaks out of a container as one
 ]
