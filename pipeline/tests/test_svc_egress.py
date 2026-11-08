@@ -176,6 +176,10 @@ def host(tmp_path):
     fake_id.write_text(f'#!/bin/sh\n[ "$1" = -u ] && grep "^$2 " {tmp_path / "ids"} | cut -d" " -f2 | grep . && exit 0\n'
                        'echo "id: $2: no such user" >&2; exit 1\n')
     fake_id.chmod(0o755)
+    fake_flock = bin_dir / "flock"
+    fake_flock.write_text(f'#!/bin/sh\necho "flock $*" >> {tmp_path / "flock.log"}\n')
+    fake_flock.chmod(0o755)
+    (tmp_path / "flock.log").write_text("")
     fake_systemctl = bin_dir / "systemctl"
     fake_systemctl.write_text(f'#!/bin/sh\necho "systemctl $*" >> {tmp_path / "systemctl.log"}\n')
     fake_systemctl.chmod(0o755)
@@ -443,6 +447,17 @@ def test_apply_after_deny_lifts_it(host):
     assert run(host, "deny", ACCOUNT).returncode == 0
     assert run(host, "apply", ACCOUNT).returncode == 0
     assert tables(host)[TABLE]["reach"] == REACH
+
+
+@pytest.mark.parametrize("action", ["apply", "check", "deny"])
+def test_each_action_on_the_table_takes_the_accounts_lock(host, action):
+    # Round 3, #7: a check during a reload could load the old saved table back over the new
+    # one. apply, check and deny each hold the account's lock while they work.
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    (host / "flock.log").write_text("")
+    run(host, action, ACCOUNT)
+    assert (host / "flock.log").read_text() == "flock -w 60 9\n"
+    assert (host / "run" / f"{ACCOUNT}.lock").exists()
 
 
 def test_the_saved_copy_is_roots_alone(host):

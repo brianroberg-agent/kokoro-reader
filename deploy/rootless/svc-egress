@@ -65,14 +65,24 @@ if [ "$action" = remove ]; then
   if nft list table inet "$table" >/dev/null 2>&1; then
     nft delete table inet "$table" || status=1
   fi
-  rm -f "$saved" "$listed" "$denied" "$uid_file"
+  rm -f "$saved" "$listed" "$denied" "$uid_file" "$STATE_DIR/$account.lock"
   exit "$status"
 fi
+
+# One svc-egress at a time per account: a check during a reload would otherwise load the old
+# saved table back over the new one. apply, check and deny hold the lock while they work.
+lock() {
+  mkdir -p "$STATE_DIR"
+  chmod 700 "$STATE_DIR"
+  exec 9>"$STATE_DIR/$account.lock"
+  flock -w 60 9 || die "another svc-egress is still working on $account"
+}
 
 # deny: what a stopped limit leaves (svc-egress@'s ExecStop): the account rejected outright,
 # not unlimited. It needs no conf and no account, only what apply saved; before any apply
 # there is nothing of the account's to deny.
 if [ "$action" = deny ]; then
+  lock
   [ -r "$denied" ] || exit 0
   nft -f "$denied"
   exit 0
@@ -95,6 +105,7 @@ fail_closed() {
 }
 
 if [ "$action" = check ]; then
+  lock
   [ -r "$saved" ] && [ -r "$listed" ] || fail_closed "no saved table for $account"
   # The table as nft lists it now, against how it listed it after apply: any change, not
   # only a missing table or a different number of rules.
@@ -187,8 +198,7 @@ deny_ruleset() {
     "	}" "}"
 }
 
-mkdir -p "$STATE_DIR"
-chmod 700 "$STATE_DIR"
+lock
 next="$saved.next"
 ruleset > "$next"
 nft -f "$next" || { rm -f "$next"; die "nft could not load the table for $account; it is as it was"; }
