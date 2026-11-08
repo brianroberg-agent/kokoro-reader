@@ -9,7 +9,9 @@
 [Unit]
 Description=Narration pipeline containers (rootless Podman; docs/pipeline.md)
 Requires=podman.socket
-After=podman.socket
+# After podman.service as well: at shutdown this unit's `stop` runs before the podman API it
+# talks to goes away.
+After=podman.socket podman.service
 
 [Service]
 Type=oneshot

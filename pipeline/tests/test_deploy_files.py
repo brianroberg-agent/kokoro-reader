@@ -128,6 +128,8 @@ def unit(name: str) -> configparser.ConfigParser:
 def test_the_boot_unit_brings_up_what_deploy_env_enables():
     u = unit("rootless/narration.service")
     assert u["Unit"]["Requires"] == "podman.socket" and "podman.socket" in u["Unit"]["After"].split()
+    # Review R9: stopped before the podman API it talks to, so its `stop` is a clean one
+    assert "podman.service" in u["Unit"]["After"].split()
     assert u["Service"]["Type"] == "oneshot" and u["Service"]["RemainAfterExit"] == "yes"
     assert u["Service"]["Environment"] == "DOCKER_HOST=unix://%t/podman/podman.sock"
     assert u["Service"]["WorkingDirectory"] == "%h/kokoro-reader"
