@@ -294,12 +294,14 @@ The earlier setup, kept as the way back until R5. On the home server, from scrat
    2. The same article for real: `run --only <article URL>`. It reports `published` (or `published_with_notes`).
    3. Brian listens to the episode in Audiobookshelf.
 
-9. **Start the schedule**, once the episode is good:
+9. **Start the schedule**, once the episode is good. Set `COMPOSE_PROFILES=schedule` in `deploy/.env`, then:
 
    ```bash
-   docker compose -f deploy/compose.yaml up -d narration-runner
+   docker compose -f deploy/compose.yaml up -d
    docker compose -f deploy/compose.yaml logs narration-runner
    ```
+
+   Set it in `deploy/.env`, rather than naming the runner on the command line, so that every later plain `up -d` covers the runner too: Updating's, after a rebuild, and Rollback's. Without it a plain `up -d` leaves the runner on its old container and image.
 
    The log shows the firewall lines as the agent's did, `verified: base hosts blocked` among them, then `next run at <time>` (01:00 New York time, as an ISO time), and the runner waits. That night it takes the articles the acceptance run's discovery queued, five a night, oldest first.
 
