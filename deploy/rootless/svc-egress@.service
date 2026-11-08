@@ -7,6 +7,8 @@
 [Unit]
 Description=Egress limit for the %i service account (svc-egress; docs/pipeline.md)
 After=network-pre.target ufw.service netfilter-persistent.service firewalld.service
+# Starts the check's timer with the limit; the timer is PartOf= this unit, so it stops with it.
+Wants=svc-egress-check@%i.timer
 
 [Service]
 Type=oneshot

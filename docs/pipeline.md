@@ -109,7 +109,7 @@ install -d -m 755 /etc/svc-egress
 printf '%s\n' 'GRANTS="<MAC_HOST>:<MAC_PORT> <Audiobookshelf address>:<port>"' \
   'RESOLVERS="<the host'"'"'s upstream resolvers, from resolvectl dns>"' > /etc/svc-egress/narration.conf
 systemctl daemon-reload
-systemctl enable --now svc-egress@narration.service svc-egress-check@narration.timer
+systemctl enable --now svc-egress@narration.service       # starts its check's timer too
 nft list table inet svc_egress_narration
 ```
 
@@ -360,7 +360,7 @@ The columns are in `pipeline/narration_pipeline/record.py`. The ones worth readi
 **From the rootless account back to root's Docker, until R5:**
 - As `narration`: `systemctl --user disable --now narration.service`. That stops the account's containers and keeps their volumes.
 - As root, in root's checkout: `docker compose -f deploy/compose.yaml up -d narration-agent`. The runner comes back the same way, once it had been started there.
-- `systemctl disable --now svc-egress@narration.service svc-egress-check@narration.timer` stops the limit and its check. A stopped limit leaves the account denied outright, not unlimited. It also stops the account's user manager, and any container still running under it.
+- `systemctl disable --now svc-egress@narration.service` stops the limit and its check's timer. A stopped limit leaves the account denied outright, not unlimited. It also stops the account's user manager, and any container still running under it.
 - To lift the deny as well, deprovisioning the account: `svc-egress remove narration`. Remove `/etc/systemd/system/user@<uid>.service.d/svc-egress.conf` too, or linger's start of the account's user manager at the next boot pulls the limit's unit back in.
 
 **Within either setup:**

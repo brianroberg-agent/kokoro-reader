@@ -481,9 +481,13 @@ def test_the_egress_unit_runs_apply_and_remove():
 
 def test_the_check_timer_runs_check_while_the_limit_is_on():
     timer = unit("rootless/svc-egress-check@.timer")
-    assert timer["Timer"]["OnUnitActiveSec"] == "30s" and timer["Timer"]["OnBootSec"] == "30s"
+    # Round 3, #3: on the clock, every 30 s, not counted from the check's last run, which never
+    # comes if the first check fails; and started by the limit itself (Wants= below), so a stop
+    # and a start of the limit bring it back. It has no [Install] of its own.
+    assert timer["Timer"]["OnCalendar"] == "*:*:0/30" and timer["Timer"]["AccuracySec"] == "5s"
+    assert "OnUnitActiveSec" not in timer["Timer"] and "Install" not in timer
     assert timer["Timer"]["Unit"] == "svc-egress-check@%i.service"
-    assert timer["Install"]["WantedBy"] == "timers.target"
+    assert unit("rootless/svc-egress@.service")["Unit"]["Wants"] == "svc-egress-check@%i.timer"
     service = unit("rootless/svc-egress-check@.service")
     assert service["Service"]["ExecStart"] == "/usr/local/sbin/svc-egress check %i"
     assert service["Service"]["Type"] == "oneshot"
