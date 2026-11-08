@@ -43,6 +43,11 @@ REACH = [
     f"ip daddr {{ {PRIVATE} }} reject",
     "accept",  # the internet (Brian, 2026-11-07: accepted for this service)
 ]
+DENY = [  # what the account gets when the limit is stopped, or can't be put back
+    "type filter hook output priority 0; policy accept;",
+    f"meta skuid {UID} reject",
+    f"meta skuid {RANGE} reject",
+]
 OUTPUT = [
     "type filter hook output priority 0; policy accept;",
     f"meta skuid {UID} jump reach",  # the account
@@ -122,7 +127,8 @@ def load(text):
 if args[:1] == ["-f"]:
     text = sys.stdin.read() if args[1] == "-" else open(args[1]).read()
     log("nft -f\n" + "".join(f"  {line}\n" for line in text.splitlines()))
-    if os.environ.get("FAKE_NFT_FAIL"):
+    if os.environ.get("FAKE_NFT_FAIL") or (os.environ.get("FAKE_NFT_FAIL_MATCH") and
+                                            os.environ["FAKE_NFT_FAIL_MATCH"] in text):
         fail("Error: Could not process rule: Operation not supported")
     state["tables"] = load(text)
 else:
@@ -382,23 +388,49 @@ def test_check_puts_back_what_a_full_flush_took(host, damage):
     assert (host / "systemctl.log").read_text() == ""
 
 
-@pytest.mark.parametrize("trouble", ["nothing saved", "load fails"])
-def test_a_check_that_cannot_put_the_table_back_stops_the_account(host, trouble):
-    # Fail-closed: stopping svc-egress@ stops the account's user manager (it Requires= it),
-    # and with it every container. --no-block: the check's own unit is bound to it.
+def test_a_check_that_cannot_put_the_table_back_denies_the_account(host):
+    # Security review S4: fail closed without deleting anything. The account gets a table that
+    # rejects all it sends, then its user manager (and every container) is stopped. Not by
+    # stopping svc-egress@: its ExecStop is for a deliberate stop.
     assert run(host, "apply", ACCOUNT).returncode == 0
     t = tables(host)
     del t[TABLE]
     set_tables(host, t)
-    extra = {}
-    if trouble == "nothing saved":
-        for f in (host / "run").iterdir():
-            f.unlink()
-    else:
-        extra["FAKE_NFT_FAIL"] = "1"
-    r = run(host, "check", ACCOUNT, **extra)
+    r = run(host, "check", ACCOUNT, FAKE_NFT_FAIL_MATCH="chain reach")
     assert r.returncode == 1
-    assert (host / "systemctl.log").read_text() == f"systemctl --no-block stop svc-egress@{ACCOUNT}.service\n"
+    assert tables(host)[TABLE] == {"output": DENY}
+    assert (host / "systemctl.log").read_text() == f"systemctl --no-block stop user@{UID}.service\n"
+
+
+def test_a_check_with_nothing_saved_still_stops_the_account(host):
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    for f in (host / "run").iterdir():
+        f.unlink()
+    r = run(host, "check", ACCOUNT)
+    assert r.returncode == 1
+    assert (host / "systemctl.log").read_text() == f"systemctl --no-block stop user@{UID}.service\n"
+
+
+def test_deny_rejects_everything_the_account_sends(host):
+    # svc-egress@'s ExecStop: a stopped limit leaves the account denied, not unlimited.
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    (host / "conf" / f"{ACCOUNT}.conf").unlink()  # deny needs no conf
+    (host / "ids").write_text("")  # nor the account
+    r = run(host, "deny", ACCOUNT)
+    assert r.returncode == 0, r.stderr
+    assert tables(host)[TABLE] == {"output": DENY} and tables(host)[OTHER] == {"OUTPUT": ["-o lo -j ACCEPT"]}
+
+
+def test_deny_before_any_apply_is_not_an_error(host):
+    assert run(host, "deny", ACCOUNT).returncode == 0
+    assert TABLE not in tables(host)
+
+
+def test_apply_after_deny_lifts_it(host):
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    assert run(host, "deny", ACCOUNT).returncode == 0
+    assert run(host, "apply", ACCOUNT).returncode == 0
+    assert tables(host)[TABLE]["reach"] == REACH
 
 
 def test_the_saved_copy_is_roots_alone(host):
@@ -428,7 +460,7 @@ def test_remove_without_a_table_is_not_an_error(host):
 
 
 def test_usage_errors_change_nothing(host):
-    for args in ([], ["apply"], ["check"], ["frobnicate", ACCOUNT]):
+    for args in ([], ["apply"], ["check"], ["deny"], ["frobnicate", ACCOUNT]):
         assert run(host, *args).returncode == 2
     assert log(host) == ""
 
@@ -436,7 +468,9 @@ def test_usage_errors_change_nothing(host):
 def test_the_egress_unit_runs_apply_and_remove():
     u = unit("rootless/svc-egress@.service")
     assert u["Service"]["ExecStart"] == "/usr/local/sbin/svc-egress apply %i"
-    assert u["Service"]["ExecStop"] == "/usr/local/sbin/svc-egress remove %i"
+    # Security review S4: stopping the limit denies the account; `remove` is for deprovisioning,
+    # by hand.
+    assert u["Service"]["ExecStop"] == "/usr/local/sbin/svc-egress deny %i"
     # Review R8: a new grant goes in with `systemctl reload`, which re-applies in place. A
     # restart would restart the account's user manager too (it Requires= this unit), and
     # with it every container.

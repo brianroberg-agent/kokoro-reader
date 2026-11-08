@@ -115,7 +115,7 @@ nft list table inet svc_egress_narration
 
 The grants are the same as in `deploy/.env`: the Mac's narration port, and Audiobookshelf's address and port. `RESOLVERS` names the upstream DNS servers the host uses (`resolvectl dns`, IPv4 only): the containers' lookups go to them through the account, and port 53 is open to these and no others.
 
-The timer runs `svc-egress check` every 30 seconds. If something has taken the table away (someone else's full `nft flush ruleset`), the check loads again what `apply` last loaded, without reading the conf. It says so in the journal (`journalctl -u svc-egress-check@narration`). If it can't, it stops `svc-egress@narration`, and with it the account's user manager and every container.
+The timer runs `svc-egress check` every 30 seconds. If something has taken the table away (someone else's full `nft flush ruleset`), the check loads again what `apply` last loaded, without reading the conf. It says so in the journal (`journalctl -u svc-egress-check@narration`). If it can't, it loads a table that rejects everything the account sends, and stops the account's user manager and every container under it.
 
 **Never enable `nftables.service` on the home server, and never put the table in `/etc/nftables.conf`.** Its stock config begins with `flush ruleset`, which would wipe Docker's and ufw's rules too. The table is loaded by `svc-egress@narration` alone.
 
@@ -218,7 +218,7 @@ These run against a fake `nft`. The generated table was also loaded into the rea
 
 What it doesn't cover:
 - **Someone else's full flush** (`nft flush ruleset`) can take the table away while everything keeps running. `svc-egress check` puts it back within 30 seconds.
-- **A container started some other way while the manager isn't running** has no table behind it. An example is `podman run` in an ssh session after the table's unit failed. Check `systemctl status svc-egress@narration` before working around a stopped manager.
+- **A container started some other way while the manager isn't running**, with the limit's unit failed and no deny in place, has no table behind it. An example is `podman run` in an ssh session after the table's unit failed. Check `systemctl status svc-egress@narration` before working around a stopped manager.
 
 **What it doesn't stop: the internet is open to the account.**
 - agentbox's firewall limits each container. A process that breaks out of one skips that firewall, and lands in an account whose table lets the whole internet through.
@@ -358,7 +358,8 @@ The columns are in `pipeline/narration_pipeline/record.py`. The ones worth readi
 **From the rootless account back to root's Docker, until R5:**
 - As `narration`: `systemctl --user disable --now narration.service`. That stops the account's containers and keeps their volumes.
 - As root, in root's checkout: `docker compose -f deploy/compose.yaml up -d narration-agent`. The runner comes back the same way, once it had been started there.
-- The account's chain comes off with `systemctl disable --now svc-egress@narration.service`. This also stops the account's user manager, and any container still running under it.
+- `systemctl disable --now svc-egress@narration.service svc-egress-check@narration.timer` stops the limit and its check. A stopped limit leaves the account denied outright, not unlimited. It also stops the account's user manager, and any container still running under it.
+- To lift the deny as well, deprovisioning the account: `svc-egress remove narration`. Remove `/etc/systemd/system/user@<uid>.service.d/svc-egress.conf` too, or linger's start of the account's user manager at the next boot pulls the limit's unit back in.
 
 **Within either setup:**
 

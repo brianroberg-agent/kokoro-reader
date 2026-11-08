@@ -6,7 +6,8 @@
 #   svc-egress apply ACCOUNT    load the account's nftables table
 #   svc-egress check ACCOUNT    load it again if it is missing or changed (svc-egress-check@.timer,
 #                               every 30 s: someone else's `nft flush ruleset` would take it)
-#   svc-egress remove ACCOUNT   delete it
+#   svc-egress deny ACCOUNT     reject everything the account sends (svc-egress@'s ExecStop)
+#   svc-egress remove ACCOUNT   delete it: deprovisioning, by hand
 #
 # Runs as root, from /usr/local/sbin, installed from a pinned commit: never from the
 # account's home, which the account could change before root runs it.
@@ -32,8 +33,9 @@
 # conf, an unknown account or not exactly one sub-id range it exits 1, naming the problem,
 # and changes nothing. The table loads in one transaction: all of it takes, or none does.
 # apply keeps a copy of what it loaded (root's alone), which check loads again without
-# reading the conf; when check can't, it stops svc-egress@ACCOUNT, and with it the account.
-# remove needs only the account's name.
+# reading the conf; when check can't, it denies the account everything and stops its user
+# manager. A stopped limit leaves the account denied; only remove lifts it, and remove needs
+# only the account's name.
 set -euo pipefail
 
 CONF_DIR=${SVC_EGRESS_CONF_DIR:-/etc/svc-egress}
@@ -44,32 +46,51 @@ STATE_DIR=${SVC_EGRESS_STATE_DIR:-/run/svc-egress}
 PRIVATE_V4="10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16, 0.0.0.0/8, 224.0.0.0/4, 240.0.0.0/4"
 
 die() { echo "svc-egress: $*" >&2; exit 1; }
-usage() { echo "usage: svc-egress apply|check|remove ACCOUNT" >&2; exit 2; }
+usage() { echo "usage: svc-egress apply|check|deny|remove ACCOUNT" >&2; exit 2; }
 
 [ $# -eq 2 ] || usage
 action=$1 account=$2
-case $action in apply|check|remove) ;; *) usage ;; esac
+case $action in apply|check|deny|remove) ;; *) usage ;; esac
 case $account in
   ''|*[!a-z0-9_-]*|-*) die "not an account name: $account" ;;
 esac
 table="svc_egress_${account//-/_}"   # nft names take no hyphen
 saved="$STATE_DIR/$account.nft"      # what apply last loaded
 saved_count="$STATE_DIR/$account.rules"
+denied="$STATE_DIR/$account.deny.nft"  # the table that rejects all the account sends
+uid_file="$STATE_DIR/$account.uid"
 
 if [ "$action" = remove ]; then
   status=0
   if nft list table inet "$table" >/dev/null 2>&1; then
     nft delete table inet "$table" || status=1
   fi
-  rm -f "$saved" "$saved_count"
+  rm -f "$saved" "$saved_count" "$denied" "$uid_file"
   exit "$status"
 fi
 
-# Fail-closed: stopping svc-egress@ACCOUNT stops the account's user manager, which Requires=
-# it, and every container under it. --no-block: the check's own unit is bound to that one.
+# deny: what a stopped limit leaves (svc-egress@'s ExecStop): the account rejected outright,
+# not unlimited. It needs no conf and no account, only what apply saved; before any apply
+# there is nothing of the account's to deny.
+if [ "$action" = deny ]; then
+  [ -r "$denied" ] || exit 0
+  nft -f "$denied"
+  exit 0
+fi
+
+# Fail-closed, without deleting anything: the account gets the deny table, then its user
+# manager, and every container under it, is stopped. (Not by stopping svc-egress@: that is a
+# deliberate stop.) --no-block: the check's own unit mustn't wait on it.
 fail_closed() {
-  echo "svc-egress: $*; stopping svc-egress@$account.service and the account with it" >&2
-  systemctl --no-block stop "svc-egress@$account.service"
+  local who
+  echo "svc-egress: $*; denying $account everything and stopping its user manager" >&2
+  if ! { [ -r "$denied" ] && nft -f "$denied"; }; then
+    echo "svc-egress: could not load the deny table for $account" >&2
+  fi
+  who=$(cat "$uid_file" 2>/dev/null || id -u "$account" 2>/dev/null || true)
+  if [ -n "$who" ]; then
+    systemctl --no-block stop "user@$who.service"
+  fi
   exit 1
 }
 
@@ -154,10 +175,21 @@ ruleset() {
     "	}" "}"
 }
 
+# The deny table: the account and its sub-ids rejected outright.
+deny_ruleset() {
+  printf '%s\n' "table inet $table" "delete table inet $table" "table inet $table {" "	chain output {" \
+    "		type filter hook output priority 0; policy accept;" \
+    "		meta skuid $uid reject" \
+    "		meta skuid $range reject" \
+    "	}" "}"
+}
+
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR"
 next="$saved.next"
 ruleset > "$next"
 nft -f "$next" || { rm -f "$next"; die "nft could not load the table for $account; it is as it was"; }
 mv "$next" "$saved"
+deny_ruleset > "$denied"
+echo "$uid" > "$uid_file"
 echo $(( $(reach_rules | grep -c .) + 2 )) > "$saved_count"

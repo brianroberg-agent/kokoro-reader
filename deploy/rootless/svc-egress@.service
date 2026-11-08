@@ -12,7 +12,8 @@ After=network-pre.target ufw.service netfilter-persistent.service firewalld.serv
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/local/sbin/svc-egress apply %i
-ExecStop=/usr/local/sbin/svc-egress remove %i
+# Stopped, the account is denied outright, not left unlimited. Lifting it is `svc-egress remove`.
+ExecStop=/usr/local/sbin/svc-egress deny %i
 # A changed grant: `systemctl reload`, which re-applies in place. Not `restart`: the account's
 # user manager Requires= this unit, so a restart restarts it too, and every container.
 ExecReload=/usr/local/sbin/svc-egress apply %i
