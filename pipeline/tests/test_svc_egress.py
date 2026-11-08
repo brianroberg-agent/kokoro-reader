@@ -490,6 +490,11 @@ def test_the_check_timer_runs_check_while_the_limit_is_on():
     # only while svc-egress@ is on: disabling it for a rollback isn't undone 30 seconds later
     assert service["Unit"]["Requisite"] == "svc-egress@%i.service"
     assert service["Unit"]["After"] == "svc-egress@%i.service"
+    # Round 2, #6: bound to the limit, so stopping it stops a check under way before the
+    # limit's ExecStop denies the account (a check can't load the table back over the deny),
+    # and stops the timer too, which would otherwise fail every 30 s.
+    assert service["Unit"]["BindsTo"] == "svc-egress@%i.service"
+    assert timer["Unit"]["PartOf"] == "svc-egress@%i.service"
 
 
 def test_the_users_manager_needs_the_limit():

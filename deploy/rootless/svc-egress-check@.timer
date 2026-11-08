@@ -2,6 +2,8 @@
 
 [Unit]
 Description=Check the egress limit for the %i service account every 30 s
+# Stopping the limit stops this timer too: its check would only fail while the limit is off.
+PartOf=svc-egress@%i.service
 
 [Timer]
 OnBootSec=30s

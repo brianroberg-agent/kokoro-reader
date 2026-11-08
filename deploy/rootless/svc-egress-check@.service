@@ -5,6 +5,9 @@
 [Unit]
 Description=Check the egress limit for the %i service account (svc-egress)
 Requisite=svc-egress@%i.service
+# Bound to the limit: stopping it stops a check under way first (this unit is ordered after
+# it, so it stops before it), and the limit's ExecStop then denies the account.
+BindsTo=svc-egress@%i.service
 After=svc-egress@%i.service
 
 [Service]
