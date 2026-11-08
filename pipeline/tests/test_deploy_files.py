@@ -135,7 +135,12 @@ def test_the_boot_unit_brings_up_what_deploy_env_enables():
     assert u["Service"]["WorkingDirectory"] == "%h/kokoro-reader"
     # a plain up -d: which services start is deploy/.env's COMPOSE_PROFILES
     assert u["Service"]["ExecStart"] == "%h/.local/bin/docker-compose -f deploy/compose.yaml up -d"
-    assert u["Service"]["ExecStop"] == "%h/.local/bin/docker-compose -f deploy/compose.yaml stop"  # never down
+    # Round 2, #4 and #5: podman itself, not compose through the API. At shutdown the
+    # socket-activated API may already be gone, and compose's `stop` skips a service whose
+    # profile isn't on, the runner started by name among them. Never `down`.
+    stop = u["Service"]["ExecStop"]
+    assert "podman stop" in stop and "label=com.docker.compose.project=narration" in stop
+    assert "docker-compose" not in stop and " down" not in stop and " rm" not in stop
     assert u["Install"]["WantedBy"] == "default.target"
 
 

@@ -121,12 +121,12 @@ The timer runs `svc-egress check` every 30 seconds. If a reload of the host's ow
 
 If ufw or another tool manages the host's firewall, reload it. Then, within 30 seconds, run the three `-S` commands again: the chain must be there, either kept or put back by the check.
 
-**R3b, the secrets, once the chain checks pass.** Copy the two files into the account with `install`, so they aren't shown or typed again. Then stop the root deployment's agent, with `stop`, never `down -v`:
+**R3b, the secrets, once the chain checks pass.** Copy the two files into the account with `install`, so they aren't shown or typed again. Then stop the root deployment, with `stop`, never `down -v`:
 
 ```bash
 install -d -m 700 -o narration -g narration ~narration/secrets
 install -m 600 -o narration -g narration <root's secrets folder>/runner.env <root's secrets folder>/agent.env ~narration/secrets/
-docker compose -f deploy/compose.yaml stop narration-agent      # in root's checkout
+docker compose -f deploy/compose.yaml --profile schedule stop   # in root's checkout: both, the runner too if it ran
 ```
 
 **R5, once the rootless setup has published for real and Brian has listened.** Remove the root deployment: `down` first (without `-v`), then its volumes once he's sure. Also remove root's secrets folder, and any Claude login or GitHub credential root holds for this work.
