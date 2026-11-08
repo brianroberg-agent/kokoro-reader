@@ -13,7 +13,7 @@
 # (slirp4netns) running as the account, so an owner match on the account's uid covers
 # everything its containers send. A second jump on its sub-id range covers a process that
 # breaks out of a container as a sub-id. Both jump to one chain, svc-ACCOUNT:
-#   IPv4: replies; name lookups (port 53, to any resolver); the grants in
+#   IPv4: replies; name lookups to the host's stub and to the conf's RESOLVERS; the grants in
 #         /etc/svc-egress/ACCOUNT.conf (GRANTS="ipv4:port ..."); nothing else on loopback;
 #         then the LAN, the tailnet,
 #         link-local, multicast, broadcast and reserved addresses are rejected, and the
@@ -60,7 +60,7 @@ esac
 [ -n "$start" ] && [ -n "$count" ] || die "no sub-id range for $account in $SUBUID (subuid)"
 range="$start-$((start + count - 1))"
 
-grants=""
+grants="" resolvers=""
 if [ "$action" = apply ]; then
   conf="$CONF_DIR/$account.conf"
   [ -r "$conf" ] || die "no $conf"
@@ -73,6 +73,16 @@ if [ "$action" = apply ]; then
       [ "$octet" -le 255 ] || die "bad grant (address): $grant"
     done
     [ "$port" -ge 1 ] && [ "$port" -le 65535 ] || die "bad grant (port): $grant"
+  done
+  # The upstream resolvers the host uses (resolvectl dns): a compose network's aardvark-dns
+  # forwards lookups to them from the account, so port 53 is open to these and no others.
+  grep -Eq '^RESOLVERS="[^"]*"[[:space:]]*$' "$conf" || die "no RESOLVERS=\"...\" line in $conf (quoted; empty for none)"
+  resolvers=$(sed -n 's/^RESOLVERS="\(.*\)"[[:space:]]*$/\1/p' "$conf" | tail -n 1)
+  for resolver in $resolvers; do
+    echo "$resolver" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$' || die "bad resolver (want an ipv4 address): $resolver"
+    for octet in $(echo "$resolver" | tr . ' '); do
+      [ "$octet" -le 255 ] || die "bad resolver (address): $resolver"
+    done
   done
 fi
 
@@ -114,10 +124,14 @@ fi
 remove_jumps iptables
 empty_chain iptables
 iptables -w -A "$chain" -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
-# Name lookups to any resolver: a compose network's aardvark-dns forwards to the host's
-# upstream servers (the router, the tailnet's), from the account, not to the loopback stub.
-iptables -w -A "$chain" -p udp --dport 53 -j RETURN
-iptables -w -A "$chain" -p tcp --dport 53 -j RETURN
+# Name lookups: the host's own stub resolver, for the account's shell; then the upstream
+# resolvers the conf names, which a compose network's aardvark-dns forwards to.
+iptables -w -A "$chain" -o lo -p udp --dport 53 -j RETURN
+iptables -w -A "$chain" -o lo -p tcp --dport 53 -j RETURN
+for resolver in $resolvers; do
+  iptables -w -A "$chain" -d "$resolver/32" -p udp --dport 53 -j RETURN
+  iptables -w -A "$chain" -d "$resolver/32" -p tcp --dport 53 -j RETURN
+done
 # The grants before loopback: a grant to one of the server's own addresses goes out over lo.
 for grant in $grants; do
   iptables -w -A "$chain" -d "${grant%:*}/32" -p tcp --dport "${grant##*:}" -j RETURN

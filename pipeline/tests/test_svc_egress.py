@@ -18,6 +18,7 @@ SCRIPT = DEPLOY / "rootless" / "svc-egress"
 ACCOUNT, UID, SUBUID_START, SUBUID_COUNT = "narration", 1001, 231072, 65536
 RANGE = f"{SUBUID_START}-{SUBUID_START + SUBUID_COUNT - 1}"  # 231072-296607
 GRANTS = "100.64.0.5:8770 192.168.50.20:13378"
+RESOLVERS = "192.168.50.1 100.100.100.100"  # the router, the tailnet's resolver
 CHAIN = f"svc-{ACCOUNT}"
 # the LAN, the tailnet and link-local; then "this network" (0.0.0.0 reaches the host itself),
 # multicast (mDNS and SSDP answer from devices at home) and the reserved block with broadcast
@@ -25,10 +26,14 @@ PRIVATE = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "16
            "0.0.0.0/8", "224.0.0.0/4", "240.0.0.0/4"]
 V4_RULES = [
     "-m conntrack --ctstate ESTABLISHED,RELATED -j RETURN",  # replies, the agent's own ssh among them
-    # name lookups to any resolver: a compose network's aardvark-dns forwards to the host's
-    # upstream servers (the router, the tailnet's), not to its loopback stub (review R1)
-    "-p udp --dport 53 -j RETURN",
-    "-p tcp --dport 53 -j RETURN",
+    "-o lo -p udp --dport 53 -j RETURN",  # the host's own stub resolver, for the account's shell
+    "-o lo -p tcp --dport 53 -j RETURN",
+    # the upstream resolvers the conf names: a compose network's aardvark-dns forwards to them,
+    # not to the loopback stub (review R1), and only to them (security review S3)
+    "-d 192.168.50.1/32 -p udp --dport 53 -j RETURN",
+    "-d 192.168.50.1/32 -p tcp --dport 53 -j RETURN",
+    "-d 100.100.100.100/32 -p udp --dport 53 -j RETURN",
+    "-d 100.100.100.100/32 -p tcp --dport 53 -j RETURN",
     # the grants, in the conf's order, before loopback: a grant to one of the server's own
     # addresses (a service on the home server itself) goes out over lo (review R4)
     "-d 100.64.0.5/32 -p tcp --dport 8770 -j RETURN",
@@ -98,6 +103,10 @@ json.dump(state, open(path, "w"))
 '''
 
 
+def conf(grants: str = GRANTS, resolvers: str = RESOLVERS) -> str:
+    return f'GRANTS="{grants}"\nRESOLVERS="{resolvers}"\n'
+
+
 @pytest.fixture
 def host(tmp_path):
     """A fake host: iptables, ip6tables and id on PATH, a conf dir and a subuid file."""
@@ -112,7 +121,7 @@ def host(tmp_path):
                        'echo "id: $2: no such user" >&2; exit 1\n')
     fake_id.chmod(0o755)
     (tmp_path / "conf").mkdir()
-    (tmp_path / "conf" / f"{ACCOUNT}.conf").write_text(f'GRANTS="{GRANTS}"\n')
+    (tmp_path / "conf" / f"{ACCOUNT}.conf").write_text(conf())
     (tmp_path / "subuid").write_text(f"someoneelse:100000:65536\n{ACCOUNT}:{SUBUID_START}:{SUBUID_COUNT}\n")
     state = {fam: {"INPUT": [], "OUTPUT": ["-o lo -j ACCEPT"], "FORWARD": []} for fam in ("v4", "v6")}
     (tmp_path / "state.json").write_text(json.dumps(state))
@@ -164,7 +173,7 @@ def test_apply_twice_leaves_one_pair_of_jumps(host):
 @pytest.mark.parametrize("grant", ["host.example:80", "10.0.0.1", "10.0.0.1:99999", "10.0.0.1:0",
                                    "10.0.0.256:80", "10.0.0:80", "10.0.0.1:80;reboot"])
 def test_a_bad_grant_stops_with_its_name_and_changes_nothing(host, grant):
-    (host / "conf" / f"{ACCOUNT}.conf").write_text(f'GRANTS="100.64.0.5:8770 {grant}"\n')
+    (host / "conf" / f"{ACCOUNT}.conf").write_text(conf(grants=f"100.64.0.5:8770 {grant}"))
     before = state(host)
     r = run(host, "apply", ACCOUNT)
     assert r.returncode == 1 and grant in r.stderr
@@ -181,7 +190,7 @@ def test_a_conf_without_a_quoted_grants_line_stops_and_changes_nothing(host, tex
 
 
 def test_an_empty_grants_line_means_no_grants(host):
-    (host / "conf" / f"{ACCOUNT}.conf").write_text('GRANTS=""\n')
+    (host / "conf" / f"{ACCOUNT}.conf").write_text(conf(grants=""))
     assert run(host, "apply", ACCOUNT).returncode == 0
     assert state(host)["v4"][CHAIN] == [r for r in V4_RULES if "--dport 8770" not in r and "13378" not in r]
 
@@ -202,6 +211,21 @@ def test_a_range_listed_by_uid_number_is_the_accounts(host):
     (host / "subuid").write_text(f"someoneelse:100000:65536\n{UID}:{SUBUID_START}:{SUBUID_COUNT}\n")
     assert run(host, "apply", ACCOUNT).returncode == 0
     assert state(host)["v4"]["OUTPUT"][:2] == JUMPS
+
+
+@pytest.mark.parametrize("resolver", ["resolver.example", "192.168.50.1:53", "192.168.50.300", "::1"])
+def test_a_bad_resolver_stops_with_its_name_and_changes_nothing(host, resolver):
+    (host / "conf" / f"{ACCOUNT}.conf").write_text(conf(resolvers=f"192.168.50.1 {resolver}"))
+    r = run(host, "apply", ACCOUNT)
+    assert r.returncode == 1 and resolver in r.stderr
+    assert (host / "log").read_text() == ""
+
+
+def test_a_conf_without_a_quoted_resolvers_line_stops_and_changes_nothing(host):
+    (host / "conf" / f"{ACCOUNT}.conf").write_text(f'GRANTS="{GRANTS}"\n')
+    r = run(host, "apply", ACCOUNT)
+    assert r.returncode == 1 and "RESOLVERS" in r.stderr
+    assert (host / "log").read_text() == ""
 
 
 def test_no_subuid_line_stops_and_changes_nothing(host):
