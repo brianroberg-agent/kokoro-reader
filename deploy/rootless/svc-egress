@@ -115,10 +115,11 @@ empty_chain iptables
 iptables -w -A "$chain" -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
 iptables -w -A "$chain" -o lo -p udp --dport 53 -j RETURN
 iptables -w -A "$chain" -o lo -p tcp --dport 53 -j RETURN
-iptables -w -A "$chain" -o lo -j REJECT
+# The grants before loopback: a grant to one of the server's own addresses goes out over lo.
 for grant in $grants; do
   iptables -w -A "$chain" -d "${grant%:*}/32" -p tcp --dport "${grant##*:}" -j RETURN
 done
+iptables -w -A "$chain" -o lo -j REJECT
 for net in $PRIVATE_V4; do
   iptables -w -A "$chain" -d "$net" -j REJECT
 done

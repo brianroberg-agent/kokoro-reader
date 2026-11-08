@@ -27,9 +27,11 @@ V4_RULES = [
     "-m conntrack --ctstate ESTABLISHED,RELATED -j RETURN",  # replies, the agent's own ssh among them
     "-o lo -p udp --dport 53 -j RETURN",  # the local resolver
     "-o lo -p tcp --dport 53 -j RETURN",
-    "-o lo -j REJECT",  # nothing else on the host's own loopback
-    "-d 100.64.0.5/32 -p tcp --dport 8770 -j RETURN",  # the grants, in the conf's order
+    # the grants, in the conf's order, before loopback: a grant to one of the server's own
+    # addresses (a service on the home server itself) goes out over lo (review R4)
+    "-d 100.64.0.5/32 -p tcp --dport 8770 -j RETURN",
     "-d 192.168.50.20/32 -p tcp --dport 13378 -j RETURN",
+    "-o lo -j REJECT",  # nothing else on the host's own loopback
     *[f"-d {net} -j REJECT" for net in PRIVATE],  # the rest of the LAN and the tailnet
     "-j RETURN",  # the internet (Brian, 2026-11-07: accepted for this service)
 ]
