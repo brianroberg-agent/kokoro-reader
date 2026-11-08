@@ -405,13 +405,19 @@ This stops and removes both containers. The `narration-data` and `narration-hand
   - exit 0, `queued  publish`, with 8 known issues and 3 substitutions in the notes;
   - 4 checks, 36 turns, $0.32 in Claude;
   - about 21 minutes, with no Gemini upload timeouts.
+- **The acceptance real run,** the same article, run the same way:
+  - exit 0, `published_with_notes  minor`, with 10 notes, among them one omission;
+  - 4 checks, 27 turns, $0.22 in Claude and $0.12 in Gemini;
+  - about 19 minutes.
+- **Brian's listen:** he listened to the episode in Audiobookshelf and said it sounds good.
+- **The schedule:** `COMPOSE_PROFILES=schedule` in `deploy/.env`, then `systemctl --user restart narration.service`, started the runner beside the agent. Its log showed `next run at 2026-11-09T01:00:00-05:00`, and it hadn't restarted.
 
-**Still open: rootless Podman on the home server.** Each of these gets checked on the host before cutover, and its result goes here:
+**Still open: rootless Podman on the home server.** Each of these gets checked on the host, and its result goes here:
 - `svc-egress check` putting the table back on the host after something else deletes it. The real `nft` was checked in a container, not on the home server.
 - a reboot: the limit, then the account's user manager, then the containers;
-- the real run, Brian's listen, and the schedule.
+- the first scheduled night.
 
-**Still open: the home server.** Nothing here has run there yet: the deploy above end to end (the tailnet from both containers, Brian's Audiobookshelf), and the acceptance run with Brian's listen. Brian's ntfy and a login from `claude setup-token` were used on the Mac (below). Also not yet run: the spec's containment test of a real session asked to run a shell command, read a file and fetch a URL (each session's tool list is checked when it starts, and that check passed against the real init event in the sessions below).
+**Still open: the home server.** The deploy above ran there end to end, the acceptance run and Brian's listen included. Not yet run: the spec's containment test of a real session asked to run a shell command, read a file and fetch a URL (each session's tool list is checked when it starts, and that check passed against the real init event in the sessions below).
 
 **The whole pipeline on Brian's Mac, 2026-11-03**: the narration server with its real engines (Kokoro, the transcript check, Gemini), both containers on Docker Desktop with Brian's `claude setup-token` login and ntfy topic, the live site, and Audiobookshelf 2.37.2 in a local container:
 
