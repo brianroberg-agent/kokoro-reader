@@ -134,3 +134,11 @@ def test_prompt_says_record_refuses_a_broken_override(text):
               if l.startswith("- **`record` refuses an override in the wrong form.**")]
     assert "glued to the text around it" in rule and "no round is used" in rule
     assert "`finish` still checks the rest" in rule
+
+
+def test_prompt_says_record_names_only_the_first_word_change(text):
+    # Review F2: the word check stops at the first place the words differ, which may be
+    # a change the session means to declare, shown loosely (a word read as "(nothing)").
+    [rule] = [l for l in text.splitlines() if l.startswith("- **Read `speech_warnings`.**")]
+    assert ("only the first difference is named, and a change you mean to declare shows there "
+            "until `finish`") in rule
