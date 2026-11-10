@@ -264,6 +264,16 @@ def test_minor_with_an_omission_needs_a_recording_of_any_text_after_the_first_ch
     assert tools.finish(item, "minor", [DROPPED], [])["ok"]
 
 
+def test_the_omission_advice_holds_only_for_a_sentence_or_more(env):
+    # Brian, 2026-11-10: only "a sentence (or more) of missing or misplaced text" blocks
+    # publication; words still missing after the fix round are minor.
+    _, tools, *_, item, _ = env
+    _round(tools, item)
+    with pytest.raises(ToolError) as e:
+        tools.finish(item, "minor", [DROPPED], [])
+    assert "or 'hold' if a sentence or more is missing" in str(e.value)
+
+
 def test_a_round_after_a_failed_one_counts(env):
     _, tools, tts, _, item, _ = env
     _round(tools, item)

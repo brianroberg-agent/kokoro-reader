@@ -551,7 +551,7 @@ def fix_not_tried(state: dict, issues: list[dict]) -> str | None:
                 "again (the engine doesn't always drop the same words, and a change near the "
                 "gap, such as splitting a long sentence, can help). If words are still "
                 "missing after that round, finish with outcome 'minor', or 'hold' if a "
-                "passage is missing")
+                "sentence or more is missing")
     return None
 
 

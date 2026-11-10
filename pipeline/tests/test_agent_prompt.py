@@ -43,9 +43,27 @@ def test_prompt_outcomes_follow_the_spec(text):
     assert "nothing you would address or note" in outcome_line(text, "clean")
     minor = outcome_line(text, "minor")
     assert "likely ignore" in minor and "couldn't fix" in minor and "`remaining_issues`" in minor
-    hold = outcome_line(text, "hold")  # R24a: the spec's "garbled" includes speech the article doesn't have
-    assert "only for content that is missing, extra" in hold and "or garbled" in hold
     assert "noise" not in text
+
+
+def test_prompt_holds_only_for_gross_errors(text):
+    # Brian, 2026-11-10: "Let's only block publication for gross errors like a sentence
+    # (or more) of missing or misplaced text, hallucinated text, or degradation of
+    # intelligibility." and "There should still be a correction pass to attempt to fix
+    # smaller problems, but smaller problems shouldn't block publication." This replaces
+    # the spec's hold rule (R24a: any content missing, extra or garbled).
+    hold = outcome_line(text, "hold")
+    assert ("only for a gross error you couldn't fix: a sentence or more missing or out of "
+            "place, spoken text the article doesn't have, or a stretch a listener can't "
+            "follow") in hold
+    minor = outcome_line(text, "minor")
+    assert ("Everything smaller is `minor` once you've tried to fix it, never `hold`: "
+            "mispronunciations, a few words left out, pacing, artifacts and a clipped word") in minor
+
+
+def test_prompt_omission_is_less_than_a_sentence(text):
+    kinds = next(line for line in text.splitlines() if line.startswith("Each remaining issue has a `kind`"))
+    assert "`omission`, words left out, less than a sentence" in kinds
 
 
 def test_prompt_spells_out_abbreviations_beside_roman_numerals(text):

@@ -188,8 +188,10 @@ def build_app(store, agent_tools, runner_tools, runner_token, allowed_hosts: lis
                substitutions: Annotated[list[Substitution],
                                         Field(max_length=MAX_SUBSTITUTIONS)] = []) -> dict:
         """End the session; your token stops working. outcome: clean (no remaining
-        issues), minor (small issues) or hold (content missing or garbled; not
-        published); minor and hold list at least one remaining issue. clean and minor
+        issues), minor (smaller issues, once a fix was tried) or hold (only for a gross
+        error: a sentence or more missing or out of place, spoken text the article
+        doesn't have, or a stretch a listener can't follow; not published); minor and
+        hold list at least one remaining issue. clean and minor
         need the latest round recorded from the prepared text as it is now, and
         checked with no pre-check warnings. While two or more record rounds and checks
         are left, minor that lists a mispronunciation needs a round recorded after the
