@@ -53,12 +53,14 @@ def test_prompt_holds_only_for_gross_errors(text):
     # smaller problems, but smaller problems shouldn't block publication." This replaces
     # the spec's hold rule (R24a: any content missing, extra or garbled).
     hold = outcome_line(text, "hold")
+    # Review F3: "hallucinated text" is invented text; a repeated word is smaller.
     assert ("only for a gross error you couldn't fix: a sentence or more missing or out of "
-            "place, spoken text the article doesn't have, or a stretch a listener can't "
+            "place, invented text the article doesn't have, or a stretch a listener can't "
             "follow") in hold
     minor = outcome_line(text, "minor")
     assert ("Everything smaller is `minor` once you've tried to fix it, never `hold`: "
-            "mispronunciations, a few words left out, pacing, artifacts and a clipped word") in minor
+            "mispronunciations, a few words left out, a repeated word, pacing, artifacts and a "
+            "clipped word") in minor
 
 
 def test_prompt_omission_is_less_than_a_sentence(text):

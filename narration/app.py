@@ -190,7 +190,7 @@ def build_app(store, agent_tools, runner_tools, runner_token, allowed_hosts: lis
                                         Field(max_length=MAX_SUBSTITUTIONS)] = []) -> dict:
         """End the session; your token stops working. outcome: clean (no remaining
         issues), minor (smaller issues, once a fix was tried) or hold (only for a gross
-        error: a sentence or more missing or out of place, spoken text the article
+        error: a sentence or more missing or out of place, invented text the article
         doesn't have, or a stretch a listener can't follow; not published); minor and
         hold list at least one remaining issue. clean and minor
         need the latest round recorded from the prepared text as it is now, and
