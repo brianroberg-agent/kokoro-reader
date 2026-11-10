@@ -83,19 +83,44 @@ def spoken_title(meta: dict, fallback_title: str = "") -> str:
     names = _names(meta)
     if not names:
         return f"# {title}"
-    if len(names) == 1:
-        who = names[0]
-    elif len(names) == 2:
-        who = f"{names[0]} and {names[1]}"
-    else:
-        who = f"{', '.join(names[:-1])}, and {names[-1]}"
-    return f"# {title} by {who}"
+    return f"# {title} by {_joined(names)}"
+
+
+def _joined(names: list[str]) -> str:
+    """"Ada Quill", "Ada Quill and Tom Brandvold", "Ada Quill, Tom Brandvold, and Mara Odell"."""
+    if len(names) <= 2:
+        return " and ".join(names)
+    return f"{', '.join(names[:-1])}, and {names[-1]}"
 
 
 def with_spoken_title(markdown: str, meta: dict, fallback_title: str = "") -> str:
     """The article as the narration server gets it: the spoken title, then the text."""
     line = spoken_title(meta, fallback_title)
     return f"{line}\n\n{markdown}" if line else markdown
+
+
+def _text(value) -> str:
+    """A metadata value as one line of text: a string with its spaces collapsed, a number
+    as written, else ""."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        value = str(value)
+    return " ".join(value.split()) if isinstance(value, str) else ""
+
+
+def episode_details(meta: dict) -> str:
+    """The lines an episode's description opens with (Brian, 2026-11-10): who wrote it
+    ("By Ada Quill", the same names the reading opens with), then the edition and, when
+    the page gives them, its pages in print ("No. 86 (Fall 2026), pp. 24–41"). A line with
+    nothing to show is left out; "" when there is none. Pages come only with an edition."""
+    lines = []
+    names = _names(meta)
+    if names:
+        lines.append(f"By {_joined(names)}")
+    number, season = _text(meta.get("issue_number")), _text(meta.get("issue_season"))
+    if number and season:
+        pages = _text(meta.get("pages"))
+        lines.append(f"No. {number} ({season})" + (f", {pages}" if pages else ""))
+    return "\n".join(lines)
 
 
 def podcast_metadata(meta: dict, podcast: str) -> dict:
@@ -105,5 +130,15 @@ def podcast_metadata(meta: dict, podcast: str) -> dict:
     when empty, and an empty podcast's title from its first episode's album tag (both
     seen on 2.37.2, 2026-11-03). Brian: "There shouldn't be an author byline on the
     entire podcast." So no authors (no artist tag), and the podcast's name as the
-    publication with no edition (the album is the podcast's name)."""
-    return {**meta, "authors": [], "publication": podcast, "issue_number": "", "issue_season": ""}
+    publication with no edition (the album is the podcast's name).
+
+    The description, which no tag carries and the Mac puts first in the published notes,
+    opens with episode_details: the authors, the edition and the pages reach the episode
+    there."""
+    out = {**meta, "authors": [], "publication": podcast, "issue_number": "", "issue_season": ""}
+    details = episode_details(meta)
+    if details:
+        summary = meta.get("description")
+        summary = summary.strip() if isinstance(summary, str) else ""
+        out["description"] = f"{details}\n{summary}" if summary else details
+    return out

@@ -12,8 +12,8 @@ import pytest
 import requests
 
 from narration_pipeline import fetch, handoff, narration_client, push
-from narration_pipeline.fetch import (FetchError, fetch_text, podcast_metadata, run_article_assistant,
-                                      spoken_title, with_spoken_title)
+from narration_pipeline.fetch import (FetchError, episode_details, fetch_text, podcast_metadata,
+                                      run_article_assistant, spoken_title, with_spoken_title)
 from narration_pipeline.handoff import HandoffError, wait_result, write_request
 from narration_pipeline.narration_client import NarrationClient, NarrationError, NarrationUnavailable
 from narration_pipeline.push import Push
@@ -456,4 +456,51 @@ def test_podcast_metadata_leaves_the_podcasts_title_and_author_to_the_podcast():
             "issue_number": "86", "issue_season": "Fall 2026", "description": "D", "date_published": "2026-09-08"}
     assert podcast_metadata(meta, "The Journal Podcast") == {
         "title": "T", "authors": [], "byline": ["Ada Quill"], "publication": "The Journal Podcast",
-        "issue_number": "", "issue_season": "", "description": "D", "date_published": "2026-09-08"}
+        "issue_number": "", "issue_season": "",
+        "description": "By Ada Quill\nNo. 86 (Fall 2026)\nD", "date_published": "2026-09-08"}
+
+
+# The episode's description opens with who wrote it, the edition and the print pages
+# (Brian, 2026-11-10: "Author(s)", "issue number with date (eg "No. 86 (Fall 2026)")",
+# "page number in print edition (if available...)"). The Mac starts the published notes
+# with the metadata's description, which no MP3 tag carries, so the lines go there and
+# the tag fields stay blank. Names are made up.
+def test_podcast_metadata_opens_the_description_with_the_authors_edition_and_pages():
+    meta = {"title": "T", "authors": ["Ada Quill"], "byline": ["Ada Quill"], "issue_number": "86",
+            "issue_season": "Fall 2026", "pages": "pp. 24–41", "description": "Zoning made us lonely."}
+    out = podcast_metadata(meta, "The Journal Podcast")
+    assert out["description"] == "By Ada Quill\nNo. 86 (Fall 2026), pp. 24–41\nZoning made us lonely."
+    assert (out["authors"], out["issue_number"], out["issue_season"]) == ([], "", "")
+
+
+@pytest.mark.parametrize("meta, lines", [
+    ({"byline": ["Ada Quill"], "issue_number": "86", "issue_season": "Fall 2026", "pages": "p. 48"},
+     "By Ada Quill\nNo. 86 (Fall 2026), p. 48"),
+    ({"byline": ["Ada Quill", "Tom Brandvold"]}, "By Ada Quill and Tom Brandvold"),
+    ({"byline": ["Ada Quill", "Tom Brandvold", "Mara Odell"]}, "By Ada Quill, Tom Brandvold, and Mara Odell"),
+    # no name under the title (an unsigned statement): no author line, as in the spoken title
+    ({"byline": [], "authors": ["A Coalition"], "issue_number": "86", "issue_season": "Fall 2026"},
+     "No. 86 (Fall 2026)"),
+    ({"authors": ["Ada Quill"]}, "By Ada Quill"),                  # no byline key: the authors
+    ({"byline": ["Ada Quill"], "pages": "pp. 24–41"}, "By Ada Quill"),   # pages only with an edition
+    ({"byline": ["Ada Quill"], "issue_number": "86"}, "By Ada Quill"),   # an edition needs its season
+    ({"issue_number": 86, "issue_season": " Fall  2026 ", "pages": " pp.\n24–41 "},
+     "No. 86 (Fall 2026), pp. 24–41"),
+    ({"issue_number": "86", "issue_season": "Fall 2026", "pages": None}, "No. 86 (Fall 2026)"),
+    ({"issue_number": None, "issue_season": "Fall 2026", "pages": 7}, ""),
+    ({}, ""),
+])
+def test_episode_details_are_the_authors_then_the_edition_and_pages(meta, lines):
+    assert episode_details(meta) == lines
+
+
+def test_podcast_metadata_keeps_the_description_alone_when_there_are_no_details():
+    # A web-only piece with no name under its title: the summary as before.
+    out = podcast_metadata({"title": "T", "byline": [], "description": "D"}, "P")
+    assert out["description"] == "D"
+
+
+def test_podcast_metadata_gives_the_details_alone_without_a_summary():
+    out = podcast_metadata({"title": "T", "byline": ["Ada Quill"], "issue_number": "86",
+                            "issue_season": "Fall 2026"}, "P")
+    assert out["description"] == "By Ada Quill\nNo. 86 (Fall 2026)"

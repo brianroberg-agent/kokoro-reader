@@ -11,6 +11,8 @@ Each source is a `[[source]]` entry in `pipeline/sources.toml`. Its `extractor` 
 
 Every recording opens with the article's title and who wrote it ("Where Did the Commons Go? by Ada Quill"), or the title alone when the page shows no author under it. The runner puts that line before the text it sends to the Mac, as a heading (`# ...`) with no final period: the word check then doesn't take the title's capitalised words for the article's names, and a title starting with a number keeps it. The names are article-assistant's `byline`, the names shown under the title; for a site whose extractor has no `byline`, they are its `authors`.
 
+Each episode's description opens with who wrote it and where it appeared in print: "By Ada Quill" (the same names the recording opens with), then "No. 86 (Fall 2026), pp. 24–41", then the article's summary and the notes as before. A line with nothing to show is left out: a piece with no name under its title has no "By" line, a web-only piece has no edition, and the pages appear only when the article's page cites them (article-assistant's `pages`, from the citation line at the foot of a print article; in issue 86, the online-only interviews and the statement had none). The runner writes these lines into the metadata's `description`, which the Mac puts first in the published notes and no MP3 tag carries, so the podcast still has no author.
+
 The runner starts the night at 01:00 New York time, keeps trying to reach the Mac until 05:00, starts no new article after 06:00, and sends the summary at 07:00 (`pipeline/sources.toml`, `[settings]`). Then it exits, and compose's `restart: unless-stopped` starts it again (see "Name lookups" below for why).
 
 ## What each container may reach
