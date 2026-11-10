@@ -24,7 +24,7 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
 # The repository is a build argument so a test build can use a branch that isn't merged
 # yet (--build-arg ARTICLE_ASSISTANT_REPO=<a fork's URL>); compose takes the default.
 ARG ARTICLE_ASSISTANT_REPO=https://github.com/brianroberg/article-assistant.git
-ARG ARTICLE_ASSISTANT_REF=eef0d1f
+ARG ARTICLE_ASSISTANT_REF=c0b3f74
 RUN git clone --quiet "$ARTICLE_ASSISTANT_REPO" /opt/article-assistant \
   && git -C /opt/article-assistant -c advice.detachedHead=false checkout --quiet "$ARTICLE_ASSISTANT_REF" \
   && cd /opt/article-assistant \
