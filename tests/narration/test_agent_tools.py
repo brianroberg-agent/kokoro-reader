@@ -1395,6 +1395,9 @@ def test_record_refuses_an_override_glued_to_a_possessive_without_counting_a_rou
     with pytest.raises(ToolError, match="glued to the text around it") as e:
         tools.record(item)
     assert "no round was used" in str(e.value)
+    # Review F1: the fix it points to must itself pass finish, so it says where the
+    # possessive's phonemes come from (phonemes("Riis") reused for "Riis's" is refused).
+    assert "phonemes `phonemes` returns for the possessive" in str(e.value)
     assert (store.load_state(item)["records"], tts.calls) == (0, 0)
 
 

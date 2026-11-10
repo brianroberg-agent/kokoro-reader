@@ -128,6 +128,9 @@ def test_prompt_asks_for_each_issue_under_its_own_kind(text):
 def test_prompt_says_record_refuses_a_broken_override(text):
     # narration's record refuses it before the round is spent (agent_tools.record), so a
     # session isn't surprised; "Zoning Alone" (2026-11-10) was held over one at finish.
+    # Review F1: record checks only the overrides' form; finish also checks where their
+    # phonemes came from and how the engine reads them, so the rule says which.
     [rule] = [l for l in text.splitlines()
-              if l.startswith("- **`record` refuses an override `finish` would refuse.**")]
+              if l.startswith("- **`record` refuses an override in the wrong form.**")]
     assert "glued to the text around it" in rule and "no round is used" in rule
+    assert "`finish` still checks the rest" in rule

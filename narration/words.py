@@ -680,7 +680,8 @@ def _check_overrides(spoken: str, breaks: list[int] = ()) -> list[str]:
             why.append("it is glued to the text around it; an override must be a whole, "
                        "separately spaced word, with at most an opening bracket or quote "
                        "before it and closing punctuation after it (override a possessive "
-                       "whole, as [Pengelley's](/…/))")
+                       "whole, as [Pengelley's](/…/), with the phonemes `phonemes` returns "
+                       "for the possessive)")
         shown_words = _tokens(shown)
         if len(shown_words) != 1:
             why.append("the displayed text must be exactly one word")

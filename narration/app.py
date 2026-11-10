@@ -53,8 +53,9 @@ RECORD_DESCRIPTION = (
     "and then where they first differ: finish compares those with your declared "
     "substitutions). Read speech_warnings before spending a check: finish refuses the same "
     "mismatches, so fix them with replace_text and record again. A text with an override "
-    "finish would refuse (one glued to the text around it, say) is refused, and no round "
-    "is used. speed: 0.5 to 2.0."
+    "in the wrong form (glued to the text around it, more than one word, a [BREAK] inside, "
+    "bad phonemes) is refused, and no round is used; finish still checks where an "
+    "override's phonemes came from. speed: 0.5 to 2.0."
 )
 # verify_audio.precheck_warnings: pace outside 100-250 WPM, or silences over 5 s.
 CHECK_DESCRIPTION = (

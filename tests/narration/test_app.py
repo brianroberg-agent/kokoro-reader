@@ -331,7 +331,7 @@ def test_the_agent_is_told_how_to_work(client):
     assert ("hold (only for a gross error: a sentence or more missing or out of place, spoken "
             "text the article doesn't have, or a stretch a listener can't follow; not published)") in finish
     record = " ".join(tools["record"].split())
-    assert "an override finish would refuse" in record and "no round is used" in record
+    assert "an override in the wrong form" in record and "no round is used" in record
 
 
 def test_the_limits_in_the_prose_are_the_limits_enforced(client, monkeypatch):
