@@ -327,6 +327,8 @@ def test_the_agent_is_told_how_to_work(client):
     assert "respelling" in tools["finish"]
     finish = " ".join(tools["finish"].split())
     assert "not only add" in finish and "address" in finish  # what finish refuses (I2)
+    record = " ".join(tools["record"].split())
+    assert "an override finish would refuse" in record and "no round is used" in record
 
 
 def test_the_limits_in_the_prose_are_the_limits_enforced(client, monkeypatch):

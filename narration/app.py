@@ -49,10 +49,12 @@ RECORD_DESCRIPTION = (
     "article; a round counts even if the engine fails. Refused once no checks are left, "
     "since a new round could not be checked. Returns round, duration_seconds, records_left "
     "and speech_warnings: places where the engine would say something the article doesn't "
-    "(or one entry saying nothing was compared, when the words differ from the article's: "
-    "finish compares those with your declared substitutions). Read speech_warnings before "
-    "spending a check: finish refuses the same mismatches, so fix them with replace_text "
-    "and record again. speed: 0.5 to 2.0."
+    "(or, when the words differ from the article's, an entry saying nothing was compared "
+    "and then where they first differ: finish compares those with your declared "
+    "substitutions). Read speech_warnings before spending a check: finish refuses the same "
+    "mismatches, so fix them with replace_text and record again. A text with an override "
+    "finish would refuse (one glued to the text around it, say) is refused, and no round "
+    "is used. speed: 0.5 to 2.0."
 )
 # verify_audio.precheck_warnings: pace outside 100-250 WPM, or silences over 5 s.
 CHECK_DESCRIPTION = (

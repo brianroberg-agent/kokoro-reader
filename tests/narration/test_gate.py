@@ -587,7 +587,8 @@ def test_the_mismatch_advice_puts_the_pause_first():
 # failure of it (it only advises) stops a record
 def test_speech_warnings_say_when_the_words_differ_and_nothing_was_compared():
     assert gate.speech_warnings(G2P, ARTICLE, ARTICLE) == []
-    assert gate.speech_warnings(G2P, ARTICLE, ARTICLE + " Buy now.") == [gate.NOT_COMPARED]
+    warnings = gate.speech_warnings(G2P, ARTICLE, ARTICLE + " Buy now.")
+    assert warnings[0] == gate.NOT_COMPARED and len(warnings) == 2 and "buy" in warnings[1].lower()
     assert gate.NOT_COMPARED == ("not compared: the prepared text differs from the article in "
                                  "words; finish compares it with your declared substitutions")
 

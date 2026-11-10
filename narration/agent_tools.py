@@ -41,8 +41,8 @@ import unicodedata
 
 from narration.words import (MAX_SUBSTITUTIONS, Substitution, article_names, audit,
                              declaration_problems, is_override_respelling, is_respelling,
-                             looks_like_link, max_prepared_length, overrides,
-                             respellings_limit, words)
+                             looks_like_link, max_prepared_length, override_problems,
+                             overrides, respellings_limit, words)
 
 MAX_RECORDS = 4
 MAX_CHECKS = 8
@@ -371,10 +371,20 @@ class AgentTools:
             raise ToolError(f"no checks are left to verify a new recording ({MAX_CHECKS} per "
                             "article); " + self._what_next(item_id, state))
         text = self.store.read_text(item_id, "prepared.md")
+        source = self.store.read_text(item_id, "source.md")
+        # An override finish and the gate always refuse can only end in a hold, so it is
+        # refused before the round is spent ("Zoning Alone", 2026-11-10: a possessive's
+        # override glued to its "'s", heard of only at finish with no rounds left). One the
+        # article itself has is left to finish, as before: the session didn't make it.
+        theirs = set(override_problems(source))
+        if new := [p for p in override_problems(text) if p not in theirs]:
+            raise ToolError("this text has an override finish would refuse, so it was not "
+                            "recorded and no round was used: " + "; ".join(new)
+                            + ". Fix it with replace_text, then record.")
         # finish refuses speech the article doesn't have; say so now, before the round
         # is spent, without refusing. Imported here: the gate imports this module.
         from narration.gate import speech_warnings
-        warnings = speech_warnings(self.g2p, self.store.read_text(item_id, "source.md"), text)
+        warnings = speech_warnings(self.g2p, source, text)
         state["records"] += 1  # counted before the engine runs
         self.store.save_state(item_id, state)
         final = self.store.path(item_id, "recording.wav")

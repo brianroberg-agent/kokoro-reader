@@ -105,3 +105,11 @@ def test_prompt_asks_for_each_issue_under_its_own_kind(text):
     kinds = next(line for line in text.splitlines() if line.startswith("Each remaining issue has a `kind`"))
     assert ("Give each issue the kind it is, even when that means another round: the episode "
             "notes tell listeners what to expect.") in kinds
+
+
+def test_prompt_says_record_refuses_a_broken_override(text):
+    # narration's record refuses it before the round is spent (agent_tools.record), so a
+    # session isn't surprised; "Zoning Alone" (2026-11-10) was held over one at finish.
+    [rule] = [l for l in text.splitlines()
+              if l.startswith("- **`record` refuses an override `finish` would refuse.**")]
+    assert "glued to the text around it" in rule and "no round is used" in rule

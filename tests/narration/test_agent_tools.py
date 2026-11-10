@@ -1357,12 +1357,45 @@ def test_record_warns_about_a_sign_only_change_and_still_records(tmp_path):
 
 
 def test_record_says_it_did_not_compare_word_changes_finish_will_judge(tmp_path):
+    # It names the first word change too, so one left undeclared ("v." read as "versus" in
+    # "Zoning Alone", 2026-11-10) is seen while rounds are left.
     from narration.gate import NOT_COMPARED
     store = WorkItemStore(tmp_path)
     tools = AgentTools(store, FakeTTS(), FakeVerifier(), SignG2P())
     item, _ = store.open("King Ivo XIV met.", {})
     tools.replace_text(item, "XIV", "the Fourteenth")  # declared only at finish
-    assert tools.record(item)["speech_warnings"] == [NOT_COMPARED]
+    warnings = tools.record(item)["speech_warnings"]
+    assert warnings[0] == NOT_COMPARED and len(warnings) == 2
+    assert "the fourteenth" in warnings[1].lower() and "xiv" in warnings[1].lower()
+
+
+# "Zoning Alone" (2026-11-10) was held because its last round recorded an override
+# glued to a possessive ("[Riis](/…/)’s"), which finish and the gate always refuse:
+# the session heard so only at finish, with no rounds left. record now refuses such a
+# text before the round is spent, saying why.
+GLUED = "Jacob [Riis](/ɹˈis/)’s book sold."
+
+
+def test_record_refuses_an_override_glued_to_a_possessive_without_counting_a_round(tmp_path):
+    store = WorkItemStore(tmp_path)
+    tts = FakeTTS()
+    tools = AgentTools(store, tts, FakeVerifier(), FakeG2P())
+    item, _ = store.open("Jacob Riis’s book sold.", {})
+    tools.replace_text(item, "Riis’s", "[Riis](/ɹˈis/)’s")
+    with pytest.raises(ToolError, match="glued to the text around it") as e:
+        tools.record(item)
+    assert "no round was used" in str(e.value)
+    assert (store.load_state(item)["records"], tts.calls) == (0, 0)
+
+
+def test_record_still_records_an_override_problem_the_article_itself_has(tmp_path):
+    # The session didn't make it and may not be able to remove it without changing the
+    # article's words: finish judges it, as before.
+    store = WorkItemStore(tmp_path)
+    tts = FakeTTS()
+    tools = AgentTools(store, tts, FakeVerifier(), FakeG2P())
+    item, _ = store.open(GLUED, {})
+    assert tools.record(item)["round"] == 1 and tts.calls == 1
 
 
 def test_record_records_whatever_the_advisory_raises(tmp_path):

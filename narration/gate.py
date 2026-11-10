@@ -171,10 +171,12 @@ def speech_warnings(g2p, source: str, prepared: str) -> list[str]:
     substitutions, since a session declares them only at finish. Where the words
     differ nothing is compared, and the warning says so (NOT_COMPARED): finish's word
     check judges that, with the declared substitutions. It only advises, so nothing
-    it raises stops a record: a comparison that can't run is a warning too, logged."""
+    it raises stops a record: a comparison that can't run is a warning too, logged.
+    After NOT_COMPARED come the word check's own problems, which say where the words
+    first differ, so a change left undeclared is seen while rounds are left."""
     try:
-        if check(source, prepared, []):
-            return [NOT_COMPARED]
+        if problems := check(source, prepared, []):
+            return [NOT_COMPARED, *problems]
         return speech_matches(g2p, source, prepared, [])
     except RuntimeError as e:  # the G2P adapter's failures, which keep server paths out
         log.warning("record's speech comparison could not run: %s", e)
