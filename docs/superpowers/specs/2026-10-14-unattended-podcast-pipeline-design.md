@@ -19,7 +19,7 @@ New articles from the sources Brian follows appear as checked episodes in his Au
 - **The work runs overnight on the MacBook,** at home and on power. Episodes don't need to appear the night an article is posted.
 - **Quality rule:**
   - When only minor issues remain (for example a mispronounced name), the episode publishes, with the issues listed in its notes.
-  - When content is missing or garbled, it's held and Brian gets a push saying why.
+  - When content is missing or garbled, it's held and Brian gets a push saying why. (Since 2026-11-10, only a gross error holds: a sentence or more missing or out of place, invented text, or a stretch a listener can't follow; see the next note.)
 - **Notices come by push.** Holds and repeated failures notify at once. A summary of the night's results arrives each morning.
 - **The agent runs on Brian's Claude subscription.**
 - **The agent reaches the work through an MCP server, not shell commands** (revision 2). The skill stays as its guide to judgment.
@@ -161,7 +161,7 @@ These folders later become the test set for comparing TTS models.
 ```
 
 - **At most 4 rounds per article.** `record` enforces this itself, so the limit doesn't rest on the prompt.
-- **`hold` is for missing or garbled content.** `minor` is for issues the skill would "likely ignore" or couldn't fix.
+- **`hold` is for missing or garbled content.** `minor` is for issues the skill would "likely ignore" or couldn't fix. **Changed 2026-11-10 (Brian):** "Let's only block publication for gross errors like a sentence (or more) of missing or misplaced text, hallucinated text, or degradation of intelligibility." and "There should still be a correction pass to attempt to fix smaller problems, but smaller problems shouldn't block publication." So `hold` is only for those; everything smaller is `minor` once a fix was tried. The gate's own checks still block at any size.
 - **Every word change goes in `substitutions`.** The gate rejects any undeclared change.
 - **A session that ends without calling `finish`** is a failure.
 
